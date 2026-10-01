@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
+import { withRequiredTags } from './instructions.js';
 import { clips as clipDb, projects, type ClipDefaults, type ClipRow, type ProjectRow } from '../db.js';
 import { pool } from '../lib/proc.js';
 import { buildAss, wordsInRange } from './captions.js';
@@ -210,7 +211,7 @@ export async function processProject(id: string) {
       if (gcsObject) deleteFromGcs(gcsObject);
     });
     const { clips: cands, notes } = found;
-    const final = finalizeClips(cands, tr.segments, sil, duration, signals, p.options);
+    const final = finalizeClips(cands, tr.segments, sil, duration, signals, p.options).map((c) => ({ ...c, hashtags: withRequiredTags(c.hashtags, p.options) }));
     if (!final.length) throw new Error('Gemini did not find any clip-worthy moments in this video.');
     const saved = clipDb.replaceForProject(id, final, clipDefaults(p.options));
     projects.update(id, { aiNotes: notes });

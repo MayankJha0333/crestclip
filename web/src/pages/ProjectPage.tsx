@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, AudioLines, Check, Combine, Download, ExternalLink, Flame, MessageSquareText, MousePointerClick, Play, RotateCcw, Scissors, Trash2, Tv } from 'lucide-react';
+import { ArrowLeft, AudioLines, Check, ChevronRight, Combine, Download, ExternalLink, Film, Flame, Layers, ListChecks, MessageSquareText, MousePointerClick, Play, RotateCcw, Scissors, Trash2, Tv, XCircle } from 'lucide-react';
 import { api, fmtTime, fmtViews, type Clip, type Project, type TimeRange } from '../lib/api';
 import { HeatChart, PickBar } from '../components/HeatChart';
 import { toast } from '../lib/toast';
@@ -63,6 +63,7 @@ export function ProjectPage() {
 
   if (err) return <div className="page"><div className="clay empty">{err}</div></div>;
   if (!p) return <div className="page"><p className="faint">Loading…</p></div>;
+  if (p.sourceType === 'group') return <GroupView p={p} load={load} />;
 
   const stageIdx = STAGES.findIndex((s) => s.key === p.stage);
   const sig = p.signals;
@@ -94,9 +95,15 @@ export function ProjectPage() {
 
   return (
     <div className="page">
-      <Link to="/app/projects" className="linkish" style={{ marginBottom: 18 }}>
-        <ArrowLeft size={16} /> All projects
-      </Link>
+      {p.parentId ? (
+        <Link to={`/app/p/${p.parentId}`} className="linkish" style={{ marginBottom: 18 }}>
+          <ArrowLeft size={16} /> Back to the project (all videos)
+        </Link>
+      ) : (
+        <Link to="/app/projects" className="linkish" style={{ marginBottom: 18 }}>
+          <ArrowLeft size={16} /> All projects
+        </Link>
+      )}
 
       <header className="proj-head clay">
         {canWatch ? (
@@ -353,6 +360,165 @@ export function ProjectPage() {
       )}
 
       {editing && <ClipEditor clip={editing} siblings={p.clips ?? []} onClose={() => setEditing(null)} onSaved={load} />}
+    </div>
+  );
+}
+
+/** A project made from several videos: each video's progress, then one list of all their clips. */
+function GroupView({ p, load }: { p: Project; load: () => void }) {
+  const nav = useNavigate();
+  const [sort, setSort] = useState<'peak' | 'video'>('peak');
+  const [editing, setEditing] = useState<Clip | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const parts = p.parts ?? [];
+  const clips = p.clips ?? [];
+  const byPeak = [...clips].sort((a, b) => b.peakScore - a.peakScore);
+  const rank = new Map(byPeak.map((c, i) => [c.id, i + 1]));
+  const sorted = sort === 'video' ? [...clips].sort((a, b) => (a.part ?? 0) - (b.part ?? 0) || a.start - b.start) : byPeak;
+  const ready = clips.filter((c) => c.status === 'ready');
+  const working = p.status === 'processing' || p.status === 'queued';
+  const anyFailed = parts.some((x) => x.status === 'failed');
+  const rules = (p.options as { rules?: string[] }).rules ?? [];
+
+  return (
+    <div className="page">
+      <Link to="/app/projects" className="linkish" style={{ marginBottom: 18 }}>
+        <ArrowLeft size={16} /> All projects
+      </Link>
+
+      <header className="proj-head clay">
+        <div className="proj-head-thumb well group-thumbs">
+          {parts.slice(0, 3).map((x) => (x.thumbUrl ? <img key={x.id} src={x.thumbUrl} alt="" /> : <span key={x.id} className="group-thumb-ph" />))}
+          <span className="badge group-count">
+            <Layers size={13} /> {parts.length}
+          </span>
+        </div>
+        <div className="grow">
+          <h1 style={{ fontSize: 'clamp(24px, 3vw, 34px)' }}>{p.title || `${parts.length} videos`}</h1>
+          <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
+            <span className="badge">
+              <Layers size={13} /> {parts.length} videos
+            </span>
+            {p.duration ? <span className="badge">{fmtTime(p.duration)} in total</span> : null}
+            <span className="badge">For {p.options.platform === 'shorts' ? 'YouTube Shorts' : p.options.platform === 'reels' ? 'Reels' : 'TikTok'}</span>
+            {working && <span className="badge tint-butter">{p.stageDetail}</span>}
+          </div>
+        </div>
+        <div className="row" style={{ gap: 8 }}>
+          {anyFailed && !working && (
+            <button className="btn btn-primary" onClick={() => api.retry(p.id).then(load)}>
+              <RotateCcw size={18} /> Retry failed videos
+            </button>
+          )}
+          {!working && (
+            <button className="btn btn-icon" onClick={() => setDeleting(true)} aria-label="Delete project" title="Delete project (all videos)">
+              <Trash2 size={18} />
+            </button>
+          )}
+        </div>
+      </header>
+      <DeleteProjectModal project={deleting ? { ...p, clipCount: clips.length } : null} onCancel={() => setDeleting(false)} onDeleted={() => nav('/app/projects')} />
+
+      {rules.length > 0 && (
+        <section className="clay group-rules">
+          <b>
+            <ListChecks size={16} /> Following your instructions
+          </b>
+          <div>
+            {rules.slice(0, 8).map((r, i) => (
+              <span key={i} className="badge">
+                {r}
+              </span>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="clay group-videos">
+        <h2 style={{ fontSize: 20 }}>Videos in this project</h2>
+        {parts.map((x) => {
+          const busy = x.status === 'processing' || x.status === 'queued';
+          return (
+            <Link key={x.id} to={`/app/p/${x.id}`} className={`group-video ${x.status}`}>
+              <span className="group-num">{x.index}</span>
+              {x.thumbUrl ? <img src={x.thumbUrl} alt="" /> : <span className="group-video-ph"><Film size={18} /></span>}
+              <span className="grow" style={{ minWidth: 0 }}>
+                <b className="clamp1">{x.title || x.sourceUrl || `Video ${x.index}`}</b>
+                {busy ? (
+                  <>
+                    <small className="faint clamp1">{x.status === 'queued' ? 'Waiting for its turn…' : x.stageDetail || 'Working…'}</small>
+                    <span className="progress well group-bar">
+                      <span style={{ width: `${Math.max(3, x.progress)}%` }} />
+                    </span>
+                  </>
+                ) : x.status === 'failed' ? (
+                  <small className="group-err clamp1">
+                    <XCircle size={12} /> {x.error || 'Failed'}
+                  </small>
+                ) : (
+                  <small className="faint">
+                    {x.duration ? `${fmtTime(x.duration)} · ` : ''}
+                    {x.readyCount ?? 0} of {x.clipCount ?? 0} clips ready
+                  </small>
+                )}
+              </span>
+              <span className="group-open">
+                Watch &amp; pick parts <ChevronRight size={15} />
+              </span>
+            </Link>
+          );
+        })}
+      </section>
+
+      {clips.length > 0 ? (
+        <section style={{ marginTop: 34 }}>
+          <div className="row wrap" style={{ justifyContent: 'space-between', gap: 12, marginBottom: 18 }}>
+            <h2 style={{ fontSize: 26 }}>
+              {clips.length} clips <span className="faint" style={{ fontSize: 18 }}>· {ready.length} ready · from {parts.length} videos</span>
+            </h2>
+            <div className="row wrap" style={{ gap: 10 }}>
+              <div className="seg" role="group" aria-label="Sort clips">
+                <button type="button" aria-pressed={sort === 'peak'} onClick={() => setSort('peak')}>
+                  Best first
+                </button>
+                <button type="button" aria-pressed={sort === 'video'} onClick={() => setSort('video')}>
+                  By video
+                </button>
+              </div>
+              {ready.length > 1 && (
+                <button className="btn btn-ink btn-sm" onClick={() => ready.forEach((c, i) => setTimeout(() => window.open(api.downloadUrl(c.id), '_blank'), i * 400))}>
+                  <Download size={16} /> Download all
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="clip-grid">
+            {sorted.map((c) => (
+              <ClipCard
+                key={c.id}
+                clip={c}
+                rank={rank.get(c.id) ?? 0}
+                partLabel={`Video ${c.part ?? 1}`}
+                audienceKind="none"
+                onEdit={() => setEditing(c)}
+                onChanged={load}
+              />
+            ))}
+          </div>
+        </section>
+      ) : (
+        working && (
+          <section className="clay empty" style={{ marginTop: 24 }}>
+            <span className="spinner" />
+            <div>
+              <b>Finding the best moments in {parts.length} videos…</b>
+              <p className="muted">Clips from each video show up here as soon as they’re ready.</p>
+            </div>
+          </section>
+        )
+      )}
+
+      {editing && <ClipEditor clip={editing} siblings={clips.filter((c) => c.projectId === editing.projectId)} onClose={() => setEditing(null)} onSaved={load} />}
     </div>
   );
 }

@@ -85,6 +85,7 @@ function ProjectList({ limit, title }: { limit?: number; title: string }) {
                   <div className="grow">
                     <h3 className="clamp2" style={{ fontSize: 17 }}>{p.title || p.sourceUrl || 'Untitled'}</h3>
                     <p className="faint" style={{ fontSize: 13, marginTop: 4 }}>
+                      {p.videoCount ? `${p.videoCount} videos · ` : ''}
                       {p.status === 'done'
                         ? `${p.readyCount ?? 0} clips ready`
                         : p.status === 'failed'

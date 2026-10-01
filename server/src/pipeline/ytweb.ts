@@ -241,8 +241,8 @@ export function itemsFromInitialData(data: unknown): WebItem[] {
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
 
 /** One results page (≈20 items). Throws if YouTube's page couldn't be read. */
-export async function ytSearchWeb(query: string, sp: string, timeoutMs = 9000): Promise<WebItem[]> {
-  const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}${sp ? `&sp=${encodeURIComponent(sp)}` : ''}&hl=en`;
+export async function ytSearchWeb(query: string, sp: string, timeoutMs = 9000, gl?: string | null): Promise<WebItem[]> {
+  const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}${sp ? `&sp=${encodeURIComponent(sp)}` : ''}&hl=en${gl ? `&gl=${encodeURIComponent(gl)}` : ''}`;
   const res = await fetch(url, {
     headers: { 'user-agent': UA, 'accept-language': 'en-US,en;q=0.9', cookie: 'SOCS=CAI; CONSENT=YES+1' },
     signal: AbortSignal.timeout(timeoutMs),

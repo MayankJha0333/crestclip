@@ -33,6 +33,16 @@ export interface ProjectOptions {
   /** Clip exactly these parts (picked on the graph) instead of letting Gemini choose. */
   ranges?: TimeRange[];
   joinRanges?: boolean; // true = all ranges become ONE clip
+  /** exact clip length rule (e.g. from a campaign brief); overrides `length` */
+  minSeconds?: number;
+  maxSeconds?: number;
+  /** "Instructions for the AI" typed/pasted in New clips (rules, length, tags, what to clip) */
+  instructions?: string;
+  /** what CrestClip understood from them */
+  rules?: string[];
+  requiredHashtags?: string[];
+  requiredMentions?: string[];
+  requiredCaptionText?: string | null;
 }
 
 export interface Word {

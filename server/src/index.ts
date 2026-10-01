@@ -4,6 +4,7 @@ import path from 'node:path';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
+import { optionsSchema } from './options.js';
 import { aiReady, config } from './config.js';
 import { clips, posts, projects, type ClipRow, type ProjectRow } from './db.js';
 import { checkGemini } from './pipeline/gemini.js';
@@ -15,8 +16,11 @@ import { addUpload, generateMood, lyriaStatus, musicLibrary, removeUpload } from
 import { exploreRouter, warmExplore } from './explore.js';
 import { footageSavings, readFootage } from './pipeline/footage.js';
 import { classifyFileLink, fileLinkLabel } from './pipeline/filelink.js';
+import { applyInstructions } from './pipeline/instructions.js';
 import { publishRouter, startScheduler } from './publish.js';
 import { startLocalHttps } from './localhttps.js';
+import { autopilotRouter } from './autopilot/routes.js';
+import { startAutopilot } from './autopilot/engine.js';
 import { ensureFfmpeg, ensureYtdlp, ffStatus, startToolUpkeep, ytStatus } from './tools.js';
 import { hasLibass } from './pipeline/media.js';
 import type { ProjectOptions } from './types.js';
@@ -25,25 +29,7 @@ const app = express();
 app.use(express.json({ limit: '2mb' }));
 
 // ---------- helpers ----------
-const optionsSchema = z.object({
-  platform: z.enum(['shorts', 'tiktok', 'reels']).default('shorts'),
-  length: z.enum(['auto', 'short', 'medium', 'long']).default('auto'),
-  clipCount: z.coerce.number().int().min(1).max(30).default(8),
-  layout: z.enum(['auto', 'fill', 'fit', 'split']).default('auto'),
-  captionStyle: z.enum(['pop', 'clay', 'neon', 'comic', 'minimal', 'none']).default('pop'),
-  showHook: z.coerce.boolean().default(true),
-  motion: z.enum(['none', 'subtle', 'dynamic']).default('subtle'),
-  music: z.string().max(40).default('auto'),
-  musicVolume: z.coerce.number().min(0).max(100).default(15),
-  ranges: z
-    .array(z.object({ start: z.number().min(0), end: z.number().min(0) }))
-    .max(20)
-    .optional(),
-  joinRanges: z.coerce.boolean().optional(),
-  useAudienceData: z.coerce.boolean().default(true),
-  language: z.string().max(40).default('auto'),
-  focus: z.string().max(300).default(''),
-});
+
 
 /** The original video, if a full copy is on disk (uploads, short links). Long links only keep the clip parts. */
 function sourceVideoUrl(p: ProjectRow): string | null {
@@ -57,6 +43,7 @@ function publicProject(p: ProjectRow, withDetail = false) {
     id: p.id,
     createdAt: p.createdAt,
     sourceType: p.sourceType,
+    parentId: p.parentId,
     sourceUrl: p.sourceUrl,
     title: p.title,
     channel: p.channel,
@@ -89,6 +76,56 @@ function publicProject(p: ProjectRow, withDetail = false) {
           sourceVideoUrl: sourceVideoUrl(p),
         }
       : {}),
+  };
+}
+
+/** A multi-video project: its status, progress and numbers come from the videos inside it. */
+function groupSummary(g: ProjectRow) {
+  const kids = projects.children(g.id);
+  const busy = kids.some((k) => k.status === 'queued' || k.status === 'processing');
+  const failed = kids.length > 0 && kids.every((k) => k.status === 'failed');
+  const all = kids.flatMap((k) => clips.forProject(k.id));
+  const first = kids.find((k) => k.thumbPath) ?? kids[0];
+  const named = kids.filter((k) => k.title);
+  const title = g.title || (named.length ? `${named[0].title}${kids.length > 1 ? ` + ${kids.length - 1} more` : ''}` : `${kids.length} videos`);
+  const working = kids.find((k) => k.status === 'processing');
+  return {
+    kids,
+    all,
+    view: {
+      ...publicProject(g),
+      title,
+      status: busy ? 'processing' : failed ? 'failed' : 'done',
+      stage: busy ? 'processing' : 'done',
+      progress: kids.length ? kids.reduce((a, k) => a + (k.status === 'done' || k.status === 'failed' ? 100 : k.progress), 0) / kids.length : 100,
+      stageDetail: busy
+        ? `${kids.filter((k) => k.status === 'done').length} of ${kids.length} videos done${working?.stageDetail ? ` · ${working.stageDetail}` : ''}`
+        : failed
+          ? 'All videos failed'
+          : `${kids.length} videos`,
+      error: failed ? kids[0]?.error ?? null : null,
+      duration: kids.reduce((a, k) => a + (k.duration ?? 0), 0) || null,
+      thumbUrl: first ? toMediaUrl(first.thumbPath) : null,
+      videoCount: kids.length,
+      clipCount: all.length,
+      readyCount: all.filter((c) => c.status === 'ready').length,
+      bestScore: all.length ? Math.max(...all.map((c) => c.peakScore)) : null,
+    },
+  };
+}
+
+function publicGroup(g: ProjectRow) {
+  const { kids, all, view } = groupSummary(g);
+  const index = new Map(kids.map((k, i) => [k.id, i]));
+  return {
+    ...view,
+    parts: kids.map((k, i) => ({
+      ...publicProject(k),
+      index: i + 1,
+      clipCount: all.filter((c) => c.projectId === k.id).length,
+      readyCount: all.filter((c) => c.projectId === k.id && c.status === 'ready').length,
+    })),
+    clips: all.map((c) => ({ ...publicClip(c), part: (index.get(c.projectId) ?? 0) + 1 })),
   };
 }
 
@@ -166,9 +203,22 @@ app.post(
 
 app.get('/api/projects', (_req, res) => {
   res.json(
-    projects.list().map((p) => ({ ...publicProject(p), clipCount: p.clipCount, readyCount: p.readyCount, bestScore: p.bestScore })),
+    projects.list().map((p) =>
+      p.sourceType === 'group' ? groupSummary(p).view : { ...publicProject(p), clipCount: p.clipCount, readyCount: p.readyCount, bestScore: p.bestScore },
+    ),
   );
 });
+
+/** One project from one link. Drive / Dropbox / OneDrive / direct .mp4 are downloaded as plain files (like uploads). */
+function projectFromLink(url: string, options: ProjectOptions, parentId: string | null = null) {
+  const file = classifyFileLink(url);
+  if (file && 'error' in file) throw Object.assign(new Error(file.error), { status: 400 });
+  const opts = { ...options };
+  delete opts.ranges;
+  return file
+    ? projects.create({ sourceType: 'upload', sourceUrl: url, title: `Video from ${fileLinkLabel[file.kind]}`, options: opts, parentId })
+    : projects.create({ sourceType: 'url', sourceUrl: url, options: opts, parentId });
+}
 
 app.post(
   '/api/projects',
@@ -176,19 +226,44 @@ app.post(
     const body = z.object({ url: z.string().url(), options: optionsSchema.default({}) }).safeParse(req.body);
     if (!body.success) return res.status(400).json({ error: 'Please paste a valid video link (https://…).' });
     if (!aiReady()) return res.status(400).json({ error: 'Gemini is not configured yet. Set VERTEX_API_KEY or GOOGLE_CLOUD_PROJECT in .env and restart.' });
-    // Google Drive / Dropbox / OneDrive / direct .mp4 → downloaded as a plain file (like an upload)
-    const file = classifyFileLink(body.data.url);
-    if (file && 'error' in file) return res.status(400).json({ error: file.error });
-    if (file) {
-      const opts = { ...(body.data.options as ProjectOptions) };
-      delete opts.ranges;
-      const p = projects.create({ sourceType: 'upload', sourceUrl: body.data.url, title: `Video from ${fileLinkLabel[file.kind]}`, options: opts });
+    try {
+      const options = await applyInstructions(body.data.options as ProjectOptions);
+      const p = projectFromLink(body.data.url, options);
       enqueueProject(p.id);
-      return res.status(201).json(publicProject(p));
+      res.status(201).json(publicProject(p));
+    } catch (e) {
+      res.status((e as { status?: number }).status ?? 500).json({ error: (e as Error).message });
     }
-    const p = projects.create({ sourceType: 'url', sourceUrl: body.data.url, options: body.data.options as ProjectOptions });
-    enqueueProject(p.id);
-    res.status(201).json(publicProject(p));
+  }),
+);
+
+/** Several links at once (same settings + instructions) → one project per link. */
+app.post(
+  '/api/projects/batch',
+  wrap(async (req, res) => {
+    const body = z.object({ urls: z.array(z.string().url()).min(1).max(20), options: optionsSchema.default({}) }).safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: 'Check the links — each must be a full https:// link (up to 20).' });
+    if (!aiReady()) return res.status(400).json({ error: 'Gemini is not configured yet. Set VERTEX_API_KEY or GOOGLE_CLOUD_PROJECT in .env and restart.' });
+    const urls = [...new Set(body.data.urls.map((u) => u.trim()))];
+    for (const u of urls) {
+      const f = classifyFileLink(u);
+      if (f && 'error' in f) return res.status(400).json({ error: `${u.slice(0, 60)}… — ${f.error}` });
+    }
+    const options = await applyInstructions(body.data.options as ProjectOptions); // read the instructions once for all links
+    // several links = ONE project that holds every video (each video is still clipped on its own)
+    const group = urls.length > 1 ? projects.create({ sourceType: 'group', options }) : null;
+    const made = urls.map((u) => projectFromLink(u, options, group?.id ?? null));
+    for (const p of made) enqueueProject(p.id);
+    res.status(201).json({
+      project: group ? groupSummary(projects.get(group.id)!).view : publicProject(made[0]),
+      projects: made.map((p) => publicProject(p)),
+      understood: {
+        minSeconds: options.minSeconds ?? null,
+        maxSeconds: options.maxSeconds ?? null,
+        tags: [...(options.requiredMentions ?? []), ...(options.requiredHashtags ?? [])],
+        rules: options.rules ?? [],
+      },
+    });
   }),
 );
 
@@ -215,7 +290,7 @@ app.post(
       /* default */
     }
     const parsed = optionsSchema.safeParse(opts);
-    const options = (parsed.success ? parsed.data : optionsSchema.parse({})) as ProjectOptions;
+    const options = await applyInstructions((parsed.success ? parsed.data : optionsSchema.parse({})) as ProjectOptions);
     const title = req.file.originalname.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').slice(0, 120);
     const p = projects.create({ sourceType: 'upload', title, options });
     const dir = projectDir(p.id);
@@ -232,23 +307,31 @@ app.post(
 app.get('/api/projects/:id', (req, res) => {
   const p = projects.get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Project not found' });
+  if (p.sourceType === 'group') return res.json(publicGroup(p));
   res.json({ ...publicProject(p, true), clips: clips.forProject(p.id).map(publicClip) });
 });
 
 app.post('/api/projects/:id/retry', (req, res) => {
   const p = projects.get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Project not found' });
-  projects.update(p.id, { status: 'queued', error: null, stage: 'queued', progress: 0 });
-  enqueueProject(p.id);
+  const list = p.sourceType === 'group' ? projects.children(p.id).filter((k) => k.status === 'failed') : [p];
+  for (const k of list) {
+    projects.update(k.id, { status: 'queued', error: null, stage: 'queued', progress: 0 });
+    enqueueProject(k.id);
+  }
   res.json({ ok: true });
 });
 
 app.delete('/api/projects/:id', (req, res) => {
   const p = projects.get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Project not found' });
-  if (p.status === 'processing') return res.status(409).json({ error: 'Wait for this project to finish before deleting it.' });
-  projects.remove(p.id);
-  fs.rmSync(projectDir(p.id), { recursive: true, force: true });
+  const kids = p.sourceType === 'group' ? projects.children(p.id) : [];
+  if (p.status === 'processing' || kids.some((k) => k.status === 'processing'))
+    return res.status(409).json({ error: 'Wait for this project to finish before deleting it.' });
+  for (const k of [...kids, p]) {
+    projects.remove(k.id);
+    fs.rmSync(projectDir(k.id), { recursive: true, force: true });
+  }
   res.json({ ok: true });
 });
 
@@ -416,6 +499,7 @@ app.get('/api/meta', (_req, res) => {
 
 app.use('/api/explore', exploreRouter);
 app.use('/api', publishRouter);
+app.use('/api', autopilotRouter);
 
 // ---------- media + web ----------
 app.use('/media', express.static(config.dataDir, { fallthrough: false, maxAge: '1h', index: false, dotfiles: 'deny' }));
@@ -437,6 +521,7 @@ app.listen(config.port, () => {
   startToolUpkeep();
   startScheduler();
   startLocalHttps(app);
+  void startAutopilot();
   resumeUnfinished();
   warmExplore();
 });

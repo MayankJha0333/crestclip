@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, Cloud, Film, Link2, SlidersHorizontal, Twitch, UploadCloud, Wand2, X, Youtube } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Cloud, Film, Link2, ListChecks, Plus, ScrollText, SlidersHorizontal, Twitch, UploadCloud, Wand2, X, Youtube } from 'lucide-react';
 import { detectLink } from '../lib/links';
 import { api, DEFAULT_OPTIONS, type LengthPref, type ProjectOptions } from '../lib/api';
 import { CaptionPicker, LAYOUT_OPTIONS, PLATFORM_OPTIONS, Seg, Toggle } from './bits';
 import { MotionPicker, MusicPicker } from './MusicPicker';
+import { toast } from '../lib/toast';
 
 const LENGTHS: { value: LengthPref; label: string }[] = [
   { value: 'auto', label: 'Auto' },
@@ -12,6 +13,21 @@ const LENGTHS: { value: LengthPref; label: string }[] = [
   { value: 'medium', label: '30–60s' },
   { value: 'long', label: '60s+' },
 ];
+
+/** Every link in the box (one per line, or separated by spaces/commas). */
+const splitLinks = (text: string) =>
+  [...new Set(text.split(/[\s,]+/).map((x) => x.trim()).filter((x) => /^(https?:\/\/)?[\w-]+(\.[\w-]+)+\//i.test(x)))].map((x) => (/^https?:\/\//i.test(x) ? x : `https://${x}`));
+
+const VIDEO_LINK = /(youtube\.com|youtu\.be|drive\.google\.com\/file|docs\.google\.com\/file|dropbox\.com|1drv\.ms|onedrive\.live\.com|sharepoint\.com|twitch\.tv|vimeo\.com|\.(mp4|mov|mkv|webm)(\?|$))/i;
+
+/** What the instructions box will be read as (a quick preview — the server reads it properly with Gemini). */
+function previewInstructions(t: string) {
+  const range = t.match(/(\d{1,3})\s*(?:-|–|to)\s*(\d{1,3})\s*(?:s\b|sec|seconds)/i);
+  const max = t.match(/(?:max(?:imum)?|under|less than|no longer than|up to)\s*(\d{1,3})\s*(?:s\b|sec|seconds)/i);
+  const tags = [...new Set([...(t.match(/(?:^|\s)@[\w.]{2,30}/g) ?? []).map((x) => x.trim().replace(/\.+$/, '')), ...(t.match(/#[\p{L}\p{N}_]{2,40}/gu) ?? [])])];
+  const links = [...new Set((t.match(/https?:\/\/[^\s<>"')\]]+/g) ?? []).filter((u) => VIDEO_LINK.test(u)).map((u) => u.replace(/[.,;:!?]+$/, '')))];
+  return { length: range ? `${range[1]}–${range[2]}s clips` : max ? `up to ${max[1]}s` : null, tags: tags.slice(0, 8), links };
+}
 
 export function NewProject({ initialUrl = '' }: { initialUrl?: string }) {
   const nav = useNavigate();
@@ -30,12 +46,18 @@ export function NewProject({ initialUrl = '' }: { initialUrl?: string }) {
     }
   });
   const [showMore, setShowMore] = useState(false);
+  const [instructions, setInstructions] = useState('');
   const [busy, setBusy] = useState(false);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [upInfo, setUpInfo] = useState<{ loaded: number; total: number; speed: number } | null>(null);
   const [fileDur, setFileDur] = useState<number | null>(null);
   const abort = useRef<AbortController | null>(null);
-  const link = detectLink(url);
+  const links = splitLinks(url);
+  const link = links.length === 1 ? detectLink(links[0]) : detectLink(url);
+  const many = links.length > 1;
+  const linkInfos = links.map((u) => ({ url: u, info: detectLink(u) }));
+  const brief = previewInstructions(instructions);
+  const newFromBrief = brief.links.filter((u) => !links.includes(u));
 
   // read the picked file's length (shown before uploading)
   useEffect(() => {
@@ -71,19 +93,26 @@ export function NewProject({ initialUrl = '' }: { initialUrl?: string }) {
     e.preventDefault();
     setError(null);
     try {
-      localStorage.setItem('crestclip:opts', JSON.stringify(opts));
+      localStorage.setItem('crestclip:opts', JSON.stringify({ ...opts, instructions: undefined }));
     } catch {
       /* ignore */
     }
     setBusy(true);
     try {
       let p;
+      const send: ProjectOptions = { ...opts, focus: '', instructions: instructions.trim() || undefined };
       if (mode === 'link') {
-        let u = url.trim();
-        if (u && !/^https?:\/\//i.test(u)) u = `https://${u}`;
-        if (!detectLink(u)) throw new Error('Paste a full video link (YouTube, Twitch, Google Drive, Dropbox…)');
-        if (link?.error) throw new Error(link.error);
-        p = await api.createFromUrl(u, opts);
+        if (!links.length) throw new Error('Paste a full video link (YouTube, Twitch, Google Drive, Dropbox…)');
+        const bad = linkInfos.find((l) => !l.info || l.info.error);
+        if (bad) throw new Error(bad.info?.error ? `${bad.info.label}: ${bad.info.error}` : `“${bad.url}” isn’t a video link`);
+        if (many) {
+          const r = await api.createFromUrls(links, send);
+          const bits = [r.understood.minSeconds && r.understood.maxSeconds ? `${r.understood.minSeconds}–${r.understood.maxSeconds}s` : '', r.understood.tags.slice(0, 3).join(' ')].filter(Boolean).join(' · ');
+          toast(`Clipping ${r.projects.length} videos into one project${bits ? ` · ${bits}` : ''}`);
+          nav(`/app/p/${r.project.id}`);
+          return;
+        }
+        p = await api.createFromUrl(links[0], send);
       } else {
         if (!file) throw new Error('Choose a video file first');
         setUploadPct(0);
@@ -91,7 +120,7 @@ export function NewProject({ initialUrl = '' }: { initialUrl?: string }) {
         abort.current = new AbortController();
         p = await api.upload(
           file,
-          opts,
+          send,
           (pct, loaded, total) => {
             setUploadPct(pct);
             setUpInfo({ loaded, total, speed: loaded / Math.max(0.5, (Date.now() - started) / 1000) });
@@ -140,7 +169,7 @@ export function NewProject({ initialUrl = '' }: { initialUrl?: string }) {
       <div className="row wrap" style={{ justifyContent: 'space-between', gap: 16, marginBottom: 18 }}>
         <div>
           <h2 style={{ fontSize: 30 }}>Find the peaks</h2>
-          <p className="muted">Paste a link, or drop a video file anywhere on this card. You'll get vertical clips of the moments people rewatch.</p>
+          <p className="muted">Paste one or more links, or drop a video file on this card. Add instructions and every clip follows them.</p>
         </div>
         <Seg
           label="Source"
@@ -157,10 +186,11 @@ export function NewProject({ initialUrl = '' }: { initialUrl?: string }) {
         <>
           <div className={`big-input well ${link?.error ? 'has-error' : ''}`}>
             {link?.kind === 'youtube' ? <Youtube size={22} color="#e0453a" /> : link?.kind === 'twitch' ? <Twitch size={22} color="#9146ff" /> : link && ['gdrive', 'dropbox', 'onedrive'].includes(link.kind) ? <Cloud size={22} color="#2f80ed" /> : <Link2 size={22} className="faint" />}
-            <input
+            <textarea
               autoFocus
-              aria-label="Video link"
+              aria-label="Video links"
               aria-describedby="link-hint"
+              rows={Math.min(6, Math.max(url.trim() ? 1 : 2, url.split('\n').length + (url.trim() ? 0 : 0)))}
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               onPaste={(e) => {
@@ -170,7 +200,14 @@ export function NewProject({ initialUrl = '' }: { initialUrl?: string }) {
                   pickFile(f);
                 }
               }}
-              placeholder="YouTube, Twitch, Google Drive, Dropbox or any video link…"
+              onKeyDown={(e) => {
+                // Enter = new line for the next link · ⌘/Ctrl + Enter = start clipping
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  (e.currentTarget.form as HTMLFormElement | null)?.requestSubmit();
+                }
+              }}
+              placeholder={"Paste a video link — YouTube, Twitch, Google Drive, Dropbox…\nMore videos? Press Enter and paste the next link on a new line"}
             />
             {url && (
               <button type="button" className="btn btn-icon btn-sm" aria-label="Clear link" onClick={() => setUrl('')}>
@@ -178,21 +215,39 @@ export function NewProject({ initialUrl = '' }: { initialUrl?: string }) {
               </button>
             )}
           </div>
-          <p id="link-hint" className={`link-hint ${link?.error ? 'bad' : link ? 'ok' : ''}`}>
-            {link ? (
-              link.error ? (
-                <>
-                  <AlertTriangle size={14} /> {link.error}
-                </>
+          {many ? (
+            <div id="link-hint" className="multi-links">
+              <span className="faint">
+                <b>{links.length} videos</b> — all clipped into one project, with the same settings
+              </span>
+              {linkInfos.map(({ url: u, info }) => (
+                <div key={u} className={`multi-link ${!info || info.error ? 'bad' : ''}`}>
+                  {info?.kind === 'youtube' ? <Youtube size={15} color="#e0453a" /> : info?.kind === 'twitch' ? <Twitch size={15} color="#9146ff" /> : info && ['gdrive', 'dropbox', 'onedrive'].includes(info.kind) ? <Cloud size={15} color="#2f80ed" /> : <Link2 size={15} />}
+                  <b>{info?.label ?? 'Not a link'}</b>
+                  <span className="clamp1">{info?.error ?? u}</span>
+                  <button type="button" aria-label="Remove link" onClick={() => setUrl(links.filter((x) => x !== u).join('\n'))}>
+                    <X size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p id="link-hint" className={`link-hint ${link?.error ? 'bad' : link ? 'ok' : ''}`}>
+              {link ? (
+                link.error ? (
+                  <>
+                    <AlertTriangle size={14} /> {link.error}
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 size={14} /> <b>{link.label}</b> · {link.hint} · <span className="faint">press Enter to add another link</span>
+                  </>
+                )
               ) : (
-                <>
-                  <CheckCircle2 size={14} /> <b>{link.label}</b> · {link.hint}
-                </>
-              )
-            ) : (
-              <>Works with YouTube · Twitch · Google Drive · Dropbox · OneDrive · direct .mp4 links · 1,000+ video sites</>
-            )}
-          </p>
+                <>Works with YouTube · Twitch · Google Drive · Dropbox · OneDrive · direct .mp4 links · 1,000+ video sites · <b>more than one video? press Enter and paste the next link</b></>
+              )}
+            </p>
+          )}
         </>
       ) : (
         <div
@@ -269,13 +324,46 @@ export function NewProject({ initialUrl = '' }: { initialUrl?: string }) {
         </div>
       )}
 
+      <div className="instr well">
+        <div className="instr-head">
+          <ScrollText size={18} />
+          <span className="label" style={{ margin: 0 }}>
+            Instructions for the AI <span className="faint">· optional</span>
+          </span>
+        </div>
+        <textarea
+          className="instr-box"
+          rows={instructions ? Math.min(10, Math.max(3, instructions.split('\n').length + 1)) : 3}
+          value={instructions}
+          maxLength={6000}
+          onChange={(e) => setInstructions(e.target.value)}
+          placeholder={'What should the clips be? e.g.\n• Clips 15–60 seconds, only the funny moments\n• Must include #brand and tag @brand · no swearing\nYou can also paste a whole campaign brief here.'}
+        />
+        {instructions.trim() && (
+          <div className="instr-read">
+            <ListChecks size={14} />
+            <span>CrestClip will follow these{brief.length ? ` · ${brief.length}` : ''}</span>
+            {brief.tags.map((t) => (
+              <span key={t} className="instr-tag">
+                {t}
+              </span>
+            ))}
+            {mode === 'link' && newFromBrief.length > 0 && (
+              <button type="button" className="btn btn-sm" onClick={() => setUrl([...links, ...newFromBrief].join('\n'))}>
+                <Plus size={14} /> Clip the {newFromBrief.length} video link{newFromBrief.length > 1 ? 's' : ''} in your instructions
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="opt-grid">
         <div>
           <span className="label">Posting to</span>
           <Seg label="Platform" value={opts.platform} onChange={(v) => set('platform', v)} options={PLATFORM_OPTIONS} />
         </div>
         <div>
-          <span className="label">Clip length {opts.length === 'auto' ? '· best for the platform' : ''}</span>
+          <span className="label">Clip length {brief.length && instructions.trim() ? `· ${brief.length} (from your instructions)` : opts.length === 'auto' ? '· best for the platform' : ''}</span>
           <Seg label="Clip length" value={opts.length} onChange={(v) => set('length', v)} options={LENGTHS} />
         </div>
         <div>
@@ -311,10 +399,6 @@ export function NewProject({ initialUrl = '' }: { initialUrl?: string }) {
             <p className="faint" style={{ fontSize: 13, marginTop: 6 }}>{LAYOUT_OPTIONS.find((o) => o.value === opts.layout)?.hint}</p>
           </div>
           <div>
-            <span className="label">Focus (optional)</span>
-            <input className="field" value={opts.focus} maxLength={300} onChange={(e) => set('focus', e.target.value)} placeholder="e.g. only funny moments, or money tips" />
-          </div>
-          <div>
             <span className="label">Spoken language</span>
             <input className="field" value={opts.language} maxLength={40} onChange={(e) => set('language', e.target.value || 'auto')} placeholder="auto" />
           </div>
@@ -336,7 +420,7 @@ export function NewProject({ initialUrl = '' }: { initialUrl?: string }) {
         </p>
         <button className="btn btn-primary btn-lg" type="submit" disabled={busy}>
           {busy ? <span className="spinner" /> : <Wand2 size={20} />}
-          {uploadPct != null ? `Uploading ${Math.round(uploadPct)}%` : busy ? 'Starting…' : 'Find my peaks'}
+          {uploadPct != null ? `Uploading ${Math.round(uploadPct)}%` : busy ? (instructions.trim() ? 'Reading your instructions…' : 'Starting…') : many ? `Clip ${links.length} videos` : 'Find my peaks'}
         </button>
       </div>
     </form>

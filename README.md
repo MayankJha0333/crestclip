@@ -116,6 +116,17 @@ No YouTube API key is needed. Explore uses yt-dlp, which CrestClip keeps up to d
 - **Background music:** pick a mood (Chill lo-fi, Upbeat, Inspiring, Hype, Suspense, Funny, Emotional, Clean tech), *Auto* (matches each clip's category), or upload your own track. Mood tracks are instrumental, made once with Google's **Lyria** model on Vertex AI (your credits) and reused. Music loops smoothly, fades in/out, and ducks under speech.
 - **Pick your own parts:** on a project's "Where viewers rewatch" graph, drag across the parts you want (drag the yellow edges to adjust). Then **Make N clips** or **Join into 1 clip**. In **Explore**, click the graph to jump the preview there, drag to pick parts, and clip just those; only those parts are downloaded.
 
+## Autopilot (clips that post themselves)
+
+Sidebar → **Autopilot**. Pick sources (YouTube channels, or a topic + country), how many posts a day and at what times,
+which accounts to post to, and whether you approve each clip first. Every hour CrestClip checks for new videos, skips weak
+ones (views, length, age), waits for YouTube's "most rewatched" graph, clips the best video, and books the clips into your
+time slots. The **Schedule** tab shows every upcoming post — cancel any one, or pause the whole autopilot.
+
+Timing runs on **Redis** (BullMQ): set `REDIS_URL`, or let CrestClip use a local Redis / build its own (see `.env.example`).
+SQLite stays the record of truth, so Redis can restart empty — every job is put back on start-up.
+Posting only happens while CrestClip is running; for 24/7 posting, run it on a server.
+
 ## Post to YouTube & Instagram
 
 Open **Publishing** in the sidebar, connect your accounts, then press **Post** on any clip: post now or schedule it.

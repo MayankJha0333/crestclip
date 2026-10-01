@@ -34,6 +34,8 @@ export interface ProjectOptions {
   musicVolume: number;
   ranges?: TimeRange[];
   joinRanges?: boolean;
+  /** "Instructions for the AI" (rules, length, tags, what to clip) */
+  instructions?: string;
 }
 
 export interface Rubric {
@@ -51,6 +53,8 @@ export interface Rubric {
 export interface Clip {
   id: string;
   projectId: string;
+  /** in a multi-video project: which video (1, 2, …) the clip came from */
+  part?: number;
   start: number;
   end: number;
   duration: number;
@@ -83,7 +87,12 @@ export interface Clip {
 export interface Project {
   id: string;
   createdAt: number;
-  sourceType: 'url' | 'upload';
+  sourceType: 'url' | 'upload' | 'group';
+  /** set on a video that belongs to a multi-video project */
+  parentId?: string | null;
+  /** multi-video project: how many videos, and each one */
+  videoCount?: number;
+  parts?: (Project & { index: number })[];
   sourceUrl: string | null;
   title: string | null;
   channel: string | null;
@@ -217,6 +226,96 @@ export interface Peek {
   hotspots: { start: number; end: number; value: number; source: string }[];
 }
 
+// ---------- Autopilot ----------
+export interface AutopilotSource {
+  kind: 'youtube_channel' | 'youtube_topic';
+  value: string;
+  channelId?: string | null;
+  label?: string | null;
+  region?: string | null;
+}
+export interface AutopilotConfig {
+  sources: AutopilotSource[];
+  filters: { minViews: number; minMinutes: number; maxMinutes: number; maxAgeDays: number; waitHours: number };
+  options: Partial<ProjectOptions>;
+  clipsPerVideo: number;
+  times: string[];
+  timezone: string;
+  targets: { connectionId: string; privacy?: 'public' | 'unlisted' | 'private' }[];
+  mode: 'review' | 'auto';
+  caption: string;
+  rightsConfirmed: boolean;
+}
+export interface ApClip {
+  id: string;
+  projectId: string;
+  title: string;
+  hook: string;
+  score: number;
+  duration: number;
+  thumbUrl: string | null;
+  videoUrl: string | null;
+  source: { title: string | null; channel: string | null; url: string | null } | null;
+}
+export interface AutopilotSummary {
+  id: string;
+  name: string;
+  status: 'active' | 'paused';
+  config: AutopilotConfig;
+  lastScanAt: number | null;
+  lastError: string | null;
+  createdAt: number;
+  nextTime: number | null;
+  nextPost: { at: number; clip: ApClip | null } | null;
+  counts: { review: number; ready: number; scheduled: number; posted: number; clipping: number; waiting: number };
+}
+export interface ApSlot {
+  key: string;
+  at: number;
+  date: string;
+  time: string;
+  skipped: boolean;
+  apClipId: string | null;
+  clip: ApClip | null;
+  posts: { id: string; platform: 'youtube' | 'instagram'; status: PostStatus; error: string | null; remoteUrl: string | null; account: string | null }[];
+}
+export interface ApItem {
+  id: string;
+  status: string;
+  slotKey: string | null;
+  createdAt: number;
+  clip: ApClip;
+}
+export interface ApVideo {
+  id: string;
+  videoId: string;
+  url: string;
+  title: string | null;
+  channel: string | null;
+  thumbnail: string | null;
+  views: number | null;
+  duration: number | null;
+  publishedAt: number | null;
+  status: 'waiting' | 'queued' | 'clipping' | 'done' | 'skipped' | 'failed';
+  reason: string | null;
+  projectId: string | null;
+  foundAt: number;
+}
+export interface AutopilotDetail extends AutopilotSummary {
+  schedule: ApSlot[];
+  review: ApItem[];
+  ready: ApItem[];
+  videos: ApVideo[];
+  history: PostItem[];
+}
+export interface SchedulerStatus {
+  state: 'starting' | 'installing' | 'ready' | 'error' | 'off';
+  source: 'env' | 'local' | 'managed' | null;
+  detail: string;
+  running: boolean;
+}
+export type AutopilotInput = AutopilotConfig & { name: string };
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   const body = await res.json().catch(() => ({}));
@@ -231,6 +330,8 @@ export const api = {
   projects: () => req<Project[]>('/api/projects'),
   project: (id: string) => req<Project>(`/api/projects/${id}`),
   createFromUrl: (url: string, options: ProjectOptions) => req<Project>('/api/projects', json('POST', { url, options })),
+  createFromUrls: (urls: string[], options: ProjectOptions) =>
+    req<{ project: Project; projects: Project[]; understood: { minSeconds: number | null; maxSeconds: number | null; tags: string[]; rules: string[] } }>('/api/projects/batch', json('POST', { urls, options })),
   retry: (id: string) => req<{ ok: boolean }>(`/api/projects/${id}/retry`, { method: 'POST' }),
   remove: (id: string) => req<{ ok: boolean }>(`/api/projects/${id}`, { method: 'DELETE' }),
   updateClip: (id: string, patch: Partial<Pick<Clip, 'title' | 'hook' | 'description' | 'hashtags' | 'start' | 'end' | 'layout' | 'captionStyle' | 'showHook' | 'motion' | 'music'>>) =>
@@ -238,6 +339,22 @@ export const api = {
   connections: () => req<Connections>('/api/connections'),
   connectUrl: (platform: 'youtube' | 'instagram') => `/api/connect/${platform}/start`,
   disconnect: (id: string) => req<{ ok: boolean }>(`/api/connections/${id}`, { method: 'DELETE' }),
+  // autopilot
+  schedulerStatus: () => req<SchedulerStatus>('/api/autopilot/status'),
+  resolveChannel: (input: string) => req<{ channelId: string; label: string; url: string }>('/api/autopilot/resolve-channel', json('POST', { input })),
+  previewSource: (s: AutopilotSource & { maxAgeDays?: number }) =>
+    req<{ count: number; newest: number | null; sample: { title: string; views: number | null }[] }>('/api/autopilot/preview-source', json('POST', s)),
+  autopilots: () => req<AutopilotSummary[]>('/api/autopilots'),
+  autopilot: (id: string) => req<AutopilotDetail>(`/api/autopilots/${id}`),
+  createAutopilot: (body: AutopilotInput) => req<AutopilotSummary>('/api/autopilots', json('POST', body)),
+  updateAutopilot: (id: string, body: AutopilotInput) => req<AutopilotSummary>(`/api/autopilots/${id}`, json('PUT', body)),
+  pauseAutopilot: (id: string) => req<AutopilotSummary>(`/api/autopilots/${id}/pause`, { method: 'POST' }),
+  resumeAutopilot: (id: string) => req<AutopilotSummary>(`/api/autopilots/${id}/resume`, { method: 'POST' }),
+  scanAutopilot: (id: string) => req<{ ok: boolean }>(`/api/autopilots/${id}/scan`, { method: 'POST' }),
+  deleteAutopilot: (id: string) => req<{ ok: boolean }>(`/api/autopilots/${id}`, { method: 'DELETE' }),
+  skipSlot: (id: string, key: string) => req<{ ok: boolean }>(`/api/autopilots/${id}/slots/${encodeURIComponent(key)}/skip`, { method: 'POST' }),
+  restoreSlot: (id: string, key: string) => req<{ ok: boolean }>(`/api/autopilots/${id}/slots/${encodeURIComponent(key)}/restore`, { method: 'POST' }),
+  apClip: (id: string, itemId: string, action: 'approve' | 'reject') => req<{ ok: boolean }>(`/api/autopilots/${id}/clips/${itemId}/${action}`, { method: 'POST' }),
   createPosts: (body: { clipId: string; targets: { connectionId: string; title?: string; caption?: string; privacy?: 'public' | 'unlisted' | 'private' }[]; scheduledAt?: number | null }) =>
     req<PostItem[]>('/api/posts', json('POST', body)),
   posts: (clipId?: string) => req<PostItem[]>(`/api/posts${clipId ? `?clipId=${encodeURIComponent(clipId)}` : ''}`),

@@ -260,7 +260,7 @@ async function accessToken(c: ConnectionRow): Promise<string> {
 // ---------------- publishing + scheduler ----------------
 const running = new Set<string>();
 
-async function runPost(postId: string) {
+export async function runPost(postId: string) {
   if (running.has(postId)) return;
   running.add(postId);
   try {

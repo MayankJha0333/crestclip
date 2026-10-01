@@ -12,7 +12,9 @@ export function ClipCard({
   highlighted,
   onEdit,
   onChanged,
+  partLabel,
 }: {
+  partLabel?: string;
   clip: Clip;
   rank: number;
   audienceKind: 'audience' | 'energy' | 'none';
@@ -75,6 +77,7 @@ export function ClipCard({
           <ScoreRing value={clip.peakScore} size={62} label="Crest score" />
           <div className="grow">
             <div className="row wrap" style={{ gap: 6, marginBottom: 6 }}>
+              {partLabel && <span className="badge part-badge">{partLabel}</span>}
               <span className={`badge ${CATEGORY_TINT[clip.category] ?? 'tint-sky'}`} style={{ textTransform: 'capitalize' }}>
                 {clip.category}
               </span>

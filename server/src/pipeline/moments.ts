@@ -17,6 +17,12 @@ export const RUBRIC_WEIGHTS: Rubric = {
   trend: 0.05,
 };
 
+/** The length rule for a project: an exact min/max (campaign briefs) wins over the general preference. */
+export function rangeFor(o: Pick<ProjectOptions, 'platform' | 'length' | 'minSeconds' | 'maxSeconds'>) {
+  if (o.minSeconds && o.maxSeconds && o.maxSeconds > o.minSeconds) return { min: o.minSeconds, max: o.maxSeconds, label: `${o.minSeconds}–${o.maxSeconds} seconds (required by the campaign)` };
+  return lengthRange(o.platform, o.length);
+}
+
 export function lengthRange(platform: Platform, pref: LengthPref): { min: number; max: number; label: string } {
   if (pref === 'short') return { min: 12, max: 30, label: '12–30 seconds' };
   if (pref === 'medium') return { min: 30, max: 60, label: '30–60 seconds' };
@@ -119,7 +125,7 @@ export async function findMoments(input: {
   videoPart: Part | null;
 }): Promise<{ clips: ClipCandidate[]; notes: string }> {
   const { options, duration } = input;
-  const range = lengthRange(options.platform, options.length);
+  const range = rangeFor(options);
   const want = Math.max(1, Math.min(30, options.clipCount));
   const ask = Math.min(40, Math.ceil(want * 1.6) + 2);
 
@@ -140,6 +146,8 @@ Target platform: ${options.platform === 'shorts' ? 'YouTube Shorts' : options.pl
 Target clip length: ${range.label}. Hard limits: ${range.min}–${range.max} s.
 Return the ${ask} best clip candidates, best first.
 ${options.focus ? `Creator's focus request: "${options.focus}" — prioritize moments that match it.` : ''}
+${options.rules?.length ? `\nTHE CREATOR'S RULES — every clip MUST follow these (skip moments that would break them):\n${options.rules.map((r) => `- ${r}`).join('\n')}` : ''}
+${options.instructions && !options.rules?.length ? `\nTHE CREATOR'S INSTRUCTIONS (follow them):\n${options.instructions.slice(0, 2500)}` : ''}
 ${input.signals?.curveKind === 'audience' ? `\nAUDIENCE HOTSPOTS (most re-watched moments):\n${hot}` : input.signals?.curveKind === 'energy' ? `\nAUDIO ENERGY SPIKES (laughter/shouting/excitement, weaker signal):\n${hot}` : ''}
 \nCHAPTERS:\n${chapters}
 ${input.description ? `\nVIDEO DESCRIPTION (for context only):\n${input.description.slice(0, 1500)}` : ''}
@@ -205,7 +213,7 @@ export function finalizeClips(
   signals: Signals | null,
   options: ProjectOptions,
 ) {
-  const range = lengthRange(options.platform, options.length);
+  const range = rangeFor(options);
   const minLen = Math.max(5, range.min * 0.8);
   const maxLen = range.max * 1.15;
   const out: (ClipCandidate & { aiScore: number; audienceScore: number | null; peakScore: number })[] = [];
