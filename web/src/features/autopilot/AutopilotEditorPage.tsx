@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { AlertTriangle, Bot, Check, Eye, Globe, Hash, Minus, Plus, Search, ShieldCheck, Sparkles, X, Youtube } from 'lucide-react';
-import { api, type Account, type AutopilotConfig, type AutopilotInput, type AutopilotSource, type CaptionStyle, type Motion, type Platform } from '../../lib/api';
+import { api, type Account, type AutopilotConfig, type AutopilotInput, type AutopilotSource, type CaptionStyle, type Motion } from '../../lib/api';
 import { cn } from '../../lib/cn';
 import { timeAgo } from '../../lib/format';
 import { toast } from '../../lib/toast';
 import { Button, buttonClass, Card, Chip, Field, FieldLabel, Input, PageHeader, Segmented, Select, Skeleton, Textarea, Toggle } from '../../components/ui';
 import { CaptionPicker } from '../clip-settings/CaptionPicker';
 import { MotionPicker } from '../clip-settings/MotionPicker';
-import { PLATFORMS } from '../clip-settings/options';
 import { SOCIAL } from '../schedule/postStatus';
 import { allZones, compact, defaultTimes, EMPTY_AUTOPILOT, prettyTime, REGIONS, sourceText } from './helpers';
 
@@ -311,10 +310,6 @@ export function AutopilotEditorPage() {
 
         <Step n={4} title="Clip style">
           <div className="flex flex-wrap gap-6">
-            <div>
-              <FieldLabel>Made for</FieldLabel>
-              <Segmented label="Platform" size="sm" value={(f.options.platform ?? 'reels') as Platform} onChange={(v) => setOpt('platform', v)} options={PLATFORMS} />
-            </div>
             <div>
               <FieldLabel>Clips per video</FieldLabel>
               <Segmented

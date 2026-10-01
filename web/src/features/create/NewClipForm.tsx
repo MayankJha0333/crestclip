@@ -1,18 +1,23 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, Film, Link2, ListChecks, Plus, ScrollText, UploadCloud, Wand2, X } from 'lucide-react';
+import { AlertTriangle, Check, Film, Link2, ListChecks, Minus, Plus, UploadCloud, Wand2, X } from 'lucide-react';
 import { api, saveOptions, savedOptions, type ProjectOptions } from '../../lib/api';
 import { cn } from '../../lib/cn';
 import { fmtTime } from '../../lib/format';
 import { toast } from '../../lib/toast';
-import { Badge, Button, Card, Progress, Segmented } from '../../components/ui';
+import { Badge, Button, FieldLabel, Progress, Segmented, Select } from '../../components/ui';
+import { CaptionPicker } from '../clip-settings/CaptionPicker';
 import { ClipSettings } from '../clip-settings/ClipSettings';
+import { LENGTHS } from '../clip-settings/options';
 import { fmtBytes, previewInstructions, splitLinks } from './instructions';
-import { LinkSourceIcon } from './LinkSourceIcon';
 import { detectLink } from './links';
+import { LinkList, MAX_VIDEOS } from './LinkList';
+import { LivePreview } from './LivePreview';
 
 const MAX_MB = 4096;
 const VIDEO_FILE = /\.(mp4|m4v|mov|mkv|webm|avi|mpe?g|ts|mts|wmv|flv|3gp)$/i;
+/** One tap adds a common rule to the instructions. */
+const QUICK_RULES = ['Only the funniest moments', 'Clips 15–30 seconds', 'Strong hook in the first 2 seconds', 'No swearing', 'Skip intros and ads'];
 
 /** Read a picked file's length in the browser (shown before uploading). */
 function useFileDuration(file: File | null) {
@@ -33,14 +38,37 @@ function useFileDuration(file: File | null) {
   return dur;
 }
 
+/** Numbered step with a dot that turns into a check when the step is done. */
+function Step({ n, title, hint, done, children, last }: { n: number; title: string; hint?: ReactNode; done?: boolean; children: ReactNode; last?: boolean }) {
+  return (
+    <section className="relative flex gap-4">
+      <div className="flex flex-col items-center">
+        <span
+          className={cn('grid size-9 shrink-0 place-items-center rounded-full font-display font-bold transition-all duration-300', done ? 'clay-mint text-[#0f3b2e]' : 'clay-tangerine text-[#2b1407]')}
+        >
+          {done ? <Check size={17} strokeWidth={3} /> : n}
+        </span>
+        {!last && <span aria-hidden className="mt-2 w-0.5 flex-1 rounded-full bg-[repeating-linear-gradient(var(--line-strong)_0_6px,transparent_6px_12px)]" />}
+      </div>
+      <div className={cn('min-w-0 flex-1', !last && 'pb-8')}>
+        <h2 className="text-xl leading-9">{title}</h2>
+        {hint && <p className="-mt-0.5 mb-3.5 text-sm text-ink-3">{hint}</p>}
+        {children}
+      </div>
+    </section>
+  );
+}
+
 /**
- * Start a project: paste one or more links (or upload a file), optionally write instructions,
- * check the clip settings, go. Several links become ONE project that holds every video.
+ * Start a project. Left: what to clip (links or a file, plus instructions).
+ * Right: how the clips look, with a live phone preview — then go.
+ * Several links become ONE project that holds every video.
  */
 export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
   const nav = useNavigate();
   const [mode, setMode] = useState<'link' | 'upload'>('link');
-  const [text, setText] = useState(initialUrl);
+  const [items, setItems] = useState<string[]>(() => splitLinks(initialUrl));
+  const [draft, setDraft] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [drag, setDrag] = useState(false);
   const [opts, setOpts] = useState<ProjectOptions>(savedOptions);
@@ -52,12 +80,14 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const fileDur = useFileDuration(file);
 
-  const links = splitLinks(text);
+  // links in the list, plus one still being typed (counts too, so Enter isn't required)
+  const links = [...new Set([...items, ...splitLinks(draft)])].slice(0, MAX_VIDEOS);
   const many = links.length > 1;
-  const single = links.length === 1 ? detectLink(links[0]) : detectLink(text);
   const linkInfos = links.map((u) => ({ url: u, info: detectLink(u) }));
   const brief = previewInstructions(instructions);
   const newFromBrief = brief.links.filter((u) => !links.includes(u));
+  const videoReady = mode === 'upload' ? Boolean(file) : links.length > 0 && linkInfos.every((l) => l.info && !l.info.error);
+  const set = <K extends keyof ProjectOptions>(k: K, v: ProjectOptions[K]) => setOpts((o) => ({ ...o, [k]: v }));
 
   const pickFile = (f: File | null | undefined) => {
     setError(null);
@@ -67,16 +97,17 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
     setMode('upload');
     setFile(f);
   };
+  const addRule = (r: string) => setInstructions((t) => (t.toLowerCase().includes(r.toLowerCase()) ? t : `${t.trim() ? `${t.trimEnd()}\n` : ''}• ${r}`));
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const submit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     setError(null);
     saveOptions(opts);
     const send: ProjectOptions = { ...opts, focus: '', instructions: instructions.trim() || undefined };
     setBusy(true);
     try {
       if (mode === 'link') {
-        if (!links.length) throw new Error('Paste a full video link (YouTube, Twitch, Google Drive, Dropbox…)');
+        if (!links.length) throw new Error('Paste a full video link first (YouTube, Twitch, Google Drive, Dropbox…)');
         const bad = linkInfos.find((l) => !l.info || l.info.error);
         if (bad) throw new Error(bad.info?.error ? `${bad.info.label}: ${bad.info.error}` : `“${bad.url}” isn’t a video link`);
         if (many) {
@@ -114,8 +145,9 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
         : 'Find the best moments';
 
   return (
-    <Card
-      className={cn('relative p-5 transition-shadow sm:p-7', drag && 'shadow-[0_0_0_4px_var(--tangerine)]')}
+    <form
+      onSubmit={submit}
+      className="relative grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_390px]"
       onDragOver={(e) => {
         if (busy || !e.dataTransfer.types.includes('Files')) return;
         e.preventDefault();
@@ -130,227 +162,224 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
       }}
     >
       {drag && (
-        <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center rounded-[inherit] bg-orange-bg font-display text-2xl text-orange-ink backdrop-blur-sm">
-          Drop the video to upload it
+        <div className="pointer-events-none absolute -inset-3 z-20 grid place-items-center rounded-[34px] border-[3px] border-dashed border-tangerine bg-orange-bg/90 backdrop-blur-sm">
+          <span className="flex flex-col items-center gap-2 font-display text-2xl text-orange-ink">
+            <UploadCloud size={40} /> Drop the video to upload it
+          </span>
         </div>
       )}
-      <form onSubmit={submit} className="flex flex-col gap-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-xl">1 · Your video</h2>
-          <Segmented
-            label="Source"
-            size="sm"
-            value={mode}
-            onChange={setMode}
-            options={[
-              {
-                value: 'link',
-                label: (
-                  <>
-                    <Link2 size={15} /> Paste link
-                  </>
-                ),
-              },
-              {
-                value: 'upload',
-                label: (
-                  <>
-                    <UploadCloud size={15} /> Upload file
-                  </>
-                ),
-              },
-            ]}
-          />
-        </div>
 
-        {mode === 'link' ? (
-          <div>
-            <div className={cn('flex items-start gap-3 rounded-[22px] bg-sunken px-4 py-3.5 shadow-well', single?.error && 'shadow-[var(--shadow-well),inset_0_0_0_2px_var(--bad)]')}>
-              <span className="mt-1">
-                <LinkSourceIcon info={single} />
-              </span>
-              <textarea
-                autoFocus
-                aria-label="Video links"
-                aria-describedby="link-hint"
-                rows={Math.min(6, Math.max(text.trim() ? 1 : 2, text.split('\n').length))}
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                onPaste={(e) => {
-                  const f = e.clipboardData.files?.[0];
-                  if (f) {
-                    e.preventDefault();
-                    pickFile(f);
-                  }
-                }}
-                onKeyDown={(e) => {
-                  // Enter = new line for the next link · ⌘/Ctrl + Enter = start
-                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                    e.preventDefault();
-                    e.currentTarget.form?.requestSubmit();
-                  }
-                }}
-                placeholder={'Paste a video link — YouTube, Twitch, Google Drive, Dropbox…\nMore videos? Press Enter and paste the next link on a new line'}
-                className="min-w-0 flex-1 resize-none bg-transparent text-[17px] leading-normal text-ink outline-none placeholder:text-ink-3"
+      {/* ---------- left: what to clip ---------- */}
+      <div className="rounded-[28px] bg-surface p-5 shadow-clay sm:p-7">
+        <Step
+          n={1}
+          done={videoReady}
+          title={mode === 'upload' ? 'Upload your video' : links.length > 1 ? `Your videos · ${links.length}` : 'Add your videos'}
+          hint={
+            <span className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              {mode === 'upload' ? 'One file at a time — or drop it anywhere on this card.' : 'One link or many (up to 15) — they all go into one project.'}
+              <Segmented
+                label="Source"
+                size="sm"
+                value={mode}
+                onChange={setMode}
+                options={[
+                  {
+                    value: 'link',
+                    label: (
+                      <>
+                        <Link2 size={14} /> Link
+                      </>
+                    ),
+                  },
+                  {
+                    value: 'upload',
+                    label: (
+                      <>
+                        <UploadCloud size={14} /> Upload
+                      </>
+                    ),
+                  },
+                ]}
               />
-              {text && (
-                <Button variant="ghost" size="icon-sm" aria-label="Clear links" onClick={() => setText('')}>
-                  <X size={16} />
+            </span>
+          }
+        >
+          {mode === 'link' ? (
+            <LinkList items={items} onItems={setItems} draft={draft} onDraft={setDraft} onFile={pickFile} onSubmit={() => submit()} />
+          ) : (
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => !busy && fileInput.current?.click()}
+              onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && fileInput.current?.click()}
+              className={cn(
+                'flex cursor-pointer flex-col items-center gap-3 rounded-[22px] border-[3px] border-dashed bg-sunken p-6 text-center shadow-well transition-colors hover:border-tangerine sm:flex-row sm:text-left',
+                file ? 'border-mint-d' : 'border-line-strong',
+              )}
+            >
+              <input
+                ref={fileInput}
+                type="file"
+                accept="video/*,.mkv,.mov,.m4v,.webm"
+                hidden
+                onChange={(e) => {
+                  pickFile(e.target.files?.[0]);
+                  e.target.value = '';
+                }}
+              />
+              <span className={cn('grid size-14 shrink-0 place-items-center rounded-[20px]', file ? 'clay-mint text-[#0f3b2e]' : 'clay-sky text-[#103552]')}>
+                {file ? <Film size={26} /> : <UploadCloud size={26} />}
+              </span>
+              {file ? (
+                <div className="w-full min-w-0 flex-1">
+                  <b className="block truncate">{file.name}</b>
+                  <span className="text-sm text-ink-3">
+                    {fmtBytes(file.size)}
+                    {fileDur ? ` · ${fmtTime(fileDur)} long` : ''}
+                    {!upload ? ' · click to change' : ''}
+                  </span>
+                  {upload && (
+                    <div className="mt-2.5">
+                      <Progress value={upload.pct} label="Upload progress" />
+                      <p className="mt-1.5 text-[13px] font-bold text-ink-3">
+                        {Math.round(upload.pct)}% · {fmtBytes(upload.loaded)} of {fmtBytes(upload.total)}
+                        {upload.speed ? ` · ${fmtBytes(upload.speed)}/s` : ''}
+                        {eta != null && upload.pct < 100 ? ` · ~${eta < 60 ? `${Math.ceil(eta)} s` : `${Math.ceil(eta / 60)} min`} left` : ''}
+                        {upload.pct >= 100 ? ' · finishing…' : ''}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <b className="font-display text-lg">Drop a video here, or click to choose</b>
+                  <p className="text-sm text-ink-3">mp4, mov, mkv or webm · up to {MAX_MB / 1024} GB — podcasts, streams, webinars</p>
+                </div>
+              )}
+              {file && (
+                <Button
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (upload) abort.current?.abort();
+                    else setFile(null);
+                  }}
+                >
+                  <X size={14} /> {upload ? 'Cancel' : 'Remove'}
                 </Button>
               )}
             </div>
-            {many ? (
-              <div id="link-hint" className="mt-3 flex flex-col gap-1.5 text-[13px]">
-                <span className="text-ink-3">
-                  <b className="text-ink">{links.length} videos</b> — all clipped into one project, with the same settings
-                </span>
-                {linkInfos.map(({ url: u, info }) => (
-                  <div key={u} className={cn('flex min-w-0 items-center gap-2 rounded-xl px-3 py-1.5', !info || info.error ? 'bg-bad-bg text-bad-ink' : 'bg-row shadow-flat')}>
-                    <LinkSourceIcon info={info} size={15} />
-                    <b className="shrink-0">{info?.label ?? 'Not a link'}</b>
-                    <span className="min-w-0 flex-1 truncate text-ink-3">{info?.error ?? u}</span>
-                    <button
-                      type="button"
-                      aria-label="Remove link"
-                      className="grid size-6 shrink-0 place-items-center rounded-full bg-muted-bg"
-                      onClick={() => setText(links.filter((x) => x !== u).join('\n'))}
-                    >
-                      <X size={12} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p id="link-hint" className={cn('mt-2.5 flex flex-wrap items-center gap-1.5 px-1 text-[13px] font-semibold', single?.error ? 'text-bad' : single ? 'text-good-ink' : 'text-ink-3')}>
-                {single ? (
-                  single.error ? (
-                    <>
-                      <AlertTriangle size={14} /> {single.error}
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 size={14} /> <b>{single.label}</b> · {single.hint}
-                    </>
-                  )
-                ) : (
-                  <>Works with YouTube, Twitch, Google Drive, Dropbox, OneDrive, direct .mp4 links and 1,000+ video sites. More than one video? Press Enter and paste the next link.</>
-                )}
-              </p>
-            )}
-          </div>
-        ) : (
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => !busy && fileInput.current?.click()}
-            onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && fileInput.current?.click()}
-            className="flex cursor-pointer items-center gap-4 rounded-[22px] border-[3px] border-dashed border-line-strong bg-sunken p-5 shadow-well transition-colors hover:border-tangerine"
-          >
-            <input
-              ref={fileInput}
-              type="file"
-              accept="video/*,.mkv,.mov,.m4v,.webm"
-              hidden
-              onChange={(e) => {
-                pickFile(e.target.files?.[0]);
-                e.target.value = '';
-              }}
-            />
-            <span className="grid size-14 shrink-0 place-items-center rounded-[20px] clay-sky text-[#103552]">{file ? <Film size={26} /> : <UploadCloud size={26} />}</span>
-            {file ? (
-              <div className="min-w-0 flex-1">
-                <b className="block truncate">{file.name}</b>
-                <span className="text-sm text-ink-3">
-                  {fmtBytes(file.size)}
-                  {fileDur ? ` · ${fmtTime(fileDur)} long` : ''}
-                  {!upload ? ' · click to change' : ''}
-                </span>
-                {upload && (
-                  <div className="mt-2.5">
-                    <Progress value={upload.pct} label="Upload progress" />
-                    <p className="mt-1.5 text-[13px] font-bold text-ink-3">
-                      {Math.round(upload.pct)}% · {fmtBytes(upload.loaded)} of {fmtBytes(upload.total)}
-                      {upload.speed ? ` · ${fmtBytes(upload.speed)}/s` : ''}
-                      {eta != null && upload.pct < 100 ? ` · ~${eta < 60 ? `${Math.ceil(eta)} s` : `${Math.ceil(eta / 60)} min`} left` : ''}
-                      {upload.pct >= 100 ? ' · finishing…' : ''}
-                    </p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div>
-                <b>Drop a video here, or click to choose</b>
-                <p className="text-sm text-ink-3">mp4, mov, mkv or webm · up to {MAX_MB / 1024} GB — podcasts, streams, webinars</p>
-              </div>
-            )}
-            {file && (
-              <Button
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (upload) abort.current?.abort();
-                  else setFile(null);
-                }}
-              >
-                <X size={14} /> {upload ? 'Cancel' : 'Remove'}
-              </Button>
-            )}
-          </div>
-        )}
+          )}
+        </Step>
 
-        <div>
-          <h2 className="mb-2.5 flex items-center gap-2 text-xl">
-            2 · Instructions <span className="font-body text-sm font-semibold text-ink-3">optional</span>
-          </h2>
-          <div className="rounded-[22px] bg-sunken px-4 py-3.5 shadow-well">
-            <div className="flex items-start gap-3">
-              <ScrollText size={18} className="mt-1 shrink-0 text-accent" />
-              <textarea
-                aria-label="Instructions for the AI"
-                rows={instructions ? Math.min(10, Math.max(3, instructions.split('\n').length + 1)) : 3}
-                value={instructions}
-                maxLength={6000}
-                onChange={(e) => setInstructions(e.target.value)}
-                placeholder={'What should the clips be? For example:\n• Clips 15–60 seconds, only the funny moments\n• Must include #brand and tag @brand · no swearing'}
-                className="min-w-0 flex-1 resize-y bg-transparent text-[15px] leading-normal text-ink outline-none placeholder:text-ink-3"
-              />
+        <Step n={2} last done={Boolean(instructions.trim())} title="Tell the AI what you want" hint="Optional — every clip follows these rules. You can paste a whole brief.">
+          <textarea
+            aria-label="Instructions for the AI"
+            rows={instructions ? Math.min(10, Math.max(3, instructions.split('\n').length + 1)) : 3}
+            value={instructions}
+            maxLength={6000}
+            onChange={(e) => setInstructions(e.target.value)}
+            placeholder={'For example: only the funny moments, 15–60 second clips, tag @brand and add #brand'}
+            className="w-full resize-y rounded-[22px] bg-sunken px-4 py-3.5 text-[15px] leading-normal text-ink shadow-well outline-none placeholder:text-ink-3 focus-visible:shadow-[var(--shadow-well),0_0_0_3px_rgba(255,138,91,.4)]"
+          />
+          <div className="mt-3 flex flex-wrap gap-2">
+            {QUICK_RULES.map((r) => {
+              const on = instructions.toLowerCase().includes(r.toLowerCase());
+              return (
+                <button
+                  key={r}
+                  type="button"
+                  disabled={on}
+                  onClick={() => addRule(r)}
+                  className={cn(
+                    'inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[13px] font-bold transition-all',
+                    on ? 'bg-good-bg text-good-ink' : 'bg-row text-ink-2 shadow-flat hover:-translate-y-px hover:text-ink hover:shadow-[0_0_0_1px_var(--line-strong)]',
+                  )}
+                >
+                  {on ? <Check size={13} /> : <Plus size={13} />} {r}
+                </button>
+              );
+            })}
+          </div>
+          {instructions.trim() && (brief.length || brief.tags.length || newFromBrief.length > 0) && (
+            <div className="mt-3 flex flex-wrap items-center gap-1.5 rounded-2xl bg-good-bg px-3 py-2.5 text-[13px] font-extrabold text-good-ink">
+              <ListChecks size={14} /> Understood:
+              {brief.length && <Badge tone="good">{brief.length} clips</Badge>}
+              {brief.tags.map((t) => (
+                <Badge key={t} tone="info">
+                  {t}
+                </Badge>
+              ))}
+              {mode === 'link' && newFromBrief.length > 0 && (
+                <Button size="sm" onClick={() => setItems([...links, ...newFromBrief].slice(0, MAX_VIDEOS))}>
+                  <Plus size={14} /> Add the {newFromBrief.length} video link{newFromBrief.length > 1 ? 's' : ''} from your text
+                </Button>
+              )}
             </div>
-            {instructions.trim() && (
-              <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-7 text-[13px] font-extrabold text-good-ink">
-                <ListChecks size={14} /> Every clip will follow these{brief.length ? ` · ${brief.length} clips` : ''}
-                {brief.tags.map((t) => (
-                  <Badge key={t} tone="info">
-                    {t}
-                  </Badge>
-                ))}
-                {mode === 'link' && newFromBrief.length > 0 && (
-                  <Button size="sm" onClick={() => setText([...links, ...newFromBrief].join('\n'))}>
-                    <Plus size={14} /> Add the {newFromBrief.length} video link{newFromBrief.length > 1 ? 's' : ''} from your instructions
-                  </Button>
-                )}
+          )}
+        </Step>
+      </div>
+
+      {/* ---------- right: how the clips look + go ---------- */}
+      <aside className="flex flex-col gap-4 rounded-[28px] bg-surface p-5 shadow-clay lg:sticky lg:top-6">
+        <h2 className="text-xl">Your clips</h2>
+
+        <div className="grid grid-cols-[150px_minmax(0,1fr)] items-start gap-4">
+          <LivePreview opts={opts} link={mode === 'link' ? (links[0] ?? null) : null} file={mode === 'upload' ? file : null} videoCount={mode === 'link' ? links.length : 1} />
+          <div className="flex flex-col gap-4 pt-2">
+            <div>
+              <FieldLabel>Clips</FieldLabel>
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-sunken p-1 shadow-well">
+                <Button size="icon-sm" className="size-8" aria-label="Fewer clips" disabled={opts.clipCount <= 1} onClick={() => set('clipCount', opts.clipCount - 1)}>
+                  <Minus size={14} />
+                </Button>
+                <b className="min-w-6 text-center font-display text-lg" aria-live="polite">
+                  {opts.clipCount}
+                </b>
+                <Button size="icon-sm" className="size-8" aria-label="More clips" disabled={opts.clipCount >= 20} onClick={() => set('clipCount', opts.clipCount + 1)}>
+                  <Plus size={14} />
+                </Button>
               </div>
-            )}
+            </div>
+            <label className="flex flex-col">
+              <FieldLabel>Length</FieldLabel>
+              {brief.length && instructions.trim() ? (
+                <span className="rounded-2xl bg-good-bg px-3 py-2 text-sm font-bold text-good-ink">{brief.length} · from your text</span>
+              ) : (
+                <Select className="rounded-2xl py-2 text-sm font-bold" value={opts.length} onChange={(e) => set('length', e.target.value as ProjectOptions['length'])}>
+                  {LENGTHS.map((l) => (
+                    <option key={l.value} value={l.value}>
+                      {{ auto: 'Auto', short: 'Under 30s', medium: '30–60s', long: 'Over 60s' }[l.value]}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </label>
+            <p className="text-xs leading-snug text-ink-3">The preview shows your hook headline and caption style. Each clip gets its own words.</p>
           </div>
         </div>
 
         <div>
-          <h2 className="mb-2.5 text-xl">3 · How the clips look</h2>
-          <ClipSettings value={opts} onChange={setOpts} lengthNote={instructions.trim() ? brief.length : null} />
+          <FieldLabel>Caption style</FieldLabel>
+          <CaptionPicker compact value={opts.captionStyle} onChange={(v) => set('captionStyle', v)} />
         </div>
+
+        <ClipSettings value={opts} onChange={setOpts} />
 
         {error && (
-          <p role="alert" className="flex items-center gap-2 rounded-2xl bg-bad-bg px-4 py-3 text-sm font-bold text-bad-ink">
-            <AlertTriangle size={16} /> {error}
+          <p role="alert" className="flex items-start gap-2 rounded-2xl bg-bad-bg px-3.5 py-3 text-sm font-bold text-bad-ink">
+            <AlertTriangle size={16} className="mt-0.5 shrink-0" /> {error}
           </p>
         )}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-          <p className="text-sm text-ink-3">Gemini on Vertex AI does the thinking · billed to your Google Cloud credits</p>
-          <Button type="submit" variant="primary" size="lg" loading={busy} className="w-full sm:w-auto">
+        <div>
+          <Button type="submit" variant="primary" size="lg" loading={busy} className="w-full">
             {!busy && <Wand2 size={20} />}
             {submitLabel}
           </Button>
+          <p className="mt-2.5 text-center text-xs text-ink-3">{videoReady ? 'Usually ready in a few minutes' : 'Add a video to start'} · Gemini on your Google Cloud credits</p>
         </div>
-      </form>
-    </Card>
+      </aside>
+    </form>
   );
 }

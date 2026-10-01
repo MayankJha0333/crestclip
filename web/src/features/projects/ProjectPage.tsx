@@ -5,7 +5,6 @@ import { api, type Project } from '../../lib/api';
 import { fmtTime, fmtViews } from '../../lib/format';
 import { usePolling } from '../../lib/hooks';
 import { Badge, Button, Card, EmptyState, Progress, Skeleton, Spinner, Tabs } from '../../components/ui';
-import { platformName } from '../clip-settings/options';
 import { ClipList, rankClips, type ClipSort } from './ClipList';
 import { DeleteProjectDialog } from './DeleteProjectDialog';
 import { ProcessingCard } from './ProcessingCard';
@@ -86,7 +85,6 @@ function SingleProject({ p, load }: { p: Project; load: () => void }) {
             {p.channel && <Badge>{p.channel}</Badge>}
             {p.duration ? <Badge>{fmtTime(p.duration)} long</Badge> : null}
             {p.viewCount ? <Badge>{fmtViews(p.viewCount)}</Badge> : null}
-            <Badge>For {platformName(p.options.platform)}</Badge>
             {p.download && (
               <Badge tone="good" title="CrestClip downloaded the audio plus only the parts that became clips, not the whole video">
                 <Download size={12} /> {fmtBytes(p.download.downloaded)}
@@ -211,7 +209,6 @@ function GroupProject({ p, load }: { p: Project; load: () => void }) {
               <Layers size={12} /> {parts.length} videos
             </Badge>
             {p.duration ? <Badge>{fmtTime(p.duration)} in total</Badge> : null}
-            <Badge>For {platformName(p.options.platform)}</Badge>
             {working && <Badge tone="warn">{p.stageDetail}</Badge>}
           </>
         }

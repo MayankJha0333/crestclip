@@ -17,9 +17,9 @@ export function CaptionSample({ style, scale = 1 }: { style: CaptionStyle; scale
 }
 
 /** Caption style tiles — each shows a live sample of the style. */
-export function CaptionPicker({ value, onChange }: { value: CaptionStyle; onChange: (v: CaptionStyle) => void }) {
+export function CaptionPicker({ value, onChange, compact }: { value: CaptionStyle; onChange: (v: CaptionStyle) => void; compact?: boolean }) {
   return (
-    <div role="group" aria-label="Caption style" className="grid grid-cols-3 gap-2.5 sm:grid-cols-6">
+    <div role="group" aria-label="Caption style" className={cn('grid grid-cols-3 gap-2.5', !compact && 'sm:grid-cols-6')}>
       {CAPTION_ORDER.map((s) => (
         <button
           key={s}
@@ -27,14 +27,15 @@ export function CaptionPicker({ value, onChange }: { value: CaptionStyle; onChan
           aria-pressed={value === s}
           onClick={() => onChange(s)}
           className={cn(
-            'flex flex-col gap-2 rounded-[18px] p-2 text-left transition-transform duration-200 hover:-translate-y-0.5',
+            'flex flex-col rounded-[18px] text-left transition-transform duration-200 hover:-translate-y-0.5',
+            compact ? 'gap-1 p-1.5' : 'gap-2 p-2',
             value === s ? 'bg-surface shadow-[0_0_0_3px_var(--tangerine)]' : 'bg-row shadow-flat hover:shadow-[0_0_0_1px_var(--line-strong)]',
           )}
         >
-          <span className="grid h-16 place-items-center overflow-hidden rounded-xl bg-[radial-gradient(circle_at_30%_30%,#7b6a8e,#2f2540)] p-1.5">
-            <CaptionSample style={s} scale={0.7} />
+          <span className={cn('grid place-items-center overflow-hidden rounded-xl bg-[radial-gradient(circle_at_30%_30%,#7b6a8e,#2f2540)] p-1.5', compact ? 'h-11' : 'h-16')}>
+            <CaptionSample style={s} scale={compact ? 0.5 : 0.7} />
           </span>
-          <span className="text-center text-[13px] font-extrabold">{CAPTIONS[s].name}</span>
+          <span className={cn('text-center font-extrabold', compact ? 'text-xs' : 'text-[13px]')}>{CAPTIONS[s].name}</span>
         </button>
       ))}
     </div>

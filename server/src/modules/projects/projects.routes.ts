@@ -36,7 +36,7 @@ projectsRouter.post(
 projectsRouter.post(
   '/projects/batch',
   asyncHandler(async (req, res) => {
-    const body = validate(createBatchSchema, req.body, 'Check the links — each must be a full https:// link (up to 20).');
+    const body = validate(createBatchSchema, req.body, 'Check the links — each must be a full https:// link (up to 15 per project).');
     const { group, made, options } = await service.createFromLinks(body.urls, body.options as ProjectOptions);
     res.status(201).json({
       project: group ? publicGroupSummary(group) : publicProject(made[0]),

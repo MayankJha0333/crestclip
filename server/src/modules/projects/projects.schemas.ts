@@ -24,7 +24,7 @@ export const optionsSchema = z.object({
 
 export const createProjectSchema = z.object({ url: z.string().url(), options: optionsSchema.default({}) });
 
-export const createBatchSchema = z.object({ urls: z.array(z.string().url()).min(1).max(20), options: optionsSchema.default({}) });
+export const createBatchSchema = z.object({ urls: z.array(z.string().url()).min(1).max(15), options: optionsSchema.default({}) });
 
 export const pickClipsSchema = z.object({
   ranges: z.array(z.object({ start: z.number().min(0), end: z.number().min(0) })).min(1).max(20),

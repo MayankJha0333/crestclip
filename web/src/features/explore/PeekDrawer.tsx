@@ -6,8 +6,7 @@ import { api, saveOptions, savedOptions, type ExploreItem, type Peek, type Proje
 import { cn } from '../../lib/cn';
 import { fmtCount, fmtDate, fmtTime } from '../../lib/format';
 import { toast } from '../../lib/toast';
-import { Badge, Button, buttonClass, FieldLabel, Segmented, Skeleton } from '../../components/ui';
-import { PLATFORMS } from '../clip-settings/options';
+import { Badge, Button, buttonClass, Skeleton } from '../../components/ui';
 import { HeatChart, PickBar } from '../media/HeatChart';
 
 const MAX_MINUTES = 240;
@@ -376,10 +375,6 @@ export function PeekDrawer({
               </Button>
             )}
           </PickBar>
-          <div className="flex flex-wrap items-center justify-between gap-2.5">
-            <FieldLabel className="mb-0">Clip it for</FieldLabel>
-            <Segmented label="Platform" size="sm" value={opts.platform} onChange={(v) => setOpts((o) => ({ ...o, platform: v }))} options={PLATFORMS} />
-          </div>
           <label className="flex items-center gap-2.5 text-sm font-bold">
             <span className="min-w-16">Clips · {opts.clipCount}</span>
             <input

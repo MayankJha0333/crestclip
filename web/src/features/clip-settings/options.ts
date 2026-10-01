@@ -1,15 +1,8 @@
 import type { CSSProperties } from 'react';
-import type { CaptionStyle, Layout, LengthPref, Motion, Platform } from '../../lib/api';
-
-export const PLATFORMS: { value: Platform; label: string; long: string }[] = [
-  { value: 'shorts', label: 'Shorts', long: 'YouTube Shorts' },
-  { value: 'tiktok', label: 'TikTok', long: 'TikTok' },
-  { value: 'reels', label: 'Reels', long: 'Instagram Reels' },
-];
-export const platformName = (p: Platform) => PLATFORMS.find((x) => x.value === p)?.long ?? p;
+import type { CaptionStyle, Layout, LengthPref, Motion } from '../../lib/api';
 
 export const LENGTHS: { value: LengthPref; label: string; long: string }[] = [
-  { value: 'auto', label: 'Auto', long: 'Best length for the platform' },
+  { value: 'auto', label: 'Auto', long: 'Best length, picked by the AI' },
   { value: 'short', label: '< 30s', long: 'Under 30 seconds' },
   { value: 'medium', label: '30–60s', long: '30–60 seconds' },
   { value: 'long', label: '60s+', long: 'Over a minute' },
