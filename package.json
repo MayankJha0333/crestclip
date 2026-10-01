@@ -1,0 +1,17 @@
+{
+  "name": "peakclip",
+  "private": true,
+  "version": "0.1.0",
+  "description": "PeakClip — AI clipping that finds the most-watched moments of any video and turns them into ready-to-post shorts. Powered by Gemini on Vertex AI.",
+  "workspaces": ["server", "web"],
+  "scripts": {
+    "dev": "npm run doctor --silent; concurrently -k -n api,web -c magenta,cyan \"npm:dev -w server\" \"npm:dev -w web\"",
+    "build": "npm run build -w web && npm run typecheck -w server",
+    "start": "npm run start -w server",
+    "doctor": "npm run doctor -w server --silent"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "engines": { "node": ">=22.13" }
+}

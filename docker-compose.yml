@@ -1,0 +1,13 @@
+services:
+  peakclip:
+    build: .
+    ports:
+      - "8787:8787"
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      # Uses your local `gcloud auth application-default login` credentials
+      GOOGLE_APPLICATION_CREDENTIALS: /gcloud/application_default_credentials.json
+    volumes:
+      - ./data:/data
+      - ${HOME}/.config/gcloud:/gcloud:ro
