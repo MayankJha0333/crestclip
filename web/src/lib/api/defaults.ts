@@ -9,7 +9,6 @@ export const DEFAULT_OPTIONS: ProjectOptions = {
   captionStyle: 'pop',
   showHook: true,
   useAudienceData: true,
-  language: 'auto',
   focus: '',
   motion: 'subtle',
   music: 'auto',

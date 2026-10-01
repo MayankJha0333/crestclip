@@ -175,6 +175,16 @@
       transform: none;
     }
   }
+  @keyframes sheet-in {
+    from {
+      opacity: 0;
+      transform: translateX(48px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
   @keyframes shimmer {
     from {
       background-position: -200% 0;

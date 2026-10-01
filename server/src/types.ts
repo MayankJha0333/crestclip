@@ -25,7 +25,6 @@ export interface ProjectOptions {
   captionStyle: CaptionStyle;
   showHook: boolean;
   useAudienceData: boolean;
-  language: string; // 'auto' or a language name
   focus: string; // optional free text: "only funny moments", "product tips"...
   motion?: Motion;
   music?: string; // default track for new clips (see MusicSettings.track)

@@ -8,6 +8,7 @@ import { useTheme, type ThemeChoice } from '../../lib/theme';
 import { toast } from '../../lib/toast';
 import { Button, Card, CardHeader, PageHeader } from '../../components/ui';
 import { SOCIAL } from '../schedule/postStatus';
+import { WatermarkSection } from '../watermark/WatermarkSection';
 import { AccountsSection } from './AccountsSection';
 import { useHealth } from './health';
 
@@ -109,7 +110,7 @@ function AppearanceSection() {
   );
 }
 
-/** One-time setup lives here: connected accounts, look, and system health. */
+/** One-time setup lives here: watermark, connected accounts, look, and system health. */
 export function SettingsPage() {
   const [data, setData] = useState<Connections | null>(null);
   const [params, setParams] = useSearchParams();
@@ -131,8 +132,9 @@ export function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Settings" description="Connect where your clips get posted, choose a theme, and check that everything is running." />
+      <PageHeader title="Settings" description="Add your watermark, connect where your clips get posted, choose a theme, and check that everything is running." />
       <div className="flex flex-col gap-6">
+        <WatermarkSection />
         <Card className="p-5 sm:p-6">
           <CardHeader title="Connected accounts" description="Connect each account once. Then press Post on any clip, or let Autopilot post for you." />
           <AccountsSection data={data} onChange={load} />

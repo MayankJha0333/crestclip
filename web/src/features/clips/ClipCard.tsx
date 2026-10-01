@@ -184,6 +184,13 @@ export function ClipCard({
               title: 'Same moment, next caption style — post variations without duplicate-content flags',
               onSelect: () => act(() => api.variant(clip.id), 'Making a variant with a new caption style…'),
             },
+            {
+              label: 'Render again',
+              icon: <RefreshCw size={15} />,
+              disabled: busy || working,
+              title: 'Rebuild this clip with your current watermark',
+              onSelect: () => act(() => api.rerender(clip.id), 'Rendering again with your current watermark…'),
+            },
           ]}
         />
       </div>

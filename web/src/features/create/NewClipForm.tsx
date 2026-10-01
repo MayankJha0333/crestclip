@@ -52,7 +52,7 @@ function Step({ n, title, hint, done, children, last }: { n: number; title: stri
       </div>
       <div className={cn('min-w-0 flex-1', !last && 'pb-8')}>
         <h2 className="text-xl leading-9">{title}</h2>
-        {hint && <p className="-mt-0.5 mb-3.5 text-sm text-ink-3">{hint}</p>}
+        {hint && <div className="-mt-0.5 mb-3.5 text-sm text-ink-3">{hint}</div>}
         {children}
       </div>
     </section>

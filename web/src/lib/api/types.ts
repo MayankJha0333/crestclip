@@ -14,6 +14,19 @@ export interface MusicSettings {
   volume: number;
   duck: boolean;
 }
+/** The logo stamped on every clip (set up once in Settings). */
+export type WatermarkPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+export type WatermarkSize = 'small' | 'medium' | 'large';
+export interface Watermark {
+  enabled: boolean;
+  logoUrl: string | null;
+  name: string;
+  position: WatermarkPosition;
+  size: WatermarkSize;
+  opacity: number; // 20-100 (%)
+}
+export type WatermarkPatch = Partial<Pick<Watermark, 'enabled' | 'position' | 'size' | 'opacity'>>;
+
 export interface MusicLibrary {
   moods: { id: string; label: string; hint: string; ready: boolean; url: string | null }[];
   uploads: { id: string; name: string; url: string | null }[];
@@ -28,7 +41,6 @@ export interface ProjectOptions {
   captionStyle: CaptionStyle;
   showHook: boolean;
   useAudienceData: boolean;
-  language: string;
   focus: string;
   motion: Motion;
   music: string;

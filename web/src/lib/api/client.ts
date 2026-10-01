@@ -17,6 +17,8 @@ import type {
   ProjectOptions,
   SchedulerStatus,
   TimeRange,
+  Watermark,
+  WatermarkPatch,
 } from './types';
 
 /** Every API error is `{ error: "<friendly message>" }` — surface that message. */
@@ -75,6 +77,14 @@ export const api = {
     const fd = new FormData();
     fd.append('file', file);
     return req<MusicLibrary & { added: string }>('/api/music/uploads', { method: 'POST', body: fd });
+  },
+  watermark: () => req<Watermark>('/api/watermark'),
+  updateWatermark: (patch: WatermarkPatch) => req<Watermark>('/api/watermark', json('PUT', patch)),
+  removeWatermarkLogo: () => req<Watermark>('/api/watermark/logo', { method: 'DELETE' }),
+  async uploadWatermarkLogo(file: File): Promise<Watermark> {
+    const fd = new FormData();
+    fd.append('file', file);
+    return req<Watermark>('/api/watermark/logo', { method: 'POST', body: fd });
   },
   rerender: (id: string) => req<Clip>(`/api/clips/${id}/render`, { method: 'POST' }),
   variant: (id: string) => req<Clip>(`/api/clips/${id}/variant`, { method: 'POST' }),

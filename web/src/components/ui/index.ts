@@ -8,6 +8,7 @@ export { Menu, type MenuItem } from './Menu';
 export { PageHeader } from './PageHeader';
 export { Progress, Skeleton } from './Progress';
 export { Segmented } from './Segmented';
+export { Sheet } from './Sheet';
 export { Spinner } from './Spinner';
 export { StatTile } from './StatTile';
 export { Tabs } from './Tabs';

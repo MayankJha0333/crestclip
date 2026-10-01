@@ -10,6 +10,7 @@ import { musicRouter } from './modules/music/music.routes.js';
 import { projectsRouter } from './modules/projects/projects.routes.js';
 import { publishingRouter } from './modules/publishing/publishing.routes.js';
 import { systemRouter } from './modules/system/system.routes.js';
+import { watermarkRouter } from './modules/watermark/watermark.routes.js';
 
 /** The HTTP app: JSON API under /api, rendered files under /media, and the built web app for everything else. */
 export function createApp() {
@@ -20,6 +21,7 @@ export function createApp() {
   app.use('/api', projectsRouter);
   app.use('/api', clipsRouter);
   app.use('/api', musicRouter);
+  app.use('/api', watermarkRouter);
   app.use('/api/explore', exploreRouter);
   app.use('/api', publishingRouter);
   app.use('/api', autopilotRouter);

@@ -11,6 +11,7 @@ import { extractAudio, extractAudioRange, hasLibass, loudnessPerSecond, makeProx
 import { aiScore, describeClips, findMoments, finalizeClips, snapRange } from './moments.js';
 import { planReframe } from './reframe.js';
 import { concatParts, mixMusic, planZooms, renderClip } from './render.js';
+import { watermarkForRender } from './watermark.js';
 import { resolveMusic } from './music.js';
 import { buildSignals, rangeScore } from './signals.js';
 import { transcribe } from './transcribe.js';
@@ -71,7 +72,11 @@ export async function processProject(id: string) {
       stage(id, 'fetch', 0.02, `Downloading from ${where}…`);
       const got = await downloadFileLink(link, dir, (pct, detail) => stage(id, 'fetch', 0.02 + (pct / 100) * 0.9, `Downloading from ${where} · ${detail}`));
       src = got.file;
-      const title = got.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim().slice(0, 120);
+      const title = got.name
+        .replace(/\.[^.]+$/, '')
+        .replace(/[_-]+/g, ' ')
+        .trim()
+        .slice(0, 120);
       projects.update(id, { mediaPath: src, ...(title && title !== 'video' ? { title } : {}) });
     }
     let info: SourceInfo | null = null;
@@ -136,10 +141,7 @@ export async function processProject(id: string) {
       stage(id, 'listen', 0, 'Pulling out the audio…');
       await extractAudio(src, audio);
       stage(id, 'listen', 0.5, 'Measuring energy and pauses…');
-      [rms, sil] = await Promise.all([
-        loudnessPerSecond(audio, work).catch((e) => (console.warn('[loudness]', e.message), null)),
-        findSilences(audio).catch(() => [] as { s: number; e: number }[]),
-      ]);
+      [rms, sil] = await Promise.all([loudnessPerSecond(audio, work).catch((e) => (console.warn('[loudness]', e.message), null)), findSilences(audio).catch(() => [] as { s: number; e: number }[])]);
       fs.writeFileSync(silPath, JSON.stringify(sil));
       fs.writeFileSync(rmsPath, JSON.stringify(rms));
     }
@@ -148,14 +150,7 @@ export async function processProject(id: string) {
     let segments = p.transcript;
     if (!segments?.length) {
       stage(id, 'transcribe', 0, 'Listening with Gemini…');
-      const tr = await transcribe(
-        audio,
-        duration,
-        work,
-        p.options.language,
-        (d, t) => stage(id, 'transcribe', d / t, `Transcribing · part ${d} of ${t}`),
-        sil,
-      );
+      const tr = await transcribe(audio, duration, work, (d, t) => stage(id, 'transcribe', d / t, `Transcribing · part ${d} of ${t}`), sil);
       if (!tr.segments.length) throw new Error('No speech was found in this video.');
       segments = tr.segments;
       projects.update(id, { transcript: segments });
@@ -247,8 +242,11 @@ async function fetchClipFootage(projectId: string, list: ClipRow[]) {
   if (!p || !list.length || !readFootage(dir)) return;
   stage(projectId, 'render', 0, 'Downloading only the clip parts…');
   try {
-    await prefetchFootage(p, dir, list.map((c) => ({ start: c.start, end: c.end })), (done, total, detail) =>
-      stage(projectId, 'render', (done / total) * 0.3, `Downloading only the clip parts · ${detail}`),
+    await prefetchFootage(
+      p,
+      dir,
+      list.map((c) => ({ start: c.start, end: c.end })),
+      (done, total, detail) => stage(projectId, 'render', (done / total) * 0.3, `Downloading only the clip parts · ${detail}`),
     );
   } catch (e) {
     // Not fatal here: each clip retries its own part when it renders, and shows an error if that fails too.
@@ -327,6 +325,7 @@ async function renderOnce(clipId: string) {
 
     const plans: ReframePlan[] = [];
     const files: string[] = [];
+    const watermark = watermarkForRender();
     let hasVoice = false;
     let total = 0;
     for (const [i, seg] of parts.entries()) {
@@ -339,7 +338,7 @@ async function renderOnce(clipId: string) {
         const fresh = await planReframe({ src: foot.src, start: ls, end: le, width: foot.width, height: foot.height, workDir: work, layout: c.layout as Layout });
         plan = { ...fresh, start: seg.start, end: seg.end };
       }
-      let want = c.layout === 'auto' ? plan.suggested ?? plan.layout : (c.layout as typeof plan.layout);
+      let want = c.layout === 'auto' ? (plan.suggested ?? plan.layout) : (c.layout as typeof plan.layout);
       if (want === 'split' && !plan.splitCenters) want = 'fit'; // fewer than two faces found
       plan = { ...plan, layout: want };
       plans.push(plan);
@@ -363,6 +362,7 @@ async function renderOnce(clipId: string) {
         motion: c.motion,
         zooms: planZooms(words, dur, c.motion),
         introZoom: c.motion === 'dynamic' && first,
+        watermark,
       });
       files.push(partOut);
       hasVoice ||= foot.hasAudio;
@@ -465,7 +465,7 @@ async function ensureTranscript(projectId: string, ranges: TimeRange[], onProgre
     try {
       const audio = path.join(sub, 'audio.mp3');
       await extractAudioRange(foot.src, s0 - foot.offset, e0 - s0, audio);
-      const tr = await transcribe(audio, e0 - s0, sub, p.options.language, (d, t) => onProgress?.(i + d / t, missing.length));
+      const tr = await transcribe(audio, e0 - s0, sub, (d, t) => onProgress?.(i + d / t, missing.length));
       const shifted = tr.segments.map((sg) => ({ ...sg, s: sg.s + s0, e: sg.e + s0, words: sg.words.map((w) => ({ ...w, s: w.s + s0, e: w.e + s0 })) }));
       segs = [...segs.filter((sg) => sg.e <= s0 || sg.s >= e0), ...shifted].sort((a, b) => a.s - b.s);
       cov.push({ start: s0, end: e0 });
@@ -551,9 +551,7 @@ async function processPickedParts(id: string) {
   if (info.thumbnail && !fs.existsSync(thumb)) await remoteThumbnail(info.thumbnail, thumb, work).catch(() => {});
   if (fs.existsSync(thumb)) projects.update(id, { thumbPath: thumb });
 
-  const picked = (p0.options.ranges ?? [])
-    .map((r) => ({ start: Math.max(0, r.start), end: duration ? Math.min(duration, r.end) : r.end }))
-    .filter((r) => r.end - r.start >= 1);
+  const picked = (p0.options.ranges ?? []).map((r) => ({ start: Math.max(0, r.start), end: duration ? Math.min(duration, r.end) : r.end })).filter((r) => r.end - r.start >= 1);
   if (!picked.length) throw new Error('The picked parts are outside this video.');
 
   // only the picked parts of the video are downloaded

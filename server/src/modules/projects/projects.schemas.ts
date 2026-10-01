@@ -17,7 +17,6 @@ export const optionsSchema = z.object({
     .optional(),
   joinRanges: z.coerce.boolean().optional(),
   useAudienceData: z.coerce.boolean().default(true),
-  language: z.string().max(40).default('auto'),
   focus: z.string().max(600).default(''),
   instructions: z.string().max(6000).optional(),
 });

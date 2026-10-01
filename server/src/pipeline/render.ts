@@ -3,6 +3,7 @@ import path from 'node:path';
 import { config } from '../config.js';
 import { run } from '../lib/proc.js';
 import type { Motion, ReframePlan, Word } from '../types.js';
+import { watermarkFilter, type Watermark } from './watermark.js';
 
 const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -121,6 +122,8 @@ export async function renderClip(opts: {
   motion?: Motion;
   zooms?: Zoom[];
   introZoom?: boolean;
+  /** the person's logo, stamped under the captions */
+  watermark?: (Watermark & { file: string }) | null;
 }) {
   const { workDir } = opts;
   fs.mkdirSync(workDir, { recursive: true });
@@ -136,6 +139,10 @@ export async function renderClip(opts: {
     const fy = opts.plan.layout === 'fit' ? 0.5 : 0.4; // keep faces in frame when zooming a crop
     graph += `;[v0]fps=30,zoompan=z='${zoomExpr(zooms, Boolean(opts.introZoom))}':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)*${fy}':d=1:s=1080x1920:fps=30[vz]`;
     vOut = '[vz]';
+  }
+  if (opts.watermark) {
+    graph += `;${watermarkFilter(opts.watermark, 1, vOut, '[vw]')}`;
+    vOut = '[vw]';
   }
   if (opts.assContent) {
     fs.writeFileSync(path.join(workDir, 'captions.ass'), opts.assContent);
@@ -155,13 +162,39 @@ export async function renderClip(opts: {
 
   const tmp = path.join(workDir, `render_${Date.now()}.mp4`);
   const args = [
-    '-y', '-v', 'info', '-nostats', '-progress', 'pipe:1',
-    '-ss', opts.start.toFixed(3), '-t', dur.toFixed(3), '-i', opts.src,
-    '-filter_complex', graph,
-    '-map', '[v]', ...(opts.hasAudio ? ['-map', '[a]'] : []),
-    '-c:v', 'libx264', '-preset', config.x264Preset, '-crf', '20', '-profile:v', 'high', '-pix_fmt', 'yuv420p',
+    '-y',
+    '-v',
+    'info',
+    '-nostats',
+    '-progress',
+    'pipe:1',
+    '-ss',
+    opts.start.toFixed(3),
+    '-t',
+    dur.toFixed(3),
+    '-i',
+    opts.src,
+    ...(opts.watermark ? ['-i', opts.watermark.file] : []),
+    '-filter_complex',
+    graph,
+    '-map',
+    '[v]',
+    ...(opts.hasAudio ? ['-map', '[a]'] : []),
+    '-c:v',
+    'libx264',
+    '-preset',
+    config.x264Preset,
+    '-crf',
+    '20',
+    '-profile:v',
+    'high',
+    '-pix_fmt',
+    'yuv420p',
     ...(opts.hasAudio ? ['-c:a', 'aac', '-b:a', '160k'] : []),
-    '-movflags', '+faststart', '-t', dur.toFixed(3),
+    '-movflags',
+    '+faststart',
+    '-t',
+    dur.toFixed(3),
     tmp,
   ];
   try {
@@ -213,7 +246,34 @@ export async function mixMusic(opts: { input: string; music: string; volume: num
   else graph = `${m};[0:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[v1];[v1][m]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,${tail}`;
   await run(
     config.ffmpeg,
-    ['-y', '-v', 'error', '-i', opts.input, '-stream_loop', '-1', '-i', opts.music, '-filter_complex', graph, '-map', '0:v', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-t', D.toFixed(3), '-movflags', '+faststart', opts.out],
+    [
+      '-y',
+      '-v',
+      'error',
+      '-i',
+      opts.input,
+      '-stream_loop',
+      '-1',
+      '-i',
+      opts.music,
+      '-filter_complex',
+      graph,
+      '-map',
+      '0:v',
+      '-map',
+      '[a]',
+      '-c:v',
+      'copy',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '192k',
+      '-t',
+      D.toFixed(3),
+      '-movflags',
+      '+faststart',
+      opts.out,
+    ],
     { timeoutMs: 10 * 60 * 1000 },
   );
 }

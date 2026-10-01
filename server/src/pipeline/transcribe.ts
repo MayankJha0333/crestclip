@@ -60,7 +60,6 @@ export async function transcribe(
   audioPath: string,
   duration: number,
   workDir: string,
-  language: string,
   onProgress: (done: number, total: number) => void,
   silences: { s: number; e: number }[] = [],
 ): Promise<{ segments: Segment[]; language: string }> {
@@ -75,12 +74,7 @@ export async function transcribe(
     const r = await generateJson<{ language?: string; segments: { s: number; e: number; sp?: string; t: string }[] }>({
       model: config.fastModel,
       system,
-      parts: [
-        part.file(file, 'audio/mp3'),
-        part.text(
-          `Transcribe this ${Math.round(c.dur)}-second audio chunk.${language && language !== 'auto' ? ` The language is ${language}.` : ''} Return the detected language name too.`,
-        ),
-      ],
+      parts: [part.file(file, 'audio/mp3'), part.text(`Transcribe this ${Math.round(c.dur)}-second audio chunk. Work out which language is spoken and return its name too.`)],
       schema,
       audioTimestamp: true,
       thinking: 'MINIMAL',
@@ -102,7 +96,7 @@ export async function transcribe(
   });
 
   const flat = results.flat().sort((a, b) => a.s - b.s);
-  return { segments: withWords(cleanTimeline(flat, duration)), language: lang || language || 'auto' };
+  return { segments: withWords(cleanTimeline(flat, duration)), language: lang || 'auto' };
 }
 
 /** Make timestamps monotonic and non-overlapping. */
