@@ -54,7 +54,7 @@ function parseLink(text: string): LinkHit | null {
   return null;
 }
 
-const savedOptions = (): ProjectOptions => ({ ...DEFAULT_OPTIONS, ...readLocal<Partial<ProjectOptions>>('peakclip:opts', {}) });
+const savedOptions = (): ProjectOptions => ({ ...DEFAULT_OPTIONS, ...readLocal<Partial<ProjectOptions>>('crestclip:opts', {}) });
 
 export function Explore() {
   const nav = useNavigate();
@@ -85,9 +85,9 @@ export function Explore() {
   const [twitchFeatured, setTwitchFeatured] = useState<string[]>(['kaicenat', 'xqc', 'shroud', 'pokimane', 'hasanabi', 'tarik']);
   const [peek, setPeek] = useState<{ list: ExploreItem[]; index: number } | null>(null);
   const [clipping, setClipping] = useState<string | null>(null);
-  const [recentSearches, setRecentSearches] = useState<string[]>(() => readLocal('peakclip:recent-searches', []));
-  const [recentPeeks, setRecentPeeks] = useState<ExploreItem[]>(() => readLocal('peakclip:recent-peeks', []));
-  const [showGuide, setShowGuide] = useState(() => !readLocal('peakclip:explore-guide-done', false));
+  const [recentSearches, setRecentSearches] = useState<string[]>(() => readLocal('crestclip:recent-searches', []));
+  const [recentPeeks, setRecentPeeks] = useState<ExploreItem[]>(() => readLocal('crestclip:recent-peeks', []));
+  const [showGuide, setShowGuide] = useState(() => !readLocal('crestclip:explore-guide-done', false));
   const inputRef = useRef<HTMLInputElement>(null);
 
   const set = useCallback(
@@ -194,15 +194,15 @@ export function Explore() {
     if (link?.kind === 'channel') return set({ channel: link.url, tab: null, q: null, source: /twitch/.test(link.url) ? 'twitch' : 'youtube' });
     if (link) return openPeek([{ kind: link.kind, source: link.source, id: link.id, url: link.url, title: 'Loading video…' }], 0);
     pushRecentSearch(t);
-    setRecentSearches(readLocal('peakclip:recent-searches', []));
+    setRecentSearches(readLocal('crestclip:recent-searches', []));
     set({ q: t, channel: null, tab: null, cat: null });
   };
 
   const rememberPeek = useCallback((it: ExploreItem) => {
     if (it.title === 'Loading video…') return;
-    const list = readLocal<ExploreItem[]>('peakclip:recent-peeks', []).filter((x) => x.url !== it.url);
+    const list = readLocal<ExploreItem[]>('crestclip:recent-peeks', []).filter((x) => x.url !== it.url);
     const next = [it, ...list].slice(0, 12);
-    writeLocal('peakclip:recent-peeks', next);
+    writeLocal('crestclip:recent-peeks', next);
     setRecentPeeks(next);
   }, []);
 
@@ -210,7 +210,7 @@ export function Explore() {
     setClipping(it.url);
     try {
       const p = await api.createFromUrl(it.url, savedOptions());
-      toast('Clipping started — PeakClip is finding the peaks');
+      toast('Clipping started — CrestClip is finding the peaks');
       nav(`/app/p/${p.id}`);
     } catch (e) {
       toast((e as Error).message, 'error');
@@ -222,7 +222,7 @@ export function Explore() {
     if (url) set({ channel: url, tab: null, q: null, source: /twitch/.test(url) ? 'twitch' : 'youtube' });
   };
   const dismissGuide = () => {
-    writeLocal('peakclip:explore-guide-done', true);
+    writeLocal('crestclip:explore-guide-done', true);
     setShowGuide(false);
   };
 
@@ -504,7 +504,7 @@ export function Explore() {
                   type="button"
                   className="linkish"
                   onClick={() => {
-                    writeLocal('peakclip:recent-peeks', []);
+                    writeLocal('crestclip:recent-peeks', []);
                     setRecentPeeks([]);
                   }}
                 >

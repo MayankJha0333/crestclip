@@ -1,6 +1,6 @@
-# PeakClip research notes (September 2026)
+# CrestClip research notes (September 2026)
 
-The research behind PeakClip's product decisions. Each point is tagged:
+The research behind CrestClip's product decisions. Each point is tagged:
 
 - **[FACT]**: stated by the platform itself, or taken from a large named study.
 - **[VENDOR]**: numbers published by a tool company without its method.
@@ -18,7 +18,7 @@ The research behind PeakClip's product decisions. Each point is tagged:
 - `value` runs from 0 to 1 and is relative to the video's *own* peak (1.0 = the most replayed moment). You can't compare values across videos.
 - yt-dlp reads it from `ytInitialData.frameworkUpdates.entityBatchUpdate.mutations[*].payload.macroMarkersListEntity.markersList` (where `markerType == MARKER_TYPE_HEATMAP`).
 - **When it's missing:** new or low-view videos (roughly <80–90K views, <1 week old; YouTube publishes no official threshold), most Shorts, and live streams that are still running.
-- **How PeakClip handles it:**
+- **How CrestClip handles it:**
   - It damps the first ~3% of the curve, because every viewer starts at 0:00.
   - It scores each clip by *percentile rank* ("this moment is rewatched more than 87% of the video").
 - Code: `server/src/pipeline/ytdlp.ts` and `signals.ts`.
@@ -52,7 +52,7 @@ yt-dlp -J --write-comments --extractor-args "youtube:comment_sort=top;max_commen
 - **Silence detection** (`silencedetect`): used to snap cuts into natural pauses.
 - **Scene cuts** (`scdet`): used to switch the crop position only on real camera cuts.
 
-### E. How the Peak score is calculated
+### E. How the Crest score is calculated
 
 ```
 peak = 0.6 × AI virality score + 0.4 × audience score   (when replay/comment data exists)
@@ -77,13 +77,13 @@ peak = 0.88 × AI score + 0.12 × energy score             (when only audio ener
   - TikTok: another platform's watermark means the video isn't eligible for the For You feed.
   - Instagram (Apr 2026): accounts that mostly repost aren't recommended.
   - YouTube (Jul 2025): "inauthentic content" rules for monetization.
-- **What this means for PeakClip:** always add transformation (captions, reframing, hook text), plus **one-click variants**.
+- **What this means for CrestClip:** always add transformation (captions, reframing, hook text), plus **one-click variants**.
 
 ### The first 3 seconds
 
 - TikTok's creative guidance: make the key message in the first 3 s [FACT].
 - About 50–60% of drop-off happens in the first 3 s [VENDOR].
-- **What this means for PeakClip:**
+- **What this means for CrestClip:**
   - Start clips on the hook sentence, not the setup.
   - Add an on-screen **hook headline** for 0–3 s.
 
@@ -93,7 +93,7 @@ peak = 0.88 × AI score + 0.12 × energy score             (when only audio ener
 - TikTok: 120–180 s had about 11× the median views of 15–30 s [FACT].
 - TikTok Creator Rewards only pays on videos of 1 min or more.
 - Shorts: 15–30 s has the best retention [VENDOR].
-- **PeakClip defaults:**
+- **CrestClip defaults:**
   - Shorts: 20–50 s
   - Reels: 30–60 s
   - TikTok: 30–90 s
@@ -107,7 +107,7 @@ peak = 0.88 × AI score + 0.12 × energy score             (when only audio ener
 
 - **Reels:** keep clear of the top 14%, bottom 35% and sides 6%.
 - **TikTok:** keep clear of the right-hand ~120 px (the button column).
-- **PeakClip placement:**
+- **CrestClip placement:**
   - Captions at ~61% of the height.
   - Hook at y≈300.
   - Fit layout: captions at y≈1290.
@@ -157,8 +157,8 @@ peak = 0.88 × AI score + 0.12 × energy score             (when only audio ener
   - `videoMetadata.fps` and `startOffset` / `endOffset` are supported.
   - Cost is about 70 tokens per frame at low/medium resolution, plus 32 tokens per second of audio.
   - Limit is about 45 min of video with audio per request.
-- **Audio timestamps:** set `audioTimestamp: true`. Accuracy is about ±1 s. PeakClip snaps cuts to phrase boundaries and silences to make up for this.
-- **Bounding boxes:** returned as `box_2d [ymin, xmin, ymax, xmax]` on a 0–1000 scale. PeakClip uses them to find the speaking face in frames sampled every ~1.5 s.
+- **Audio timestamps:** set `audioTimestamp: true`. Accuracy is about ±1 s. CrestClip snaps cuts to phrase boundaries and silences to make up for this.
+- **Bounding boxes:** returned as `box_2d [ymin, xmin, ymax, xmax]` on a 0–1000 scale. CrestClip uses them to find the speaking face in frames sampled every ~1.5 s.
 - **Pricing (intro price until 31 Dec 2026):**
   - 3.8 Flash: $0.75 per 1M input tokens, $3.75 per 1M output tokens.
   - 3.5 Flash-Lite: $0.30 in, $2.50 out.

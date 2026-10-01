@@ -164,7 +164,7 @@ export function PublishModal({ clip, onClose, onDone }: { clip: Clip; onClose: (
                   <input className="field" type="datetime-local" value={at} min={toLocalInput(new Date(Date.now() + 120_000))} onChange={(e) => setAt(e.target.value)} />
                   <p className="faint" style={{ fontSize: 12, marginTop: 6 }}>
                     {hasYT && 'YouTube: uploaded now and kept private; YouTube makes it public at this time. '}
-                    {hasIG && 'Instagram: PeakClip posts it at this time — keep PeakClip running. '}
+                    {hasIG && 'Instagram: CrestClip posts it at this time — keep CrestClip running. '}
                     Times are in your timezone ({Intl.DateTimeFormat().resolvedOptions().timeZone}).
                   </p>
                 </div>

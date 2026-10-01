@@ -94,7 +94,7 @@ export interface Project {
   status: 'queued' | 'processing' | 'done' | 'failed';
   stage: string | null;
   stageDetail: string | null;
-  /** Set when PeakClip downloaded only the audio + clip parts instead of the whole video. */
+  /** Set when CrestClip downloaded only the audio + clip parts instead of the whole video. */
   download?: { downloaded: number; full: number | null } | null;
   progress: number;
   error: string | null;
@@ -287,7 +287,7 @@ export const api = {
         if (xhr.status >= 200 && xhr.status < 300) resolve(body as Project);
         else reject(new Error(body.error || `Upload failed (${xhr.status})`));
       };
-      xhr.onerror = () => reject(new Error('Upload failed — is the PeakClip server running?'));
+      xhr.onerror = () => reject(new Error('Upload failed — is the CrestClip server running?'));
       xhr.open('POST', '/api/projects/upload');
       xhr.send(fd);
     });

@@ -4,7 +4,7 @@ import type { Comment } from './ytdlp.js';
 const BINS = 100;
 
 /**
- * "Where do people actually watch?" — PeakClip's audience signal.
+ * "Where do people actually watch?" — CrestClip's audience signal.
  *
  * 1. YouTube "Most replayed" heatmap (via yt-dlp): 100 points, 0..1, relative to the video's own peak.
  * 2. Timestamps viewers write in comments ("12:34 😂"), weighted by likes.

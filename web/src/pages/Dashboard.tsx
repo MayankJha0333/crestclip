@@ -93,7 +93,7 @@ function ProjectList({ limit, title }: { limit?: number; title: string }) {
                       · {timeAgo(p.createdAt)}
                     </p>
                   </div>
-                  {p.bestScore != null && <ScoreRing value={p.bestScore} size={46} label="Best peak score" />}
+                  {p.bestScore != null && <ScoreRing value={p.bestScore} size={46} label="Best crest score" />}
                 </div>
                 {p.status === 'processing' || p.status === 'queued' ? (
                   <div className="progress well" style={{ marginTop: 12 }}>

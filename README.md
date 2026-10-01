@@ -1,6 +1,6 @@
-# PeakClip
+# CrestClip
 
-**PeakClip clips the moment everyone rewatches.** Paste a long video link or upload a file, and you get vertical 9:16 clips of the best moments. Each clip comes with word-by-word captions, a hook headline, face-tracked framing and a virality score.
+**CrestClip clips the moment everyone rewatches.** Paste a long video link or upload a file, and you get vertical 9:16 clips of the best moments. Each clip comes with word-by-word captions, a hook headline, face-tracked framing and a virality score.
 
 All AI runs on **Gemini through Google Cloud Vertex AI**, so it's billed to your Google Cloud credits.
 
@@ -11,14 +11,14 @@ All AI runs on **Gemini through Google Cloud Vertex AI**, so it's billed to your
 
 ## What makes it different
 
-Most clipping tools only *guess* what's viral. PeakClip starts from what viewers **already rewatched**:
+Most clipping tools only *guess* what's viral. CrestClip starts from what viewers **already rewatched**:
 
 1. **YouTube "Most replayed" heatmap.** yt-dlp reads it for free: 100 points showing where people rewind.
 2. **Timestamps in comments.** For example "12:41 😂", weighted by likes.
 3. **Audio energy.** Laughs, raised voices and excitement. This is the fallback when there's no audience data.
 4. **Gemini's 9-point rubric.** Hook, makes sense alone, payoff, emotion, shareability, pacing, clean ending, length fit and trend.
 
-The **Peak score** blends 1–3 (the audience) with 4 (the AI). See `docs/RESEARCH.md` for the research behind every choice.
+The **Crest score** blends 1–3 (the audience) with 4 (the AI). See `docs/RESEARCH.md` for the research behind every choice.
 
 ---
 
@@ -31,10 +31,10 @@ brew install node@22
 brew install --cask google-cloud-sdk
 ```
 
-You don't install any video tools. PeakClip brings its own:
+You don't install any video tools. CrestClip brings its own:
 
 - **ffmpeg** (with caption support) comes inside the app through npm.
-- **yt-dlp** (the YouTube/Twitch downloader) is downloaded on first start into `data/bin`. PeakClip checks for a new version every day, and updates straight away if YouTube breaks a download, then retries it.
+- **yt-dlp** (the YouTube/Twitch downloader) is downloaded on first start into `data/bin`. CrestClip checks for a new version every day, and updates straight away if YouTube breaks a download, then retries it.
 
 **2. Connect Google Cloud** (use the project that has your credits)
 
@@ -44,7 +44,7 @@ gcloud config set project YOUR_PROJECT_ID
 gcloud services enable aiplatform.googleapis.com
 ```
 
-**3. Configure PeakClip**
+**3. Configure CrestClip**
 
 ```bash
 cp .env.example .env
@@ -59,7 +59,7 @@ npm run doctor   # checks Node, the video tools and Gemini, and tells you what t
 npm run dev      # app → http://localhost:5173   ·   API → http://localhost:8787
 ```
 
-**Just want to see the UI without Google Cloud?** Set `PEAKCLIP_FAKE_AI=1` in `.env`. You'll get placeholder AI answers, but real cutting and rendering.
+**Just want to see the UI without Google Cloud?** Set `CRESTCLIP_FAKE_AI=1` in `.env`. You'll get placeholder AI answers, but real cutting and rendering.
 
 **Production build (one port):**
 
@@ -80,8 +80,8 @@ The image needs no system packages. The build pre-downloads yt-dlp so the first 
 Host the Docker image on **Google Cloud Run** in the same project as your credits. Attach a service account with the **Vertex AI User** role to the service. Gemini then works with no keys at all, and your credits pay for both the AI and the hosting.
 
 ```bash
-gcloud run deploy peakclip --source . --region us-central1 \
-  --service-account peakclip@YOUR_PROJECT_ID.iam.gserviceaccount.com \
+gcloud run deploy crestclip --source . --region us-central1 \
+  --service-account crestclip@YOUR_PROJECT_ID.iam.gserviceaccount.com \
   --set-env-vars GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID,GCS_BUCKET=YOUR-BUCKET \
   --memory 4Gi --cpu 2 --timeout 3600 --no-cpu-throttling
 ```
@@ -108,7 +108,7 @@ Open **Explore** in the sidebar:
 - **Twitch:** type a channel name to see its past streams (VODs) and top clips. Keyword search for Twitch channels needs a free Twitch app key (`TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` in `.env`).
 - **Peek:** click any result to watch it and see its **"Most replayed" graph** with its top 5 peaks. Click a peak to jump there. Then pick a platform and hit **Clip this video**.
 
-No YouTube API key is needed. Explore uses yt-dlp, which PeakClip keeps up to date by itself.
+No YouTube API key is needed. Explore uses yt-dlp, which CrestClip keeps up to date by itself.
 
 ## Editing: motion, music and your own picks
 
@@ -124,7 +124,7 @@ Open **Publishing** in the sidebar, connect your accounts, then press **Post** o
 |---|---|---|
 | Sign-in | Google OAuth (`youtube.upload`) | Instagram Login (`instagram_business_basic`, `instagram_business_content_publish`) |
 | Upload | Resumable upload, YouTube Data API v3 | Resumable upload to Instagram, then publish |
-| Scheduling | YouTube's own `publishAt`: goes live even if PeakClip is off | PeakClip's scheduler publishes at the time: **keep PeakClip running** |
+| Scheduling | YouTube's own `publishAt`: goes live even if CrestClip is off | CrestClip's scheduler publishes at the time: **keep CrestClip running** |
 | Limits | Apps that haven't passed YouTube's API audit can only upload **private** videos. Request the audit before launch | Business/Creator accounts only, about 100 API posts a day, redirect URL must be **https** |
 
 Setup: add `YOUTUBE_CLIENT_ID/SECRET` and/or `INSTAGRAM_APP_ID/SECRET` to `.env` (the Publishing page shows the exact steps and redirect URLs). Account tokens are stored encrypted in the local database.
@@ -152,7 +152,7 @@ Then in the dashboard you can:
 ## Project layout
 
 ```
-peakclip/
+crestclip/
 ├─ server/                Node + Express + TypeScript (run with tsx)
 │  └─ src/
 │     ├─ index.ts         REST API + serves the web app + media files

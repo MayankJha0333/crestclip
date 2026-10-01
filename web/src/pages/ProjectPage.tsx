@@ -127,7 +127,7 @@ export function ProjectPage() {
               For {p.options.platform === 'shorts' ? 'YouTube Shorts' : p.options.platform === 'reels' ? 'Reels' : 'TikTok'}
             </span>
             {p.download && (
-              <span className="badge tint-mint" title="PeakClip downloaded the audio plus only the parts that became clips, not the whole video">
+              <span className="badge tint-mint" title="CrestClip downloaded the audio plus only the parts that became clips, not the whole video">
                 <Download size={13} /> {fmtBytes(p.download.downloaded)}
                 {p.download.full && p.download.full > p.download.downloaded ? ` instead of ~${fmtBytes(p.download.full)}` : ' downloaded'}
               </span>
@@ -242,7 +242,7 @@ export function ProjectPage() {
                     </button>
                   );
                 })}
-                {!byTime.length && <p className="faint" style={{ fontSize: 14 }}>Clips will appear here as PeakClip finds them.</p>}
+                {!byTime.length && <p className="faint" style={{ fontSize: 14 }}>Clips will appear here as CrestClip finds them.</p>}
               </div>
             </div>
           </div>
@@ -274,7 +274,7 @@ export function ProjectPage() {
           </div>
           {canPick && (
             <p className="pick-hint" style={{ marginBottom: 6 }}>
-              <MousePointerClick size={15} /> {canWatch ? 'Click the graph to play from there · drag' : 'Drag'} across it to pick your own parts — PeakClip turns them into clips.
+              <MousePointerClick size={15} /> {canWatch ? 'Click the graph to play from there · drag' : 'Drag'} across it to pick your own parts — CrestClip turns them into clips.
             </p>
           )}
           <HeatChart
@@ -315,7 +315,7 @@ export function ProjectPage() {
               <div className="seg" role="group" aria-label="Sort clips">
                 {(
                   [
-                    ['peak', 'Peak score'],
+                    ['peak', 'Crest score'],
                     ['ai', 'AI score'],
                     ['audience', 'Audience'],
                     ['time', 'Timeline'],

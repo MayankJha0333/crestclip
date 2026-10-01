@@ -23,7 +23,7 @@ function embedUrl(item: ExploreItem, start = 0) {
 }
 
 const savedOptions = (): ProjectOptions => {
-  const o = { ...DEFAULT_OPTIONS, ...readLocal<Partial<ProjectOptions>>('peakclip:opts', {}) };
+  const o = { ...DEFAULT_OPTIONS, ...readLocal<Partial<ProjectOptions>>('crestclip:opts', {}) };
   delete o.ranges;
   delete o.joinRanges;
   return o;
@@ -147,10 +147,10 @@ export function PeekDrawer({
 
   const clip = async () => {
     setBusy(true);
-    writeLocal('peakclip:opts', opts);
+    writeLocal('crestclip:opts', opts);
     try {
       const p = await api.createFromUrl(peek?.url ?? item.url, opts);
-      toast('Clipping started — PeakClip is finding the peaks');
+      toast('Clipping started — CrestClip is finding the peaks');
       nav(`/app/p/${p.id}`);
     } catch (e) {
       toast((e as Error).message, 'error');
@@ -160,7 +160,7 @@ export function PeekDrawer({
 
   const clipPicked = async (join: boolean) => {
     setBusy(true);
-    writeLocal('peakclip:opts', opts);
+    writeLocal('crestclip:opts', opts);
     try {
       const p = await api.createFromUrl(peek?.url ?? item.url, { ...opts, ranges: picks, joinRanges: join });
       toast(join ? 'Joining your parts into one clip — only those parts are downloaded' : 'Clipping your parts — only those parts are downloaded');
@@ -312,8 +312,8 @@ export function PeekDrawer({
             <>
               <p className="muted" style={{ fontSize: 14 }}>
                 {peek.isYouTube
-                  ? 'No “Most replayed” graph for this one — YouTube only shows it on popular videos a few days old. PeakClip will find the peaks with Gemini + audio energy instead.'
-                  : 'Twitch has no replay graph. PeakClip will find the peaks with Gemini + audio energy.'}
+                  ? 'No “Most replayed” graph for this one — YouTube only shows it on popular videos a few days old. CrestClip will find the peaks with Gemini + audio energy instead.'
+                  : 'Twitch has no replay graph. CrestClip will find the peaks with Gemini + audio energy.'}
               </p>
               {peek.duration && !live ? (
                 <>

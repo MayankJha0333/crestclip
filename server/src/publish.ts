@@ -10,9 +10,9 @@ import { clips, connections, posts, type ConnectionRow, type PostRow } from './d
  * Publishing connectors — post clips to YouTube (Shorts) and Instagram (Reels), now or on a schedule.
  *
  *  • YouTube:   Google OAuth + YouTube Data API v3 (resumable upload). Scheduling uses YouTube's own
- *               `publishAt`, so a scheduled Short goes live even if PeakClip is off.
+ *               `publishAt`, so a scheduled Short goes live even if CrestClip is off.
  *  • Instagram: "Instagram API with Instagram Login" (professional accounts). Instagram has no scheduling
- *               in its API, so PeakClip's scheduler publishes at the chosen time (PeakClip must be running).
+ *               in its API, so CrestClip's scheduler publishes at the chosen time (CrestClip must be running).
  *
  * Tokens are stored encrypted (AES-256-GCM) in the local database.
  */
@@ -287,7 +287,7 @@ async function runPost(postId: string) {
 
 function friendly(msg: string) {
   if (/quotaExceeded|uploadLimitExceeded/i.test(msg)) return 'YouTube’s daily upload limit for this app was reached. Try again tomorrow.';
-  if (/insufficient|scope/i.test(msg)) return 'PeakClip doesn’t have upload permission for this account. Disconnect and connect it again.';
+  if (/insufficient|scope/i.test(msg)) return 'CrestClip doesn’t have upload permission for this account. Disconnect and connect it again.';
   if (/invalid_grant|expired|OAuthException/i.test(msg)) return `The account login expired — reconnect it. (${msg.slice(0, 160)})`;
   if (/application request limit|rate limit|too many/i.test(msg)) return 'The platform is rate-limiting posts right now. Try again in a little while.';
   return msg.slice(0, 400);

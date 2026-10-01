@@ -21,7 +21,7 @@ export function NewProject({ initialUrl = '' }: { initialUrl?: string }) {
   const [drag, setDrag] = useState(false);
   const [opts, setOpts] = useState<ProjectOptions>(() => {
     try {
-      const saved = { ...DEFAULT_OPTIONS, ...JSON.parse(localStorage.getItem('peakclip:opts') || '{}') } as ProjectOptions;
+      const saved = { ...DEFAULT_OPTIONS, ...JSON.parse(localStorage.getItem('crestclip:opts') || localStorage.getItem('peakclip:opts') || '{}') } as ProjectOptions;
       delete saved.ranges;
       delete saved.joinRanges;
       return saved;
@@ -71,7 +71,7 @@ export function NewProject({ initialUrl = '' }: { initialUrl?: string }) {
     e.preventDefault();
     setError(null);
     try {
-      localStorage.setItem('peakclip:opts', JSON.stringify(opts));
+      localStorage.setItem('crestclip:opts', JSON.stringify(opts));
     } catch {
       /* ignore */
     }

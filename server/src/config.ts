@@ -51,7 +51,7 @@ const num = (k: string, d: number) => {
 
 export const config = {
   port: num('PORT', 8787),
-  /** Where people open PeakClip (used for OAuth redirect links). Dev = the Vite app; production = your domain. */
+  /** Where people open CrestClip (used for OAuth redirect links). Dev = the Vite app; production = your domain. */
   publicUrl: env('PUBLIC_URL', 'http://localhost:5173').replace(/\/$/, ''),
   // Publishing connectors (OAuth apps you create — see README → "Post to YouTube & Instagram")
   youtubeClientId: env('YOUTUBE_CLIENT_ID'),
@@ -60,7 +60,7 @@ export const config = {
   instagramAppSecret: env('INSTAGRAM_APP_SECRET'),
   instagramApiVersion: env('INSTAGRAM_API_VERSION', 'v25.0'),
   /**
-   * Instagram only accepts https sign-in return links. In local dev (PUBLIC_URL is http) PeakClip also listens on
+   * Instagram only accepts https sign-in return links. In local dev (PUBLIC_URL is http) CrestClip also listens on
    * https://localhost:HTTPS_PORT with a self-made certificate, just for that return trip.
    */
   httpsPort: num('HTTPS_PORT', 8443),
@@ -84,7 +84,7 @@ export const config = {
   fastModel: env('GEMINI_FAST_MODEL', 'gemini-3.5-flash-lite'),
   gcsBucket: env('GCS_BUCKET'),
   sendVideoToGemini: env('GEMINI_SEND_VIDEO', 'true') !== 'false',
-  fakeAi: env('PEAKCLIP_FAKE_AI') === '1',
+  fakeAi: (env('CRESTCLIP_FAKE_AI') || env('PEAKCLIP_FAKE_AI')) === '1', // old name still works
 
   // Tools
   ytdlp: env('YTDLP_PATH', 'yt-dlp'),

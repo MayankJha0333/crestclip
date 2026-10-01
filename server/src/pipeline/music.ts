@@ -150,7 +150,7 @@ async function lyriaGenerate(prompt: string, seed: number): Promise<Buffer> {
   return Buffer.from(b64, 'base64');
 }
 
-/** Dev/offline stand-in: a soft chord loop made with ffmpeg (only used in PEAKCLIP_FAKE_AI mode). */
+/** Dev/offline stand-in: a soft chord loop made with ffmpeg (only used in CRESTCLIP_FAKE_AI mode). */
 async function synthPlaceholder(out: string, mood: string) {
   const roots: Record<string, number[]> = { chill: [220, 174.6, 196, 164.8], upbeat: [261.6, 196, 220, 174.6] };
   const r = roots[mood] ?? [196, 220, 174.6, 261.6];

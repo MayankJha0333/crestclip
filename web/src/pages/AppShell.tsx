@@ -13,13 +13,13 @@ interface Issue {
 }
 
 /**
- * PeakClip installs and updates its own video tools, so people never see terminal commands.
+ * CrestClip installs and updates its own video tools, so people never see terminal commands.
  * This only turns *real* problems into plain-language messages (with a Try again button where it helps).
  */
 function issuesFrom(h: Health | null): Issue[] {
   if (!h) return [];
   const out: Issue[] = [];
-  if (!h.gemini.ok) out.push({ key: 'gemini', title: 'The AI isn’t connected', detail: 'PeakClip can’t reach Gemini right now, so new clips can’t be made. Browsing still works.' });
+  if (!h.gemini.ok) out.push({ key: 'gemini', title: 'The AI isn’t connected', detail: 'CrestClip can’t reach Gemini right now, so new clips can’t be made. Browsing still works.' });
   const ffInstalling = h.ffmpegStatus?.state === 'installing';
   if (!h.ffmpeg && !ffInstalling) out.push({ key: 'ffmpeg', title: 'The video engine didn’t start', detail: h.ffmpegStatus?.detail || 'Rendering is unavailable right now.', action: 'retry-tools' });
   else if (h.captions === false && !ffInstalling)
@@ -40,7 +40,7 @@ export function AppShell() {
   const [retrying, setRetrying] = useState(false);
   const [dismissed, setDismissed] = useState<string>(() => {
     try {
-      return sessionStorage.getItem('peakclip:banner') ?? '';
+      return sessionStorage.getItem('crestclip:banner') ?? '';
     } catch {
       return '';
     }
@@ -80,7 +80,7 @@ export function AppShell() {
       await load();
       toast('Checked again');
     } catch {
-      toast('Still not working — PeakClip will keep retrying', 'error');
+      toast('Still not working — CrestClip will keep retrying', 'error');
     } finally {
       setRetrying(false);
     }
@@ -92,7 +92,7 @@ export function AppShell() {
   return (
     <div className="shell">
       <aside className="sidebar clay">
-        <Link to="/" style={{ textDecoration: 'none' }} aria-label="PeakClip home">
+        <Link to="/" style={{ textDecoration: 'none' }} aria-label="CrestClip home">
           <Logo size={38} />
         </Link>
         <nav className="stack" style={{ gap: 8, marginTop: 28 }}>
@@ -136,7 +136,7 @@ export function AppShell() {
                 }
               />
               <p className="faint" style={{ fontSize: 12 }}>
-                PeakClip installs and updates these for you.
+                CrestClip installs and updates these for you.
               </p>
             </div>
           )}
@@ -165,7 +165,7 @@ export function AppShell() {
               aria-label="Hide for now"
               onClick={() => {
                 try {
-                  sessionStorage.setItem('peakclip:banner', issueKey);
+                  sessionStorage.setItem('crestclip:banner', issueKey);
                 } catch {
                   /* ignore */
                 }

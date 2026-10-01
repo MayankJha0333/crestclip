@@ -1,5 +1,5 @@
 services:
-  peakclip:
+  crestclip:
     build: .
     ports:
       - "8787:8787"

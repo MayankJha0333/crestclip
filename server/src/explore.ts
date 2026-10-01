@@ -579,7 +579,7 @@ export const DISCOVER: Record<string, { label: string; sections: SectionDef[] }>
     sections: [
       { id: 'pods', title: 'Podcasts people keep replaying', subtitle: 'Full episodes over 20 min — the best raw material for clips', q: 'podcast', type: 'videos', duration: 'long', sort: 'views', uploaded: 'month' },
       { id: 'interviews', title: 'Interviews blowing up this week', subtitle: 'Fresh and popular — clip them while the topic is hot', q: 'interview', type: 'videos', duration: 'long', sort: 'views', uploaded: 'week' },
-      { id: 'shorts', title: 'What winning clips look like', subtitle: 'Top Shorts cut from long videos — the kind PeakClip makes for you', q: 'podcast clips', type: 'shorts', sort: 'relevance' },
+      { id: 'shorts', title: 'What winning clips look like', subtitle: 'Top Shorts cut from long videos — the kind CrestClip makes for you', q: 'podcast clips', type: 'shorts', sort: 'relevance' },
       { id: 'talks', title: 'Talks with big moments', subtitle: 'Keynotes and speeches with quotable lines', q: 'best speech keynote', type: 'videos', duration: 'medium', sort: 'views', uploaded: 'year' },
     ],
   },
@@ -617,7 +617,7 @@ async function discover(source: 'youtube' | 'twitch', category: string) {
     return {
       sections: [
         { id: 'tw-clips', title: 'Top Twitch clips this week', subtitle: 'The moments chat went crazy for — short, proven, re-cuttable', items: clips, see: null },
-        { id: 'tw-vods', title: 'Recent full streams', subtitle: 'Hours of footage — PeakClip finds the highlights for you', items: streams, see: null },
+        { id: 'tw-vods', title: 'Recent full streams', subtitle: 'Hours of footage — CrestClip finds the highlights for you', items: streams, see: null },
         { id: 'tw-channels', title: 'Popular channels', subtitle: 'Open one to browse its past streams and clips', items: channels, see: null },
       ].filter((s) => s.items.length),
     };

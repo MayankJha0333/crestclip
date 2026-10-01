@@ -9,14 +9,16 @@ export function Logo({ size = 40, withText = true }: { size?: number; withText?:
         style={{ width: size, height: size, borderRadius: size * 0.34, display: 'grid', placeItems: 'center', flex: 'none' }}
         aria-hidden
       >
-        <svg width={size * 0.62} height={size * 0.62} viewBox="0 0 40 40">
-          <path d="M4 30 L13 20 L19 25 L28 9 L36 20" fill="none" stroke="#fff" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round" />
-          <circle cx="28" cy="9" r="4" fill="#FFD65C" />
+        <svg width={size * 0.64} height={size * 0.64} viewBox="0 0 40 40">
+          {/* a wave cresting — the moment everyone rewatches */}
+          <path d="M3.5 29 C9.5 29 12 21.5 16 16.5 C20 11.5 26.5 7.5 31.8 10 C35.8 11.9 36 17.4 32.2 18.6 C29.4 19.5 27.4 17 28.9 15" fill="none" stroke="#fff" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M5 36 C9 33.5 13 33.5 17 36 C21 38.5 25 38.5 29 36 C31.5 34.5 33.5 34 35.5 34.6" fill="none" stroke="#fff" strokeOpacity=".6" strokeWidth="3" strokeLinecap="round" />
+          <circle cx="34.6" cy="5" r="3.4" fill="#FFD65C" />
         </svg>
       </span>
       {withText && (
         <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: size * 0.6, letterSpacing: '-0.02em' }}>
-          Peak<span style={{ color: 'var(--tangerine-d)' }}>Clip</span>
+          Crest<span style={{ color: 'var(--tangerine-d)' }}>Clip</span>
         </span>
       )}
     </span>
@@ -176,7 +178,7 @@ export const PLATFORM_OPTIONS: { value: Platform; label: string }[] = [
 ];
 
 export const LAYOUT_OPTIONS: { value: Layout; label: string; hint: string }[] = [
-  { value: 'auto', label: 'Auto', hint: 'PeakClip picks per clip' },
+  { value: 'auto', label: 'Auto', hint: 'CrestClip picks per clip' },
   { value: 'fill', label: 'Face track', hint: 'Full-screen, follows the speaker' },
   { value: 'split', label: 'Split', hint: 'Two speakers stacked' },
   { value: 'fit', label: 'Fit', hint: 'Whole frame on a blurred background (screens, games)' },

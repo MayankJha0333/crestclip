@@ -132,7 +132,7 @@ export const SourcePlayer = forwardRef<
       <div className="source-empty-msg">
         <Film size={26} />
         <b>Preview not available here</b>
-        <span>PeakClip only downloaded the parts it needed from this link.</span>
+        <span>CrestClip only downloaded the parts it needed from this link.</span>
         {sourceUrl && (
           <a className="btn btn-sm" href={sourceUrl} target="_blank" rel="noreferrer">
             <ExternalLink size={14} /> Watch the original

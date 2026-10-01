@@ -126,7 +126,7 @@ export async function processProject(id: string) {
     stage(id, 'fetch', 1, pr.width ? 'Video ready' : 'Audio ready — video will be fetched only for the clips');
 
     // ---------- 2. listen ----------
-    if (!pr.hasAudio) throw new Error('This video has no audio track. PeakClip needs speech to find moments.');
+    if (!pr.hasAudio) throw new Error('This video has no audio track. CrestClip needs speech to find moments.');
     const audio = path.join(work, 'audio.mp3');
     const silPath = path.join(work, 'silences.json');
     const rmsPath = path.join(work, 'rms.json');
@@ -188,7 +188,7 @@ export async function processProject(id: string) {
           stage(id, 'moments', 0.15, 'Uploading a preview to Cloud Storage…');
           const proxy = path.join(work, 'proxy.mp4');
           await makeProxy(src, proxy);
-          gcsObject = `peakclip/${id}/proxy.mp4`;
+          gcsObject = `crestclip/${id}/proxy.mp4`;
           videoPart = part.uri(await uploadToGcs(proxy, gcsObject, 'video/mp4'), 'video/mp4', { fps: 0.5 });
         }
       } catch {

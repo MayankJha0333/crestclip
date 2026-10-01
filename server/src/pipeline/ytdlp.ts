@@ -39,7 +39,7 @@ function baseArgs(): string[] {
   const a = ['--no-playlist', '--no-warnings', '--ignore-config'];
   if (config.ytdlpCookies) a.push('--cookies', config.ytdlpCookies);
   if (extraArgsOk !== false) a.push(...config.ytdlpExtraArgs);
-  // Use PeakClip's own ffmpeg for merging/cutting, so no system ffmpeg is needed.
+  // Use CrestClip's own ffmpeg for merging/cutting, so no system ffmpeg is needed.
   if (path.isAbsolute(config.ffmpeg)) a.push('--ffmpeg-location', config.ffmpeg);
   return a;
 }
@@ -80,7 +80,7 @@ async function ytdlp(args: string[], opts: Parameters<typeof run>[2] = {}, heale
 function friendlyYtdlpError(e: ProcError): Error {
   const s = `${e.message}\n${e.stderr}`;
   if (/Could not start/.test(s))
-    return new Error(ytStatus.detail || 'The video downloader isn’t ready yet — PeakClip is setting it up. Try again in a minute, or upload the file instead.');
+    return new Error(ytStatus.detail || 'The video downloader isn’t ready yet — CrestClip is setting it up. Try again in a minute, or upload the file instead.');
   if (/Sign in to confirm|not a bot/i.test(s))
     return new Error('YouTube asked for a sign-in check. Add a cookies file (YTDLP_COOKIES in .env) or upload the video file instead.');
   if (/Private video|members-only|This video is private/i.test(s)) return new Error('This video is private or members-only.');
@@ -198,7 +198,7 @@ async function downloadWithFallbacks(opts: {
     }
   }
   const msg = String((lastErr as Error)?.message ?? lastErr);
-  throw new Error(/403|Forbidden/.test(msg) ? 'YouTube blocked this download right now. PeakClip already updated its downloader — try again in a few minutes, or upload the file instead.' : msg);
+  throw new Error(/403|Forbidden/.test(msg) ? 'YouTube blocked this download right now. CrestClip already updated its downloader — try again in a few minutes, or upload the file instead.' : msg);
 }
 
 const progressLine = (onProgress: (pct: number, detail: string) => void) => (line: string) => {
@@ -227,7 +227,7 @@ export async function download(url: string, dir: string, onProgress: (pct: numbe
   return path.join(dir, file);
 }
 
-/** Audio only — tiny compared to the video, and all PeakClip needs to transcribe and find the moments. */
+/** Audio only — tiny compared to the video, and all CrestClip needs to transcribe and find the moments. */
 export async function downloadAudio(url: string, dir: string, onProgress: (pct: number, detail: string) => void, infoJson?: string | null): Promise<string> {
   await downloadWithFallbacks({
     url,

@@ -72,7 +72,7 @@ export function ClipCard({
 
       <div className="clip-body">
         <div className="row" style={{ alignItems: 'flex-start', gap: 14 }}>
-          <ScoreRing value={clip.peakScore} size={62} label="Peak score" />
+          <ScoreRing value={clip.peakScore} size={62} label="Crest score" />
           <div className="grow">
             <div className="row wrap" style={{ gap: 6, marginBottom: 6 }}>
               <span className={`badge ${CATEGORY_TINT[clip.category] ?? 'tint-sky'}`} style={{ textTransform: 'capitalize' }}>

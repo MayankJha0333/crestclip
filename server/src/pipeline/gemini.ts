@@ -5,7 +5,7 @@ import { config } from '../config.js';
 import { sleep } from '../lib/proc.js';
 
 /**
- * All AI in PeakClip goes through Gemini on Google Cloud Vertex AI
+ * All AI in CrestClip goes through Gemini on Google Cloud Vertex AI
  * (now branded "Gemini Enterprise Agent Platform") so it bills against your GCP credits.
  * Auth = Application Default Credentials: `gcloud auth application-default login`
  * or GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json

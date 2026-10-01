@@ -1,6 +1,7 @@
 import './lib/quiet.js';
 import { createRequire } from 'node:module';
 import type { DatabaseSync as DatabaseSyncT } from 'node:sqlite';
+import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { config } from './config.js';
@@ -8,7 +9,13 @@ import type { ClipCandidate, MusicSettings, Motion, ProjectOptions, ReframePlan,
 
 // required lazily (not a static import) so lib/quiet.ts can silence the experimental warning first
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as { DatabaseSync: typeof DatabaseSyncT };
-const db = new DatabaseSync(path.join(config.dataDir, 'peakclip.db'));
+// The app was renamed PeakClip → CrestClip: move the old database file over once (with its -wal/-shm side files).
+const dbFile = path.join(config.dataDir, 'crestclip.db');
+const oldDbFile = path.join(config.dataDir, 'peakclip.db');
+if (!fs.existsSync(dbFile) && fs.existsSync(oldDbFile)) {
+  for (const ext of ['', '-wal', '-shm']) if (fs.existsSync(oldDbFile + ext)) fs.renameSync(oldDbFile + ext, dbFile + ext);
+}
+const db = new DatabaseSync(dbFile);
 db.exec(`
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;

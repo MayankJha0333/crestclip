@@ -90,7 +90,7 @@ export function VideoCard({
               <Radio size={12} /> LIVE
             </span>
           ) : replayLikely(item) ? (
-            <span className="badge replay-badge" title="Popular enough that YouTube likely shows a “Most replayed” graph — PeakClip clips its peaks">
+            <span className="badge replay-badge" title="Popular enough that YouTube likely shows a “Most replayed” graph — CrestClip clips its peaks">
               <Flame size={12} /> Replay data
             </span>
           ) : null}

@@ -7,7 +7,7 @@ import { config } from './config.js';
 
 /**
  * Local https for development.
- * Instagram refuses http sign-in return links, so in dev PeakClip also serves the same app on
+ * Instagram refuses http sign-in return links, so in dev CrestClip also serves the same app on
  * https://localhost:8443 with a self-made certificate (made once with openssl, saved in data/certs).
  * Your browser shows a one-time "not private" warning for it — that's expected for a local certificate.
  */

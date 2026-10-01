@@ -6,11 +6,11 @@ import { hasLibass, resetFfmpegCache } from './pipeline/media.js';
 import { gunzipSync } from 'node:zlib';
 
 /**
- * PeakClip manages its own video tools so nobody has to open a terminal:
+ * CrestClip manages its own video tools so nobody has to open a terminal:
  *
  *  • ffmpeg / ffprobe — shipped inside the app via npm (ffmpeg-static / ffprobe-static). These builds include
  *    libx264 + libass, so rendering and burned-in captions work on macOS, Linux and Windows out of the box.
- *  • yt-dlp — YouTube changes often, so a fixed version goes stale. PeakClip downloads the official standalone
+ *  • yt-dlp — YouTube changes often, so a fixed version goes stale. CrestClip downloads the official standalone
  *    yt-dlp binary into data/bin, checks for updates every day, and updates immediately if a download fails.
  *
  * Anything set explicitly in .env (FFMPEG_PATH, FFPROBE_PATH, YTDLP_PATH) wins.
@@ -22,7 +22,7 @@ const log = (...a: unknown[]) => console.log('  [tools]', ...a);
 
 // ---------------- ffmpeg / ffprobe ----------------
 // Normally resolved in config.ts (bundled via npm). If npm skipped the download, or only a system ffmpeg without
-// caption support is around, PeakClip fetches the same static build itself into data/bin.
+// caption support is around, CrestClip fetches the same static build itself into data/bin.
 export const ffmpegPath = () => config.ffmpeg;
 export const ffmpegSource = () => config.ffmpegSource;
 
@@ -76,7 +76,7 @@ export function ensureFfmpeg(): Promise<void> {
       ffStatus.detail = ffStatus.state === 'ready' ? '' : 'The video engine was installed but can’t draw captions.';
     } catch (e) {
       ffStatus.state = 'error';
-      ffStatus.detail = `Couldn’t download the video engine: ${(e as Error).message}. PeakClip will retry automatically.`;
+      ffStatus.detail = `Couldn’t download the video engine: ${(e as Error).message}. CrestClip will retry automatically.`;
     }
   })().finally(() => {
     ffBusy = null;
@@ -174,7 +174,8 @@ export function ensureYtdlp(force = false): Promise<void> {
         }
       }
       ytStatus.source = 'managed';
-      ytStatus.version = await version(managedYt);
+      // The first run of the one-file build unpacks itself and can be slow or cut off by a quick restart — try twice.
+      ytStatus.version = (await version(managedYt)) ?? (await new Promise((r) => setTimeout(r, 3000)).then(() => version(managedYt)));
       ytStatus.state = ytStatus.version ? 'ready' : 'error';
       ytStatus.detail = ytStatus.version ? '' : 'The downloader was installed but doesn’t run on this computer.';
     } catch (e) {
@@ -183,7 +184,7 @@ export function ensureYtdlp(force = false): Promise<void> {
       ytStatus.source = sys ? 'system' : null;
       ytStatus.version = sys;
       ytStatus.state = sys ? 'ready' : 'error';
-      ytStatus.detail = sys ? '' : `Couldn’t download the video downloader: ${(e as Error).message}. Check the internet connection — PeakClip will retry automatically.`;
+      ytStatus.detail = sys ? '' : `Couldn’t download the video downloader: ${(e as Error).message}. Check the internet connection — CrestClip will retry automatically.`;
     } finally {
       ytStatus.checkedAt = Date.now();
     }

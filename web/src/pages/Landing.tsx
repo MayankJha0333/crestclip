@@ -85,7 +85,7 @@ function HeroPhone() {
       <div className="float-card clay-sm float" style={{ top: 30, left: -30, animationDelay: '-1s' }}>
         <ScoreRing value={91} size={54} />
         <div>
-          <b>Peak score</b>
+          <b>Crest score</b>
           <div className="faint" style={{ fontSize: 13 }}>AI 88 · rewatched 97%</div>
         </div>
       </div>
@@ -125,15 +125,15 @@ const STEPS = [
 ];
 
 const PLANS = [
-  { name: 'Starter', price: '$0', per: 'forever', tint: '', points: ['30 min of video / month', '720p exports with watermark', 'All caption styles', 'Peak score + reasons'], cta: 'Start free' },
+  { name: 'Starter', price: '$0', per: 'forever', tint: '', points: ['30 min of video / month', '720p exports with watermark', 'All caption styles', 'Crest score + reasons'], cta: 'Start free' },
   { name: 'Creator', price: '$15', per: '/ month', tint: 'tint-tangerine', points: ['300 min of video / month', '1080p, no watermark', '“Most replayed” + comment signals', 'Variants & split-screen'], cta: 'Go Creator', featured: true },
   { name: 'Clipper Pro', price: '$39', per: '/ month', tint: '', points: ['1,200 min of video / month', 'Priority rendering', 'Bulk download', 'Campaign-ready variants'], cta: 'Go Pro' },
 ];
 
 const FAQ = [
-  { q: 'How do you know which part is the most watched?', a: 'For YouTube videos with enough views, YouTube publishes a “Most replayed” graph — 100 points showing where viewers rewind and rewatch. PeakClip reads it, adds timestamps that viewers write in comments (“12:41 😂”), and mixes in audio energy (laughter, raised voices). New videos and uploads have no replay data, so PeakClip leans on Gemini and the audio signal instead — the chart tells you which one you are looking at.' },
-  { q: 'Which AI does PeakClip use?', a: 'Only Google Gemini, running on Google Cloud Vertex AI. Transcription, moment-finding, scoring and face finding for reframing all go through Gemini, so usage is billed to your Google Cloud account and credits.' },
-  { q: 'What does the Peak score mean?', a: 'It blends two things: the AI virality score (Gemini grading the clip on hook, payoff, emotion, shareability and more) and the audience score (how much more this moment is rewatched than the rest of the video). When there is no audience data, the AI score does most of the work.' },
+  { q: 'How do you know which part is the most watched?', a: 'For YouTube videos with enough views, YouTube publishes a “Most replayed” graph — 100 points showing where viewers rewind and rewatch. CrestClip reads it, adds timestamps that viewers write in comments (“12:41 😂”), and mixes in audio energy (laughter, raised voices). New videos and uploads have no replay data, so CrestClip leans on Gemini and the audio signal instead — the chart tells you which one you are looking at.' },
+  { q: 'Which AI does CrestClip use?', a: 'Only Google Gemini, running on Google Cloud Vertex AI. Transcription, moment-finding, scoring and face finding for reframing all go through Gemini, so usage is billed to your Google Cloud account and credits.' },
+  { q: 'What does the Crest score mean?', a: 'It blends two things: the AI virality score (Gemini grading the clip on hook, payoff, emotion, shareability and more) and the audience score (how much more this moment is rewatched than the rest of the video). When there is no audience data, the AI score does most of the work.' },
   { q: 'Can I post clips of other people’s videos?', a: 'Only when you have the rights — your own content, a client’s, or an approved clipping campaign. Platforms also reward original edits over plain re-uploads, which is why every clip gets captions, reframing and a hook.' },
   { q: 'How long can the source video be?', a: 'Up to 4 hours by default. Longer streams work too; just raise MAX_SOURCE_MINUTES in the .env file.' },
 ];
@@ -174,7 +174,7 @@ export function Landing() {
             Clip the moment <span className="squiggle">everyone</span> rewatches.
           </h1>
           <p className="hero-sub">
-            Paste a long video. PeakClip finds the parts viewers already replay, has Gemini pick the ones that stand on their own, and hands you vertical clips with
+            Paste a long video. CrestClip finds the parts viewers already replay, has Gemini pick the ones that stand on their own, and hands you vertical clips with
             captions, a hook and a score.
           </p>
           <form className="hero-input clay" onSubmit={go}>
@@ -228,7 +228,7 @@ export function Landing() {
             <span style={{ color: 'var(--tangerine-d)' }}>We start from what people rewatched.</span>
           </h2>
           <p className="muted" style={{ fontSize: 18, marginTop: 16 }}>
-            Short-video feeds reward one thing above all: people who stop, watch to the end, rewatch and share. So PeakClip stacks real audience signals under
+            Short-video feeds reward one thing above all: people who stop, watch to the end, rewatch and share. So CrestClip stacks real audience signals under
             Gemini’s judgment.
           </p>
           <div className="signal-list">
@@ -369,7 +369,7 @@ export function Landing() {
       <section className="cta-band tint-tangerine">
         <div>
           <h2>Your next viral clip is already in your last video.</h2>
-          <p>Let PeakClip find it.</p>
+          <p>Let CrestClip find it.</p>
         </div>
         <Link to="/app" className="btn btn-ink btn-lg">
           Find my peaks <ArrowRight size={20} />

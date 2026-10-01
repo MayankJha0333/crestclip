@@ -1,4 +1,4 @@
-# PeakClip — one container with the API and the built web app.
+# CrestClip — one container with the API and the built web app.
 # No system packages needed: ffmpeg (with captions) ships via npm, and yt-dlp is managed by the app itself.
 FROM node:22-bookworm-slim
 

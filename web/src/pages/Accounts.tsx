@@ -39,7 +39,7 @@ const PLATFORM = {
     tint: 'yt',
     provider: 'Google',
     blurb: 'Post Shorts straight to your channel.',
-    perks: ['Title, description and privacy per post', 'Scheduled with YouTube’s own clock — goes out even if PeakClip is off'],
+    perks: ['Title, description and privacy per post', 'Scheduled with YouTube’s own clock — goes out even if CrestClip is off'],
     note: (
       <>
         Until your Google app passes YouTube’s free API audit, uploads stay <b>private</b>. Fine for testing — request the audit before launch.
@@ -53,7 +53,7 @@ const PLATFORM = {
     tint: 'ig',
     provider: 'Instagram',
     blurb: 'Post Reels with your caption and hashtags.',
-    perks: ['Caption, hashtags and cover from your clip', 'Scheduled by PeakClip — keep it running at post time'],
+    perks: ['Caption, hashtags and cover from your clip', 'Scheduled by CrestClip — keep it running at post time'],
     note: (
       <>
         Needs an Instagram <b>Business or Creator</b> account (Instagram app → Settings → Account type).
@@ -224,7 +224,7 @@ export function AccountsPage() {
         }}
       >
         <p>
-          PeakClip will forget <b>{removing?.name}</b> and drop its post history here. Posts waiting in PeakClip won’t go out. Anything already on {removing ? PLATFORM[removing.platform].name : ''} (including YouTube’s own schedule) stays there.
+          CrestClip will forget <b>{removing?.name}</b> and drop its post history here. Posts waiting in CrestClip won’t go out. Anything already on {removing ? PLATFORM[removing.platform].name : ''} (including YouTube’s own schedule) stays there.
         </p>
       </ConfirmModal>
     </div>
@@ -341,7 +341,7 @@ function PlatformCard({
             <Link2 size={16} /> Connect {P.name}
           </a>
           <p className="pub-safe">
-            <ShieldCheck size={13} /> PeakClip only asks to upload {P.what} — never your password. Disconnect any time.
+            <ShieldCheck size={13} /> CrestClip only asks to upload {P.what} — never your password. Disconnect any time.
           </p>
         </div>
       ) : loading ? (
@@ -483,7 +483,7 @@ function SetupSteps({ platform, redirectUri, needsHttps }: { platform: Platform;
             Create an <a className="linkish" href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">OAuth client ID</a> → type <b>Web application</b> → add this redirect URI:
           </>,
           <>
-            Put the keys in <code>.env</code>: <code>YOUTUBE_CLIENT_ID=…</code> and <code>YOUTUBE_CLIENT_SECRET=…</code>, then restart PeakClip.
+            Put the keys in <code>.env</code>: <code>YOUTUBE_CLIENT_ID=…</code> and <code>YOUTUBE_CLIENT_SECRET=…</code>, then restart CrestClip.
           </>,
         ]
       : [
@@ -503,7 +503,7 @@ function SetupSteps({ platform, redirectUri, needsHttps }: { platform: Platform;
             :
           </>,
           <>
-            Put the keys in <code>.env</code>: <code>INSTAGRAM_APP_ID=…</code> and <code>INSTAGRAM_APP_SECRET=…</code>, then restart PeakClip.
+            Put the keys in <code>.env</code>: <code>INSTAGRAM_APP_ID=…</code> and <code>INSTAGRAM_APP_SECRET=…</code>, then restart CrestClip.
           </>,
         ];
   return (

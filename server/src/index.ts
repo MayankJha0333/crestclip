@@ -397,7 +397,7 @@ app.post(
       res.status(201).json({ ...publicMusic(), added: u.id });
     } catch {
       fs.rmSync(req.file.path, { force: true });
-      res.status(400).json({ error: 'That file doesn’t look like audio PeakClip can read.' });
+      res.status(400).json({ error: 'That file doesn’t look like audio CrestClip can read.' });
     }
   }),
 );
@@ -431,7 +431,7 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 app.listen(config.port, () => {
-  console.log(`\n  PeakClip API  →  http://localhost:${config.port}`);
+  console.log(`\n  CrestClip API  →  http://localhost:${config.port}`);
   console.log(`  Gemini (Vertex AI): ${config.fakeAi ? 'FAKE MODE (dev only)' : config.gcpProject ? `${config.gcpProject} · ${config.gcpLocation} · ${config.model}` : 'NOT CONFIGURED — set GOOGLE_CLOUD_PROJECT in .env'}`);
   console.log(`  Data folder: ${config.dataDir}\n`);
   startToolUpkeep();
