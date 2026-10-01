@@ -116,6 +116,19 @@ No YouTube API key is needed. Explore uses yt-dlp, which PeakClip keeps up to da
 - **Background music:** pick a mood (Chill lo-fi, Upbeat, Inspiring, Hype, Suspense, Funny, Emotional, Clean tech), *Auto* (matches each clip's category), or upload your own track. Mood tracks are instrumental, made once with Google's **Lyria** model on Vertex AI (your credits) and reused. Music loops smoothly, fades in/out, and ducks under speech.
 - **Pick your own parts:** on a project's "Where viewers rewatch" graph, drag across the parts you want (drag the yellow edges to adjust). Then **Make N clips** or **Join into 1 clip**. In **Explore**, click the graph to jump the preview there, drag to pick parts, and clip just those; only those parts are downloaded.
 
+## Post to YouTube & Instagram
+
+Open **Publishing** in the sidebar, connect your accounts, then press **Post** on any clip: post now or schedule it.
+
+| | YouTube Shorts | Instagram Reels |
+|---|---|---|
+| Sign-in | Google OAuth (`youtube.upload`) | Instagram Login (`instagram_business_basic`, `instagram_business_content_publish`) |
+| Upload | Resumable upload, YouTube Data API v3 | Resumable upload to Instagram, then publish |
+| Scheduling | YouTube's own `publishAt`: goes live even if PeakClip is off | PeakClip's scheduler publishes at the time: **keep PeakClip running** |
+| Limits | Apps that haven't passed YouTube's API audit can only upload **private** videos. Request the audit before launch | Business/Creator accounts only, about 100 API posts a day, redirect URL must be **https** |
+
+Setup: add `YOUTUBE_CLIENT_ID/SECRET` and/or `INSTAGRAM_APP_ID/SECRET` to `.env` (the Publishing page shows the exact steps and redirect URLs). Account tokens are stored encrypted in the local database.
+
 ## How it works (the pipeline)
 
 | Step | What happens | Tool |

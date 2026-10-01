@@ -5,7 +5,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import multer from 'multer';
 import { z } from 'zod';
 import { aiReady, config } from './config.js';
-import { clips, projects, type ClipRow, type ProjectRow } from './db.js';
+import { clips, posts, projects, type ClipRow, type ProjectRow } from './db.js';
 import { checkGemini } from './pipeline/gemini.js';
 import { ffmpegVersion } from './pipeline/media.js';
 import { lengthRange, RUBRIC_WEIGHTS } from './pipeline/moments.js';
@@ -15,6 +15,8 @@ import { addUpload, generateMood, lyriaStatus, musicLibrary, removeUpload } from
 import { exploreRouter, warmExplore } from './explore.js';
 import { footageSavings, readFootage } from './pipeline/footage.js';
 import { classifyFileLink, fileLinkLabel } from './pipeline/filelink.js';
+import { publishRouter, startScheduler } from './publish.js';
+import { startLocalHttps } from './localhttps.js';
 import { ensureFfmpeg, ensureYtdlp, ffStatus, startToolUpkeep, ytStatus } from './tools.js';
 import { hasLibass } from './pipeline/media.js';
 import type { ProjectOptions } from './types.js';
@@ -100,6 +102,7 @@ function publicClip(c: ClipRow) {
       .reduce((a, r) => a + r.end - r.start, 0)
       .toFixed(2),
     segments: c.segments,
+    posts: posts.forClip(c.id).map((p) => ({ id: p.id, platform: p.platform, status: p.status, scheduledAt: p.scheduledAt, remoteUrl: p.remoteUrl, error: p.error })),
     motion: c.motion,
     music: c.music,
     source: c.source,
@@ -412,6 +415,7 @@ app.get('/api/meta', (_req, res) => {
 });
 
 app.use('/api/explore', exploreRouter);
+app.use('/api', publishRouter);
 
 // ---------- media + web ----------
 app.use('/media', express.static(config.dataDir, { fallthrough: false, maxAge: '1h', index: false, dotfiles: 'deny' }));
@@ -431,6 +435,8 @@ app.listen(config.port, () => {
   console.log(`  Gemini (Vertex AI): ${config.fakeAi ? 'FAKE MODE (dev only)' : config.gcpProject ? `${config.gcpProject} · ${config.gcpLocation} · ${config.model}` : 'NOT CONFIGURED — set GOOGLE_CLOUD_PROJECT in .env'}`);
   console.log(`  Data folder: ${config.dataDir}\n`);
   startToolUpkeep();
+  startScheduler();
+  startLocalHttps(app);
   resumeUnfinished();
   warmExplore();
 });

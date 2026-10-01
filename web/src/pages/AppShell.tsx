@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, Link } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, Compass, Gauge, LayoutGrid, Loader2, Plus, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Compass, Gauge, LayoutGrid, Loader2, Plus, RefreshCw, Send, X } from 'lucide-react';
 import { api, type Health } from '../lib/api';
 import { Logo } from '../components/bits';
 import { subscribeToasts, toast, type Toast } from '../lib/toast';
@@ -104,6 +104,9 @@ export function AppShell() {
           </NavLink>
           <NavLink to="/app/projects" className="nav-item">
             <LayoutGrid size={18} /> Projects
+          </NavLink>
+          <NavLink to="/app/accounts" className="nav-item">
+            <Send size={18} /> Publishing
           </NavLink>
         </nav>
         <div style={{ marginTop: 'auto', position: 'relative' }} ref={pillRef}>

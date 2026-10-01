@@ -68,6 +68,41 @@ CREATE TABLE IF NOT EXISTS clips (
 CREATE INDEX IF NOT EXISTS clips_project ON clips(project_id);
 `);
 
+// ---- publishing: connected accounts + posts ----
+db.exec(`
+CREATE TABLE IF NOT EXISTS connections (
+  id TEXT PRIMARY KEY,
+  platform TEXT NOT NULL,            -- 'youtube' | 'instagram'
+  account_id TEXT NOT NULL,
+  name TEXT,
+  handle TEXT,
+  avatar TEXT,
+  tokens TEXT NOT NULL,              -- encrypted JSON {access, refresh, expiresAt}
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE(platform, account_id)
+);
+CREATE TABLE IF NOT EXISTS posts (
+  id TEXT PRIMARY KEY,
+  clip_id TEXT NOT NULL REFERENCES clips(id) ON DELETE CASCADE,
+  connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+  platform TEXT NOT NULL,
+  title TEXT,
+  caption TEXT,
+  privacy TEXT,
+  scheduled_at INTEGER,              -- null = post now
+  status TEXT NOT NULL,              -- scheduled | uploading | processing | published | failed | canceled
+  remote_id TEXT,
+  remote_url TEXT,
+  error TEXT,
+  attempts INTEGER DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS posts_clip ON posts(clip_id);
+CREATE INDEX IF NOT EXISTS posts_due ON posts(status, scheduled_at);
+`);
+
 // ---- migrations: add columns introduced after the first release ----
 {
   const cols = new Set((db.prepare('PRAGMA table_info(clips)').all() as { name: string }[]).map((c) => c.name));
@@ -422,5 +457,132 @@ export const clips = {
         audience_score, peak_score - 0.01, layout, ?, show_hook, 'pending', reframe_json, segments_json, motion, music_json, source FROM clips WHERE id = ?`,
     ).run(nid, (maxIdx ?? 0) + 1, now(), now(), o.titleSuffix, o.captionStyle, id);
     return this.get(nid);
+  },
+};
+
+// ---------- connected accounts ----------
+export interface ConnectionRow {
+  id: string;
+  platform: 'youtube' | 'instagram';
+  accountId: string;
+  name: string | null;
+  handle: string | null;
+  avatar: string | null;
+  tokens: string;
+  createdAt: number;
+  updatedAt: number;
+}
+const toConn = (r: Raw): ConnectionRow => ({
+  id: r.id as string,
+  platform: r.platform as ConnectionRow['platform'],
+  accountId: r.account_id as string,
+  name: (r.name as string) ?? null,
+  handle: (r.handle as string) ?? null,
+  avatar: (r.avatar as string) ?? null,
+  tokens: r.tokens as string,
+  createdAt: r.created_at as number,
+  updatedAt: r.updated_at as number,
+});
+export const connections = {
+  list(): ConnectionRow[] {
+    return (db.prepare('SELECT * FROM connections ORDER BY platform, created_at').all() as Raw[]).map(toConn);
+  },
+  get(id: string): ConnectionRow | null {
+    const r = db.prepare('SELECT * FROM connections WHERE id = ?').get(id) as Raw | undefined;
+    return r ? toConn(r) : null;
+  },
+  /** insert or update (same platform + account = reconnect) */
+  upsert(c: { platform: string; accountId: string; name: string | null; handle: string | null; avatar: string | null; tokens: string }): ConnectionRow {
+    const existing = db.prepare('SELECT id FROM connections WHERE platform = ? AND account_id = ?').get(c.platform, c.accountId) as Raw | undefined;
+    const id = (existing?.id as string) ?? randomUUID().slice(0, 12);
+    if (existing)
+      db.prepare('UPDATE connections SET name = ?, handle = ?, avatar = ?, tokens = ?, updated_at = ? WHERE id = ?').run(c.name, c.handle, c.avatar, c.tokens, now(), id);
+    else
+      db.prepare('INSERT INTO connections (id, platform, account_id, name, handle, avatar, tokens, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+        id, c.platform, c.accountId, c.name, c.handle, c.avatar, c.tokens, now(), now(),
+      );
+    return this.get(id)!;
+  },
+  setTokens(id: string, tokens: string) {
+    db.prepare('UPDATE connections SET tokens = ?, updated_at = ? WHERE id = ?').run(tokens, now(), id);
+  },
+  remove(id: string) {
+    db.prepare('DELETE FROM connections WHERE id = ?').run(id);
+  },
+};
+
+// ---------- posts (publish / schedule) ----------
+export type PostStatus = 'scheduled' | 'uploading' | 'processing' | 'published' | 'failed' | 'canceled';
+export interface PostRow {
+  id: string;
+  clipId: string;
+  connectionId: string;
+  platform: 'youtube' | 'instagram';
+  title: string | null;
+  caption: string | null;
+  privacy: string | null;
+  scheduledAt: number | null;
+  status: PostStatus;
+  remoteId: string | null;
+  remoteUrl: string | null;
+  error: string | null;
+  attempts: number;
+  createdAt: number;
+  updatedAt: number;
+}
+const toPost = (r: Raw): PostRow => ({
+  id: r.id as string,
+  clipId: r.clip_id as string,
+  connectionId: r.connection_id as string,
+  platform: r.platform as PostRow['platform'],
+  title: (r.title as string) ?? null,
+  caption: (r.caption as string) ?? null,
+  privacy: (r.privacy as string) ?? null,
+  scheduledAt: (r.scheduled_at as number) ?? null,
+  status: r.status as PostStatus,
+  remoteId: (r.remote_id as string) ?? null,
+  remoteUrl: (r.remote_url as string) ?? null,
+  error: (r.error as string) ?? null,
+  attempts: (r.attempts as number) ?? 0,
+  createdAt: r.created_at as number,
+  updatedAt: r.updated_at as number,
+});
+export const posts = {
+  create(p: { clipId: string; connectionId: string; platform: string; title: string | null; caption: string | null; privacy: string | null; scheduledAt: number | null }): PostRow {
+    const id = randomUUID().slice(0, 12);
+    db.prepare(
+      `INSERT INTO posts (id, clip_id, connection_id, platform, title, caption, privacy, scheduled_at, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?)`,
+    ).run(id, p.clipId, p.connectionId, p.platform, p.title, p.caption, p.privacy, p.scheduledAt, now(), now());
+    return this.get(id)!;
+  },
+  get(id: string): PostRow | null {
+    const r = db.prepare('SELECT * FROM posts WHERE id = ?').get(id) as Raw | undefined;
+    return r ? toPost(r) : null;
+  },
+  forClip(clipId: string): PostRow[] {
+    return (db.prepare('SELECT * FROM posts WHERE clip_id = ? ORDER BY created_at DESC').all(clipId) as Raw[]).map(toPost);
+  },
+  list(limit = 200): PostRow[] {
+    return (db.prepare('SELECT * FROM posts ORDER BY COALESCE(scheduled_at, created_at) DESC LIMIT ?').all(limit) as Raw[]).map(toPost);
+  },
+  /** due = scheduled and its time has come (or "now" posts) */
+  due(): PostRow[] {
+    return (db.prepare(`SELECT * FROM posts WHERE status = 'scheduled' AND (scheduled_at IS NULL OR scheduled_at <= ?) ORDER BY scheduled_at`).all(now()) as Raw[]).map(toPost);
+  },
+  stuck(): PostRow[] {
+    return (db.prepare(`SELECT * FROM posts WHERE status IN ('uploading', 'processing')`).all() as Raw[]).map(toPost);
+  },
+  update(id: string, patch: Partial<Pick<PostRow, 'status' | 'remoteId' | 'remoteUrl' | 'error' | 'attempts' | 'scheduledAt'>>) {
+    const map: Record<string, string> = { status: 'status', remoteId: 'remote_id', remoteUrl: 'remote_url', error: 'error', attempts: 'attempts', scheduledAt: 'scheduled_at' };
+    const sets = ['updated_at = ?'];
+    const vals: unknown[] = [now()];
+    for (const [k, v] of Object.entries(patch)) {
+      if (!map[k]) continue;
+      sets.push(`${map[k]} = ?`);
+      vals.push(v ?? null);
+    }
+    vals.push(id);
+    db.prepare(`UPDATE posts SET ${sets.join(', ')} WHERE id = ?`).run(...(vals as never[]));
   },
 };

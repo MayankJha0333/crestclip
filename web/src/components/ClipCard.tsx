@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { Check, ChevronDown, Combine, Copy, Download, Hand, Music, Pencil, RefreshCw, Sparkles, TriangleAlert } from 'lucide-react';
+import { CalendarClock, Check, ChevronDown, Combine, Copy, Download, ExternalLink, Hand, Instagram, Music, Pencil, RefreshCw, Send, Sparkles, TriangleAlert, Youtube } from 'lucide-react';
+import { PublishModal } from './PublishModal';
+import { postLabel } from '../pages/Accounts';
 import { api, fmtTime, type Clip } from '../lib/api';
 import { CATEGORY_TINT, RubricBars, ScoreRing } from './bits';
 
@@ -21,6 +23,7 @@ export function ClipCard({
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [posting, setPosting] = useState(false);
   const working = clip.status === 'pending' || clip.status === 'rendering';
 
   const copyPost = async () => {
@@ -126,6 +129,30 @@ export function ClipCard({
 
         {clip.error && <p style={{ color: 'var(--bad)', fontSize: 14 }}>{clip.error}</p>}
 
+        {clip.posts && clip.posts.length > 0 && (
+          <div className="clip-posts">
+            {clip.posts.slice(0, 4).map((p) => {
+              const L = postLabel(p);
+              const Icon = p.platform === 'youtube' ? Youtube : Instagram;
+              const body = (
+                <>
+                  <Icon size={13} /> {L.text}
+                  {p.remoteUrl && <ExternalLink size={11} />}
+                </>
+              );
+              return p.remoteUrl ? (
+                <a key={p.id} className={`post-status ${L.tone}`} href={p.remoteUrl} target="_blank" rel="noreferrer" title={p.error ?? undefined}>
+                  {body}
+                </a>
+              ) : (
+                <span key={p.id} className={`post-status ${L.tone}`} title={p.error ?? undefined}>
+                  {body}
+                </span>
+              );
+            })}
+          </div>
+        )}
+
         {clip.rubric && (
           <div>
             <button type="button" className="linkish" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
@@ -144,7 +171,13 @@ export function ClipCard({
             <a className="btn btn-primary btn-sm" href={api.downloadUrl(clip.id)}>
               <Download size={16} /> Download
             </a>
-          ) : clip.status === 'failed' ? (
+          ) : null}
+          {clip.status === 'ready' && clip.videoUrl && (
+            <button className="btn btn-sm btn-ink" onClick={() => setPosting(true)} title="Post or schedule to YouTube / Instagram">
+              {clip.posts?.some((p) => p.status === 'scheduled') ? <CalendarClock size={16} /> : <Send size={16} />} Post
+            </button>
+          )}
+          {clip.status === 'failed' ? (
             <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => act(() => api.rerender(clip.id))}>
               <RefreshCw size={16} /> Retry
             </button>
@@ -165,6 +198,7 @@ export function ClipCard({
           </button>
         </div>
       </div>
+      {posting && <PublishModal clip={clip} onClose={() => setPosting(false)} onDone={onChanged} />}
     </article>
   );
 }

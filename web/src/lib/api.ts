@@ -74,6 +74,7 @@ export interface Clip {
   thumbUrl: string | null;
   version: number;
   segments: TimeRange[] | null;
+  posts?: { id: string; platform: 'youtube' | 'instagram'; status: PostStatus; scheduledAt: number | null; remoteUrl: string | null; error: string | null }[];
   motion: Motion;
   music: MusicSettings;
   source: 'ai' | 'manual';
@@ -114,6 +115,41 @@ export interface Project {
   clips?: Clip[];
   /** the original video, when a full copy is stored (uploads, short links) */
   sourceVideoUrl?: string | null;
+}
+
+export type PostStatus = 'scheduled' | 'uploading' | 'processing' | 'published' | 'failed' | 'canceled';
+export interface Account {
+  id: string;
+  platform: 'youtube' | 'instagram';
+  name: string | null;
+  handle: string | null;
+  avatar: string | null;
+  connectedAt: number;
+  expiresAt: number | null;
+}
+export interface Connections {
+  accounts: Account[];
+  platforms: {
+    youtube: { configured: boolean; redirectUri: string };
+    instagram: { configured: boolean; redirectUri: string; needsHttps: boolean };
+  };
+}
+export interface PostItem {
+  id: string;
+  clipId: string;
+  connectionId: string;
+  platform: 'youtube' | 'instagram';
+  title: string | null;
+  caption: string | null;
+  privacy: string | null;
+  scheduledAt: number | null;
+  status: PostStatus;
+  remoteUrl: string | null;
+  error: string | null;
+  createdAt: number;
+  updatedAt: number;
+  account: { name: string | null; handle: string | null; avatar: string | null } | null;
+  clip: { id: string; title: string; projectId: string; thumbUrl: string | null } | null;
 }
 
 export interface Health {
@@ -199,6 +235,14 @@ export const api = {
   remove: (id: string) => req<{ ok: boolean }>(`/api/projects/${id}`, { method: 'DELETE' }),
   updateClip: (id: string, patch: Partial<Pick<Clip, 'title' | 'hook' | 'description' | 'hashtags' | 'start' | 'end' | 'layout' | 'captionStyle' | 'showHook' | 'motion' | 'music'>>) =>
     req<Clip>(`/api/clips/${id}`, json('PATCH', patch)),
+  connections: () => req<Connections>('/api/connections'),
+  connectUrl: (platform: 'youtube' | 'instagram') => `/api/connect/${platform}/start`,
+  disconnect: (id: string) => req<{ ok: boolean }>(`/api/connections/${id}`, { method: 'DELETE' }),
+  createPosts: (body: { clipId: string; targets: { connectionId: string; title?: string; caption?: string; privacy?: 'public' | 'unlisted' | 'private' }[]; scheduledAt?: number | null }) =>
+    req<PostItem[]>('/api/posts', json('POST', body)),
+  posts: (clipId?: string) => req<PostItem[]>(`/api/posts${clipId ? `?clipId=${encodeURIComponent(clipId)}` : ''}`),
+  retryPost: (id: string) => req<PostItem>(`/api/posts/${id}/retry`, { method: 'POST' }),
+  cancelPost: (id: string) => req<PostItem>(`/api/posts/${id}/cancel`, { method: 'POST' }),
   addClips: (projectId: string, ranges: TimeRange[], join: boolean) => req<Clip[]>(`/api/projects/${projectId}/clips`, json('POST', { ranges, join })),
   music: () => req<MusicLibrary>('/api/music'),
   makeMood: (id: string, fresh = false) => req<MusicLibrary>(`/api/music/moods/${id}${fresh ? '?fresh=1' : ''}`, { method: 'POST' }),

@@ -51,6 +51,26 @@ const num = (k: string, d: number) => {
 
 export const config = {
   port: num('PORT', 8787),
+  /** Where people open PeakClip (used for OAuth redirect links). Dev = the Vite app; production = your domain. */
+  publicUrl: env('PUBLIC_URL', 'http://localhost:5173').replace(/\/$/, ''),
+  // Publishing connectors (OAuth apps you create — see README → "Post to YouTube & Instagram")
+  youtubeClientId: env('YOUTUBE_CLIENT_ID'),
+  youtubeClientSecret: env('YOUTUBE_CLIENT_SECRET'),
+  instagramAppId: env('INSTAGRAM_APP_ID'),
+  instagramAppSecret: env('INSTAGRAM_APP_SECRET'),
+  instagramApiVersion: env('INSTAGRAM_API_VERSION', 'v25.0'),
+  /**
+   * Instagram only accepts https sign-in return links. In local dev (PUBLIC_URL is http) PeakClip also listens on
+   * https://localhost:HTTPS_PORT with a self-made certificate, just for that return trip.
+   */
+  httpsPort: num('HTTPS_PORT', 8443),
+  get localHttps() {
+    return !this.publicUrl.startsWith('https://') && env('LOCAL_HTTPS', 'true') !== 'false';
+  },
+  get instagramRedirectBase() {
+    return (env('INSTAGRAM_REDIRECT_BASE') || (this.publicUrl.startsWith('https://') ? this.publicUrl : `https://localhost:${this.httpsPort}`)).replace(/\/$/, '');
+  },
+  secretKey: env('SECRET_KEY'),
   dataDir: path.resolve(REPO_ROOT, env('DATA_DIR', 'data')),
   fontsDir: path.join(SERVER_ROOT, 'assets', 'fonts'),
   webDist: path.join(REPO_ROOT, 'web', 'dist'),
