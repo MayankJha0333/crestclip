@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, AudioLines, Check, Combine, Download, ExternalLink, Flame, MessageSquareText, MousePointerClick, RotateCcw, Scissors } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeft, AudioLines, Check, Combine, Download, ExternalLink, Flame, MessageSquareText, MousePointerClick, Play, RotateCcw, Scissors, Trash2, Tv } from 'lucide-react';
 import { api, fmtTime, fmtViews, type Clip, type Project, type TimeRange } from '../lib/api';
 import { HeatChart, PickBar } from '../components/HeatChart';
 import { toast } from '../lib/toast';
+import { DeleteProjectModal } from '../components/ConfirmModal';
+import { SourcePlayer, youtubeIdOf, type PlayerHandle } from '../components/SourcePlayer';
 import { ClipCard } from '../components/ClipCard';
 import { ClipEditor } from '../components/ClipEditor';
 
@@ -28,6 +30,12 @@ export function ProjectPage() {
   const [sort, setSort] = useState<SortKey>('peak');
   const [picks, setPicks] = useState<TimeRange[]>([]);
   const [adding, setAdding] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [playT, setPlayT] = useState<number | null>(null);
+  const player = useRef<PlayerHandle>(null);
+  const nav = useNavigate();
+  // the player reports time several times a second — only re-render when it moved noticeably
+  const onTime = useCallback((t: number) => setPlayT((prev) => (prev == null || Math.abs(prev - t) >= 0.5 ? t : prev)), []);
 
   const load = useCallback(() => api.project(id).then(setP).catch((e) => setErr(e.message)), [id]);
   useEffect(() => {
@@ -75,6 +83,10 @@ export function ProjectPage() {
       setAdding(false);
     }
   };
+  const canWatch = Boolean(youtubeIdOf(p.sourceUrl) || p.sourceVideoUrl || /twitch\.tv\/videos\//.test(p.sourceUrl ?? ''));
+  const byTime = [...(p.clips ?? [])].sort((a, b) => a.start - b.start);
+  const nowClip = playT == null ? null : byTime.find((c) => (c.segments?.length ? c.segments : [c]).some((r) => playT >= r.start && playT <= r.end));
+  const seek = (t: number) => player.current?.playFrom(t);
   const pick = (cid: string) => {
     setActive(cid);
     document.getElementById(`clip-${cid}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -87,7 +99,24 @@ export function ProjectPage() {
       </Link>
 
       <header className="proj-head clay">
-        <div className="proj-head-thumb well">{p.thumbUrl ? <img src={p.thumbUrl} alt="" /> : null}</div>
+        {canWatch ? (
+          <button
+            type="button"
+            className="proj-head-thumb well thumb-play"
+            onClick={() => {
+              document.getElementById('watch')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              setTimeout(() => player.current?.playFrom(playT ?? 0), 450);
+            }}
+            aria-label="Play the original video"
+          >
+            {p.thumbUrl ? <img src={p.thumbUrl} alt="" /> : null}
+            <span className="thumb-play-btn">
+              <Play size={22} fill="currentColor" />
+            </span>
+          </button>
+        ) : (
+          <div className="proj-head-thumb well">{p.thumbUrl ? <img src={p.thumbUrl} alt="" /> : null}</div>
+        )}
         <div className="grow">
           <h1 style={{ fontSize: 'clamp(24px, 3vw, 34px)' }}>{p.title || 'Untitled video'}</h1>
           <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
@@ -110,12 +139,20 @@ export function ProjectPage() {
             )}
           </div>
         </div>
-        {p.status === 'failed' && (
-          <button className="btn btn-primary" onClick={() => api.retry(p.id).then(load)}>
-            <RotateCcw size={18} /> Try again
-          </button>
-        )}
+        <div className="row" style={{ gap: 8 }}>
+          {p.status === 'failed' && (
+            <button className="btn btn-primary" onClick={() => api.retry(p.id).then(load)}>
+              <RotateCcw size={18} /> Try again
+            </button>
+          )}
+          {p.status !== 'processing' && p.status !== 'queued' && (
+            <button className="btn btn-icon" onClick={() => setDeleting(true)} aria-label="Delete project" title="Delete project">
+              <Trash2 size={18} />
+            </button>
+          )}
+        </div>
       </header>
+      <DeleteProjectModal project={deleting ? p : null} onCancel={() => setDeleting(false)} onDeleted={() => nav('/app/projects')} />
 
       {(p.status === 'processing' || p.status === 'queued') && (
         <section className="clay progress-card pop-in">
@@ -140,6 +177,75 @@ export function ProjectPage() {
         <section className="clay error-card">
           <b>Something went wrong</b>
           <p>{p.error}</p>
+        </section>
+      )}
+
+      {canWatch && (
+        <section className="clay heat-card watch-card" id="watch">
+          <div className="row wrap" style={{ justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
+            <h2 style={{ fontSize: 22 }} className="row">
+              <Tv size={22} color="var(--tangerine-d)" /> Watch the original
+            </h2>
+            <span className="now-playing">
+              {playT != null ? (
+                <>
+                  ▶ {fmtTime(playT)}
+                  {nowClip ? ` · inside clip #${ranked.rank.get(nowClip.id)}` : ''}
+                </>
+              ) : (
+                'Click a moment or the graph to jump there'
+              )}
+            </span>
+          </div>
+          <div className="watch-grid">
+            <SourcePlayer
+              ref={player}
+              sourceUrl={p.sourceUrl}
+              fileUrl={p.sourceVideoUrl ?? null}
+              poster={p.thumbUrl}
+              vertical={Boolean(p.width && p.height && p.height > p.width)}
+              title={p.title ?? 'Original video'}
+              onTime={onTime}
+            />
+            <div>
+              <div className="moments-head">
+                <b style={{ fontFamily: 'var(--font-display)' }}>Moments</b>
+                <span className="faint" style={{ fontSize: 12, fontWeight: 700 }}>
+                  {byTime.length ? `${byTime.length} clip${byTime.length > 1 ? 's' : ''}, in order` : 'No clips yet'}
+                </span>
+              </div>
+              <div className="moments" role="list">
+                {byTime.map((c) => {
+                  const first = c.segments?.length ? c.segments[0] : { start: c.start, end: c.end };
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      role="listitem"
+                      className={`moment ${nowClip?.id === c.id ? 'is-now' : ''}`}
+                      onClick={() => {
+                        setActive(c.id);
+                        player.current?.playFrom(first.start, first.end);
+                      }}
+                      title="Play this moment in the original"
+                    >
+                      <span className="rank-badge tint-butter">#{ranked.rank.get(c.id)}</span>
+                      <span className="moment-txt">
+                        <b>{c.title}</b>
+                        <span>
+                          {fmtTime(c.start)}–{fmtTime(c.end)} · {Math.round(c.duration)}s{c.segments?.length ? ` · ${c.segments.length} parts` : ''}
+                        </span>
+                      </span>
+                      <span className="moment-play" aria-hidden>
+                        <Play size={14} fill="currentColor" />
+                      </span>
+                    </button>
+                  );
+                })}
+                {!byTime.length && <p className="faint" style={{ fontSize: 14 }}>Clips will appear here as PeakClip finds them.</p>}
+              </div>
+            </div>
+          </div>
         </section>
       )}
 
@@ -168,7 +274,7 @@ export function ProjectPage() {
           </div>
           {canPick && (
             <p className="pick-hint" style={{ marginBottom: 6 }}>
-              <MousePointerClick size={15} /> Drag across the graph to pick your own parts — PeakClip turns them into clips.
+              <MousePointerClick size={15} /> {canWatch ? 'Click the graph to play from there · drag' : 'Drag'} across it to pick your own parts — PeakClip turns them into clips.
             </p>
           )}
           <HeatChart
@@ -180,6 +286,8 @@ export function ProjectPage() {
             )}
             activeId={active}
             onPick={pick}
+            onSeek={canWatch ? seek : undefined}
+            playhead={canWatch ? playT : null}
             selections={canPick ? picks : undefined}
             onSelectionsChange={canPick ? setPicks : undefined}
           />

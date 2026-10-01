@@ -1,7 +1,10 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { config } from './config.js';
+import fs from 'node:fs';
+import path from 'node:path';
 import { ytdlpJson } from './pipeline/ytdlp.js';
+import { ytSearchWeb, ytWatchWeb, youtubeId } from './pipeline/ytweb.js';
 import { buildSignals } from './pipeline/signals.js';
 import type { HeatPoint, Signals } from './types.js';
 
@@ -42,15 +45,66 @@ export interface ExploreChannel {
   description: string | null;
 }
 
-// ---------------- tiny cache ----------------
+// ---------------- cache ----------------
+/**
+ * Stale-while-revalidate cache, saved to disk:
+ *  • fresh hit → instant
+ *  • stale hit → instant (old data), refreshed in the background for the next visit
+ *  • survives server restarts (data/cache/explore.json), so Explore is never slow after a restart
+ */
 const cache = new Map<string, { at: number; data: unknown }>();
-async function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
+const inflight = new Map<string, Promise<unknown>>();
+// bump the file name when the item format changes
+const cacheFile = path.join(config.dataDir, 'cache', 'explore-v2.json');
+const MAX_STALE = 24 * 3600_000; // never show anything older than a day
+try {
+  const saved = JSON.parse(fs.readFileSync(cacheFile, 'utf8')) as [string, { at: number; data: unknown }][];
+  for (const [k, v] of saved) if (Date.now() - v.at < MAX_STALE) cache.set(k, v);
+} catch {
+  /* first run */
+}
+let saveTimer: NodeJS.Timeout | null = null;
+function persist() {
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    try {
+      fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+      // keep the feeds + recent searches/peeks, newest last
+      const entries = [...cache.entries()].filter(([, v]) => Date.now() - v.at < MAX_STALE).slice(-250);
+      fs.writeFileSync(`${cacheFile}.tmp`, JSON.stringify(entries));
+      fs.renameSync(`${cacheFile}.tmp`, cacheFile);
+    } catch {
+      /* best effort */
+    }
+  }, 1500);
+  saveTimer.unref?.();
+}
+function refresh<T>(key: string, fn: () => Promise<T>, keep?: (d: T) => boolean): Promise<T> {
+  const cur = inflight.get(key) as Promise<T> | undefined;
+  if (cur) return cur;
+  const p = fn()
+    .then((data) => {
+      if (!keep || keep(data)) {
+        cache.delete(key);
+        cache.set(key, { at: Date.now(), data });
+        if (cache.size > 300) cache.delete(cache.keys().next().value as string);
+        persist();
+      }
+      return data;
+    })
+    .finally(() => inflight.delete(key));
+  inflight.set(key, p);
+  return p;
+}
+async function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>, keep?: (d: T) => boolean): Promise<T> {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < ttlMs) return hit.data as T;
-  const data = await fn();
-  cache.set(key, { at: Date.now(), data });
-  if (cache.size > 300) cache.delete(cache.keys().next().value as string);
-  return data;
+  if (hit && Date.now() - hit.at < MAX_STALE) {
+    refresh(key, fn, keep).catch(() => {}); // update quietly for next time
+    return hit.data as T;
+  }
+  return refresh(key, fn, keep);
 }
 
 // ---------------- YouTube ----------------
@@ -155,17 +209,34 @@ async function youtubeSearch(q: { q: string; type: string; duration: string; sor
   return youtubeSearchRaw(q);
 }
 
+const fastStats = { ok: 0, fail: 0, lastMs: 0, lastError: '' };
+
 async function youtubeSearchRaw(q: { q: string; type: string; duration: string; sort: string; uploaded: string; limit: number }) {
   const sp = ytSearchParam(q);
-  const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(q.q)}${sp ? `&sp=${encodeURIComponent(sp)}` : ''}`;
-  const j = await ytdlpJson<Raw>(['--flat-playlist', '--playlist-end', String(q.limit), url], 90_000);
-  const entries = (Array.isArray(j.entries) ? (j.entries as Raw[]) : []).map((e) => ytItem(e, q.type === 'shorts' ? 'short' : undefined));
-  let items = entries.filter((x): x is ExploreItem => Boolean(x));
+  let items: ExploreItem[] | null = null;
+  const t0 = Date.now();
+  // Fast path: read YouTube's results page directly (~1 s). Slow path: yt-dlp (starts a program, several seconds).
+  try {
+    const web = await ytSearchWeb(q.q, sp);
+    if (web.length) items = web.map((w) => ({ ...w, source: 'youtube' as const, kind: q.type === 'shorts' && w.kind === 'video' ? ('short' as const) : w.kind }));
+    fastStats.ok++;
+    fastStats.lastMs = Date.now() - t0;
+  } catch (e) {
+    fastStats.fail++;
+    fastStats.lastError = (e as Error).message;
+    console.warn('[explore] fast YouTube search failed, using yt-dlp:', (e as Error).message);
+  }
+  if (!items) {
+    const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(q.q)}${sp ? `&sp=${encodeURIComponent(sp)}` : ''}`;
+    const j = await ytdlpJson<Raw>(['--flat-playlist', '--playlist-end', String(q.limit), url], 90_000);
+    const entries = (Array.isArray(j.entries) ? (j.entries as Raw[]) : []).map((e) => ytItem(e, q.type === 'shorts' ? 'short' : undefined));
+    items = entries.filter((x): x is ExploreItem => Boolean(x));
+  }
   if (q.type === 'channels') items = items.filter((i) => i.kind === 'channel');
   else if (q.type === 'shorts') items = items.filter((i) => i.kind === 'short');
   else if (q.type === 'live') items = items.filter((i) => i.kind !== 'channel').map((i) => ({ ...i, kind: 'live' as const, isLive: true }));
   else items = items.filter((i) => i.kind !== 'channel');
-  return items;
+  return items.slice(0, q.limit);
 }
 
 function ytChannelBase(input: string) {
@@ -343,6 +414,39 @@ async function twitchHelixChannel(login: string, p: { tab: string; sort: string;
 
 // ---------------- peek (details + "Most replayed" curve) ----------------
 async function peek(url: string) {
+  // Fast path for YouTube: read the watch page directly (~1 s instead of 15–30 s with yt-dlp)
+  const ytId = youtubeId(url);
+  if (ytId) {
+    try {
+      const v = await ytWatchWeb(ytId);
+      let curve: number[] | null = null;
+      let hotspots: Signals['hotspots'] = [];
+      if (v.heatmap && v.duration) {
+        const sig = buildSignals({ duration: v.duration, heatmap: v.heatmap, chapters: v.chapters, comments: [], rmsPerSecond: null, useAudience: true });
+        curve = sig.curve;
+        hotspots = sig.hotspots.slice(0, 5);
+      }
+      return {
+        title: v.title,
+        channel: v.channel,
+        channelUrl: v.channelUrl,
+        duration: v.duration,
+        views: v.views,
+        likes: v.likes,
+        uploadDate: v.uploadDate,
+        thumbnail: v.thumbnail,
+        url: `https://www.youtube.com/watch?v=${v.id}`,
+        isYouTube: true,
+        isLive: v.isLive,
+        description: v.description,
+        chapters: v.chapters,
+        curve,
+        hotspots,
+      };
+    } catch (e) {
+      console.warn('[explore] fast YouTube preview failed, using yt-dlp:', (e as Error).message);
+    }
+  }
   const j = await ytdlpJson<Raw>(['--skip-download', '--no-playlist', url], 90_000);
   const duration = num(j.duration) ?? 0;
   const heatmap = Array.isArray(j.heatmap) && j.heatmap.length ? (j.heatmap as HeatPoint[]) : null;
@@ -449,7 +553,7 @@ exploreRouter.get('/peek', async (req: Request, res: Response) => {
   }
 });
 
-exploreRouter.get('/meta', (_req, res) => res.json({ twitchApi: twitchApi() }));
+exploreRouter.get('/meta', (_req, res) => res.json({ twitchApi: twitchApi(), fastSearch: fastStats, cached: cache.size, refreshing: [...inflight.keys()] }));
 
 // ---------------- Discover feed (sample content so Explore is never empty) ----------------
 interface SectionDef {
@@ -549,8 +653,8 @@ exploreRouter.get('/discover', async (req: Request, res: Response) => {
   const source = req.query.source === 'twitch' ? 'twitch' : 'youtube';
   const category = typeof req.query.category === 'string' && DISCOVER[req.query.category] ? req.query.category : 'all';
   try {
-    const data = await cached(`d:${source}:${category}`, 30 * 60_000, () => discover(source, category));
-    if (!data.sections.length) cache.delete(`d:${source}:${category}`); // don't cache a total failure
+    // don't cache a total failure
+    const data = await cached(`d:${source}:${category}`, 30 * 60_000, () => discover(source, category), (d) => d.sections.length > 0);
     res.json(data);
   } catch (e) {
     fail(res, e);
@@ -559,7 +663,17 @@ exploreRouter.get('/discover', async (req: Request, res: Response) => {
 
 /** Warm the default feeds in the background so the first visit to Explore is instant. */
 export function warmExplore() {
-  setTimeout(() => {
-    cached('d:youtube:all', 30 * 60_000, () => discover('youtube', 'all')).catch(() => cache.delete('d:youtube:all'));
-  }, 3000);
+  const keep = (d: { sections: unknown[] }) => d.sections.length > 0;
+  const warm = async () => {
+    // "For you" first (the default view), then every category, one at a time so YouTube isn't hammered
+    for (const cat of ['all', ...Object.keys(DISCOVER).filter((c) => c !== 'all')]) {
+      const hit = cache.get(`d:youtube:${cat}`);
+      if (hit && Date.now() - hit.at < 25 * 60_000) continue;
+      await refresh(`d:youtube:${cat}`, () => discover('youtube', cat), keep).catch(() => {});
+    }
+    const tw = cache.get('d:twitch:all');
+    if (!tw || Date.now() - tw.at > 25 * 60_000) await refresh('d:twitch:all', () => discover('twitch', 'all'), keep).catch(() => {});
+  };
+  setTimeout(warm, 3000);
+  setInterval(warm, 30 * 60_000).unref();
 }

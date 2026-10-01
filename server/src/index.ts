@@ -13,7 +13,7 @@ import { clipParts, createPickedClips, preparePickedClips, projectDir, toMediaUr
 import { enqueueJob, enqueueProject, enqueueRender, resumeUnfinished } from './queue.js';
 import { addUpload, generateMood, lyriaStatus, musicLibrary, removeUpload } from './pipeline/music.js';
 import { exploreRouter, warmExplore } from './explore.js';
-import { footageSavings } from './pipeline/footage.js';
+import { footageSavings, readFootage } from './pipeline/footage.js';
 import { ensureFfmpeg, ensureYtdlp, ffStatus, startToolUpkeep, ytStatus } from './tools.js';
 import { hasLibass } from './pipeline/media.js';
 import type { ProjectOptions } from './types.js';
@@ -41,6 +41,13 @@ const optionsSchema = z.object({
   language: z.string().max(40).default('auto'),
   focus: z.string().max(300).default(''),
 });
+
+/** The original video, if a full copy is on disk (uploads, short links). Long links only keep the clip parts. */
+function sourceVideoUrl(p: ProjectRow): string | null {
+  if (!p.mediaPath || !fs.existsSync(p.mediaPath) || /source-audio\./.test(p.mediaPath)) return null;
+  if (readFootage(projectDir(p.id))) return null;
+  return toMediaUrl(p.mediaPath);
+}
 
 function publicProject(p: ProjectRow, withDetail = false) {
   return {
@@ -76,6 +83,7 @@ function publicProject(p: ProjectRow, withDetail = false) {
               }
             : null,
           hasTranscript: Boolean(p.transcript?.length),
+          sourceVideoUrl: sourceVideoUrl(p),
         }
       : {}),
   };

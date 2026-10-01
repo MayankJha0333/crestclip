@@ -4,6 +4,7 @@ import { ArrowRight, Clock, Compass, Film, Trash2 } from 'lucide-react';
 import { api, fmtTime, timeAgo, type Project } from '../lib/api';
 import { NewProject } from '../components/NewProject';
 import { ScoreRing } from '../components/bits';
+import { DeleteProjectModal } from '../components/ConfirmModal';
 
 export function Dashboard() {
   const [params] = useSearchParams();
@@ -36,6 +37,7 @@ export function ProjectsPage() {
 
 function ProjectList({ limit, title }: { limit?: number; title: string }) {
   const [list, setList] = useState<Project[] | null>(null);
+  const [deleting, setDeleting] = useState<Project | null>(null);
   const load = () => api.projects().then(setList).catch(() => setList([]));
   useEffect(() => {
     load();
@@ -100,15 +102,7 @@ function ProjectList({ limit, title }: { limit?: number; title: string }) {
                 ) : null}
               </Link>
               {p.status !== 'processing' && (
-                <button
-                  className="btn btn-icon btn-sm proj-del"
-                  aria-label="Delete project"
-                  onClick={async () => {
-                    if (!confirmDelete()) return;
-                    await api.remove(p.id).catch(() => {});
-                    load();
-                  }}
-                >
+                <button className="btn btn-icon btn-sm proj-del" aria-label={`Delete project ${p.title ?? ''}`} title="Delete project" onClick={() => setDeleting(p)}>
                   <Trash2 size={16} />
                 </button>
               )}
@@ -116,11 +110,15 @@ function ProjectList({ limit, title }: { limit?: number; title: string }) {
           ))}
         </div>
       )}
+      <DeleteProjectModal
+        project={deleting}
+        onCancel={() => setDeleting(null)}
+        onDeleted={() => {
+          setList((l) => l?.filter((x) => x.id !== deleting?.id) ?? l);
+          setDeleting(null);
+          load();
+        }}
+      />
     </section>
   );
-}
-
-function confirmDelete() {
-  // eslint-disable-next-line no-alert
-  return window.confirm('Delete this project and all its clips?');
 }

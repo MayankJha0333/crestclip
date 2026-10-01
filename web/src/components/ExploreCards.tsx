@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { ChevronLeft, ChevronRight, Clock, Eye, Flame, Radio, Scissors, Twitch, Users, Youtube, Zap } from 'lucide-react';
-import { fmtCount, fmtTime, timeAgo, type ExploreItem } from '../lib/api';
+import { api, fmtCount, fmtTime, timeAgo, type ExploreItem } from '../lib/api';
 
 /** YouTube shows a "Most replayed" graph on popular, not-brand-new videos (~100K+ views is a safe rule of thumb). */
 export const replayLikely = (it: ExploreItem) =>
@@ -17,6 +17,23 @@ const clickable = (fn: () => void) => ({
     }
   },
 });
+/** Start loading the preview (replay graph) while the pointer rests on a card, so the drawer opens ready. */
+const warmed = new Set<string>();
+let hoverTimer: ReturnType<typeof setTimeout> | null = null;
+const warmPeek = (it: ExploreItem) => ({
+  onMouseEnter: () => {
+    if (warmed.has(it.url) || it.kind === 'channel' || it.kind === 'live' || it.isLive) return;
+    if (hoverTimer) clearTimeout(hoverTimer);
+    hoverTimer = setTimeout(() => {
+      warmed.add(it.url);
+      api.peek(it.url).catch(() => warmed.delete(it.url));
+    }, 180);
+  },
+  onMouseLeave: () => {
+    if (hoverTimer) clearTimeout(hoverTimer);
+  },
+});
+
 const stop = (fn: () => void) => (e: MouseEvent) => {
   e.stopPropagation();
   fn();
@@ -49,6 +66,7 @@ export function VideoCard({
       style={{ animationDelay: `${Math.min(index, 12) * 30}ms` }}
       aria-label={`Peek: ${item.title}`}
       {...clickable(onOpen)}
+      {...warmPeek(item)}
     >
       <div className={`thumb ${vertical ? 'thumb-9x16' : 'thumb-16x9'}`}>
         {item.thumbnail && !broken ? (

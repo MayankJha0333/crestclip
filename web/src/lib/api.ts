@@ -112,6 +112,8 @@ export interface Project {
     hasHeatmap: boolean;
   } | null;
   clips?: Clip[];
+  /** the original video, when a full copy is stored (uploads, short links) */
+  sourceVideoUrl?: string | null;
 }
 
 export interface Health {
