@@ -45,7 +45,7 @@ const text = (v: unknown): string | null => {
 };
 
 /** "1,234,567 views" · "1.2M views" · "3.4K watching" · "No views" → number */
-export function parseCount(s: string | null): number | null {
+function parseCount(s: string | null): number | null {
   if (!s) return null;
   if (/^no /i.test(s)) return 0;
   const m = s.replace(/,/g, '').match(/([\d.]+)\s*([KMB]?)/i);
@@ -55,7 +55,7 @@ export function parseCount(s: string | null): number | null {
 }
 
 /** "1:02:03" → 3723 */
-export function parseDuration(s: string | null): number | null {
+function parseDuration(s: string | null): number | null {
   if (!s || !/^\d+(:\d{1,2}){1,2}$/.test(s.trim())) return null;
   return s
     .trim()
@@ -65,7 +65,7 @@ export function parseDuration(s: string | null): number | null {
 }
 
 /** "3 weeks ago" / "Streamed 2 days ago" → approximate ISO date */
-export function parseAgo(s: string | null): string | null {
+function parseAgo(s: string | null): string | null {
   if (!s) return null;
   // long ("3 weeks ago") or compact ("8y ago", "2mo ago", "5d ago") forms
   const m = s.match(/(\d+)\s*(seconds?|minutes?|hours?|days?|weeks?|months?|years?|mo|min|s|m|h|d|w|y)\b/i);
@@ -209,7 +209,7 @@ function fromLockup(l: J): WebItem | null {
 }
 
 /** Walk the whole page data and pick out every result, in page order. */
-export function itemsFromInitialData(data: unknown): WebItem[] {
+function itemsFromInitialData(data: unknown): WebItem[] {
   const out: WebItem[] = [];
   const seen = new Set<string>();
   const add = (it: WebItem | null) => {

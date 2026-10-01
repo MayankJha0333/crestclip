@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
-import { projects, type ProjectRow } from '../db.js';
+import { projects, type ProjectRow } from '../db/index.js';
 import { probe } from './media.js';
 import { pool } from '../lib/proc.js';
 import { download, downloadSections, type Section } from './ytdlp.js';

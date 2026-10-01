@@ -124,7 +124,7 @@ function cleanTimeline(segs: { s: number; e: number; text: string; speaker?: str
 }
 
 /** Distribute word timings inside each phrase by character length (good enough for word-by-word captions). */
-export function withWords(segs: { s: number; e: number; text: string; speaker?: string }[]): Segment[] {
+function withWords(segs: { s: number; e: number; text: string; speaker?: string }[]): Segment[] {
   return segs.map((seg) => {
     const tokens = seg.text.split(/\s+/).filter(Boolean);
     const weights = tokens.map((t) => Math.max(2, t.replace(/[^\p{L}\p{N}]/gu, '').length + 1));

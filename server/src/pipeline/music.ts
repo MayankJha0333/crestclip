@@ -22,7 +22,7 @@ export interface Mood {
   prompt: string;
 }
 
-export const MOODS: Mood[] = [
+const MOODS: Mood[] = [
   { id: 'chill', label: 'Chill lo-fi', hint: 'Podcasts, stories, calm talks', prompt: 'Chill lo-fi hip hop instrumental, warm Rhodes piano chords, soft dusty drums, mellow bass, relaxed and cozy, 85 BPM' },
   { id: 'upbeat', label: 'Upbeat', hint: 'Relatable, feel-good moments', prompt: 'Upbeat feel-good pop instrumental, bright plucky synths, claps and punchy drums, positive and catchy, 118 BPM' },
   { id: 'inspiring', label: 'Inspiring', hint: 'Insights, motivation, big ideas', prompt: 'Inspiring cinematic instrumental, hopeful piano motif with warm strings slowly building, motivational, modern documentary style' },

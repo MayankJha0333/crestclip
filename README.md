@@ -129,7 +129,7 @@ Posting only happens while CrestClip is running; for 24/7 posting, run it on a s
 
 ## Post to YouTube & Instagram
 
-Open **Publishing** in the sidebar, connect your accounts, then press **Post** on any clip: post now or schedule it.
+Open **Settings → Connected accounts** to connect each account once. Then press **Post** on any clip: post now or schedule it. **Schedule** in the sidebar shows every upcoming and past post (yours and Autopilot's).
 
 | | YouTube Shorts | Instagram Reels |
 |---|---|---|
@@ -138,7 +138,7 @@ Open **Publishing** in the sidebar, connect your accounts, then press **Post** o
 | Scheduling | YouTube's own `publishAt`: goes live even if CrestClip is off | CrestClip's scheduler publishes at the time: **keep CrestClip running** |
 | Limits | Apps that haven't passed YouTube's API audit can only upload **private** videos. Request the audit before launch | Business/Creator accounts only, about 100 API posts a day, redirect URL must be **https** |
 
-Setup: add `YOUTUBE_CLIENT_ID/SECRET` and/or `INSTAGRAM_APP_ID/SECRET` to `.env` (the Publishing page shows the exact steps and redirect URLs). Account tokens are stored encrypted in the local database.
+Setup: add `YOUTUBE_CLIENT_ID/SECRET` and/or `INSTAGRAM_APP_ID/SECRET` to `.env` (Settings shows the exact steps and redirect URLs). Account tokens are stored encrypted in the local database.
 
 ## How it works (the pipeline)
 
@@ -153,7 +153,7 @@ Setup: add `YOUTUBE_CLIENT_ID/SECRET` and/or `INSTAGRAM_APP_ID/SECRET` to `.env`
 | 6. Reframe | Sample a frame every ~1.5 s. Gemini boxes the speaking face. The crop holds steady per camera shot (it doesn't wobble). Two people → split screen; screen or game content → fit on a blurred background | Gemini + ffmpeg |
 | 7. Render | 1080×1920, 30 fps, H.264. Word-by-word `.ass` captions, a hook headline for 0–3 s, and loudness normalized to −14 LUFS | ffmpeg + libass |
 
-Then in the dashboard you can:
+Then on the project page (**Clips** tab) you can:
 - edit the hook, captions, framing, trim (click transcript lines), title and hashtags, then re-render
 - make **variants** (same moment, new look) so you can post again without being flagged as duplicate content
 - download clips or copy the ready-made post text
@@ -164,26 +164,26 @@ Then in the dashboard you can:
 
 ```
 crestclip/
-├─ server/                Node + Express + TypeScript (run with tsx)
+├─ server/                    Node + Express + TypeScript (run with tsx)
 │  └─ src/
-│     ├─ index.ts         REST API + serves the web app + media files
-│     ├─ db.ts            SQLite (built into Node 22, nothing to install)
-│     ├─ queue.ts         background jobs (resume after restart)
-│     ├─ doctor.ts        `npm run doctor`
-│     └─ pipeline/
-│        ├─ ytdlp.ts      download, heatmap, chapters, comments
-│        ├─ media.ts      ffprobe/ffmpeg helpers (audio, loudness, silences, scene cuts, frames)
-│        ├─ gemini.ts     Vertex AI client (@google/genai), JSON calls, retries, GCS upload
-│        ├─ transcribe.ts chunked Gemini transcription with timestamps
-│        ├─ signals.ts    Most replayed + comments + energy → one curve, hotspots, audience score
-│        ├─ moments.ts    the viral-moment prompt, rubric, snapping, scoring
-│        ├─ reframe.ts    Gemini face boxes → steady crop plan / split / fit
-│        ├─ captions.ts   5 caption styles as .ass subtitles
-│        ├─ render.ts     ffmpeg filter graphs + encode
-│        └─ process.ts    the whole pipeline
-├─ web/                   Vite + React + TypeScript (claymorphism UI)
-│  └─ src/pages/          Landing, Dashboard, Project, Settings
-└─ docs/RESEARCH.md       why each decision was made, with sources
+│     ├─ index.ts             start-up: HTTP server + background workers
+│     ├─ app.ts               Express app: routers, /media, web app, error handler
+│     ├─ config.ts            settings from .env
+│     ├─ lib/                 http (HttpError, validate, asyncHandler), paths, secrets, processes
+│     ├─ db/                  SQLite (built into Node 22): connection + migrations, one repository per table
+│     ├─ infra/               job queue, Redis, managed tools (ffmpeg, yt-dlp), local https
+│     ├─ modules/             one folder per feature: *.routes (HTTP) → *.service (logic) → *.presenter (JSON)
+│     │  ├─ projects/  clips/  music/  explore/  publishing/  autopilot/  system/
+│     ├─ pipeline/            video → clips: ytdlp, media, gemini, transcribe, signals, moments, reframe, captions, render, process
+│     └─ scripts/             `npm run doctor`, `npm run setup-tools`
+├─ web/                       Vite + React + TypeScript + Tailwind CSS ("soft clay" design, light + dark)
+│  └─ src/
+│     ├─ app/                 router + layout (sidebar, phone nav, status banner)
+│     ├─ components/ui/       design system: Button, Card, Badge, Field, Segmented, Tabs, Dialog, Menu, EmptyState…
+│     ├─ features/            one folder per area: create, explore, projects, clips, media, schedule, autopilot, settings, landing
+│     ├─ lib/                 API client + types, formatting, hooks, theme, storage, toasts
+│     └─ styles/index.css     colour tokens (light/dark), clay shadows, base styles
+└─ docs/RESEARCH.md           why each decision was made, with sources
 ```
 
 ## API (for automation)

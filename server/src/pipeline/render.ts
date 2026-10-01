@@ -68,7 +68,7 @@ function zoomExpr(zooms: Zoom[], intro: boolean) {
   return expr;
 }
 
-export function buildVideoGraph(plan: ReframePlan, w: number, h: number, smooth = false): string {
+function buildVideoGraph(plan: ReframePlan, w: number, h: number, smooth = false): string {
   const layout = plan.layout;
   const cw = even((h * 9) / 16);
 

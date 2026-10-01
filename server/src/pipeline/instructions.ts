@@ -67,7 +67,7 @@ const VIDEO_HOST = /(youtube\.com|youtu\.be|drive\.google\.com|docs\.google\.com
 const clean = (u: string) => u.replace(/[.,;:!?]+$/, '');
 
 /** Every link in the text that looks like video/footage to clip. */
-export function videoLinks(text: string): { url: string; label: string }[] {
+function videoLinks(text: string): { url: string; label: string }[] {
   const out: { url: string; label: string }[] = [];
   const seen = new Set<string>();
   for (const m of text.matchAll(URL_RE)) {
@@ -88,7 +88,7 @@ const money = (s: string) => Number(s.replace(/,/g, ''));
 const uniq = (a: string[]) => [...new Set(a.map((x) => x.trim()).filter(Boolean))];
 
 /** The backup reader: patterns only, no AI. */
-export function readBriefPlain(text: string): CampaignBrief {
+function readBriefPlain(text: string): CampaignBrief {
   const t = text.replace(/\r/g, '');
   const lines = t.split('\n').map((l) => l.trim()).filter(Boolean);
   const rate =
@@ -135,7 +135,7 @@ export function readBriefPlain(text: string): CampaignBrief {
 const tag = (x: string, ch: '#' | '@') => (x.startsWith(ch) ? x : `${ch}${x}`).replace(/\s+/g, '');
 
 /** Read a campaign brief. Never throws for normal text — falls back to the plain reader. */
-export async function readBrief(text: string, url?: string | null): Promise<CampaignBrief & { readBy: 'ai' | 'plain' }> {
+async function readBrief(text: string, url?: string | null): Promise<CampaignBrief & { readBy: 'ai' | 'plain' }> {
   const plain = readBriefPlain(text);
   if (config.fakeAi || !config.gcpProject) return { ...plain, readBy: 'plain' };
   try {

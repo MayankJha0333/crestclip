@@ -1,0 +1,358 @@
+@import 'tailwindcss';
+
+/* ==========================================================================
+   CrestClip design system — "soft clay"
+   Raised clay only on top-level cards, main buttons and toggles.
+   Everything inside a card (badges, chips, rows, stat boxes) is flat.
+   Colours are CSS variables so light/dark mode is one attribute: <html data-theme="dark">.
+   ========================================================================== */
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+:root {
+  color-scheme: light;
+  --ink: #2b2140;
+  --ink-2: #554a6a;
+  --ink-3: #665c7a;
+  --on-ink: #fff7ec;
+  --page: #f7efe5;
+  --surface: #fdf8f2;
+  --sunken: #efe3d4;
+  --row: #f6eee4;
+  --row-hover: #f1e6d8;
+  --line: rgba(140, 92, 58, 0.16);
+  --line-strong: rgba(140, 92, 58, 0.28);
+  --scrim: rgba(43, 33, 64, 0.35);
+  --glass: rgba(253, 248, 242, 0.9);
+  --media: #211a30;
+
+  --tangerine: #ff8a5b;
+  --tangerine-d: #e0643a;
+  --mint: #6fe0bf;
+  --mint-d: #3fbf98;
+  --butter: #ffd65c;
+  --butter-d: #e8b52c;
+  --sky: #86c9ff;
+  --sky-d: #54a6e8;
+  --lilac: #b9a4ff;
+  --lilac-d: #917aec;
+  --bubble: #ff84b8;
+  --bubble-d: #e2598f;
+  --accent-ink: #c4521f;
+
+  --good: #1f8a5e;
+  --warn: #a86f00;
+  --bad: #c9362f;
+  --good-bg: #dcf5ea;
+  --good-ink: #1d6a50;
+  --warn-bg: #fff1cc;
+  --warn-ink: #7f5a00;
+  --bad-bg: #ffe2dd;
+  --bad-ink: #a32b25;
+  --info-bg: #e4ecff;
+  --info-ink: #2f4fa8;
+  --orange-bg: #ffe8dc;
+  --orange-ink: #b04a1c;
+  --muted-bg: #eee6da;
+
+  --sh-deep: rgba(140, 92, 58, 0.13);
+  --sh-hi: rgba(255, 255, 255, 0.85);
+  --sh-drop: rgba(128, 84, 52, 0.13);
+  --grain: 0.35;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --ink: #f4eefc;
+  --ink-2: #cdc3dd;
+  --ink-3: #a99fbb;
+  --on-ink: #1c1628;
+  --page: #15111d;
+  --surface: #211b2c;
+  --sunken: #1a1523;
+  --row: #29223a;
+  --row-hover: #312944;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --scrim: rgba(5, 3, 10, 0.6);
+  --glass: rgba(33, 27, 44, 0.9);
+  --media: #0d0a13;
+  --accent-ink: #ffa47e;
+
+  --good: #5fd6a8;
+  --warn: #f2c25a;
+  --bad: #ff7d72;
+  --good-bg: rgba(95, 214, 168, 0.14);
+  --good-ink: #8fe8c4;
+  --warn-bg: rgba(242, 194, 90, 0.14);
+  --warn-ink: #f6d488;
+  --bad-bg: rgba(255, 125, 114, 0.14);
+  --bad-ink: #ffaaa2;
+  --info-bg: rgba(134, 168, 255, 0.15);
+  --info-ink: #b4c8ff;
+  --orange-bg: rgba(255, 138, 91, 0.15);
+  --orange-ink: #ffb08f;
+  --muted-bg: rgba(255, 255, 255, 0.07);
+
+  --sh-deep: rgba(0, 0, 0, 0.38);
+  --sh-hi: rgba(255, 255, 255, 0.06);
+  --sh-drop: rgba(0, 0, 0, 0.42);
+  --grain: 0.12;
+}
+
+@theme inline {
+  --font-display: 'Fredoka Variable', 'Fredoka', ui-rounded, system-ui, sans-serif;
+  --font-body: 'Nunito Variable', 'Nunito', ui-rounded, system-ui, sans-serif;
+  --font-sans: var(--font-body);
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-on-ink: var(--on-ink);
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
+  --color-row: var(--row);
+  --color-row-hover: var(--row-hover);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-scrim: var(--scrim);
+  --color-glass: var(--glass);
+  --color-media: var(--media);
+
+  --color-tangerine: var(--tangerine);
+  --color-tangerine-d: var(--tangerine-d);
+  --color-mint: var(--mint);
+  --color-mint-d: var(--mint-d);
+  --color-butter: var(--butter);
+  --color-butter-d: var(--butter-d);
+  --color-sky: var(--sky);
+  --color-sky-d: var(--sky-d);
+  --color-lilac: var(--lilac);
+  --color-lilac-d: var(--lilac-d);
+  --color-bubble: var(--bubble);
+  --color-bubble-d: var(--bubble-d);
+  --color-accent: var(--accent-ink);
+
+  --color-good: var(--good);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --color-good-bg: var(--good-bg);
+  --color-good-ink: var(--good-ink);
+  --color-warn-bg: var(--warn-bg);
+  --color-warn-ink: var(--warn-ink);
+  --color-bad-bg: var(--bad-bg);
+  --color-bad-ink: var(--bad-ink);
+  --color-info-bg: var(--info-bg);
+  --color-info-ink: var(--info-ink);
+  --color-orange-bg: var(--orange-bg);
+  --color-orange-ink: var(--orange-ink);
+  --color-muted-bg: var(--muted-bg);
+
+  /* the clay recipe */
+  --shadow-clay: inset -5px -7px 12px var(--sh-deep), inset 5px 7px 12px var(--sh-hi), 10px 16px 30px var(--sh-drop), 1px 2px 4px var(--sh-drop);
+  --shadow-clay-sm: inset -3px -4px 8px var(--sh-deep), inset 3px 4px 8px var(--sh-hi), 5px 8px 16px var(--sh-drop);
+  --shadow-well: inset 3px 4px 9px var(--sh-deep), inset -3px -3px 8px var(--sh-hi);
+  --shadow-flat: 0 0 0 1px var(--line);
+  --shadow-float: 0 12px 32px var(--sh-drop), 0 0 0 1px var(--line);
+  --shadow-lift: 0 6px 18px var(--sh-drop);
+
+  --ease-squish: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --animate-pop-in: pop-in 0.5s var(--ease-squish) both;
+  --animate-shimmer: shimmer 1.4s linear infinite;
+  --animate-wobble: wobble 8s ease-in-out infinite;
+  --animate-float: floaty 6s ease-in-out infinite;
+  --animate-ping-soft: ping-soft 2s ease-out infinite;
+
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      transform: translateY(14px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes shimmer {
+    from {
+      background-position: -200% 0;
+    }
+    to {
+      background-position: 200% 0;
+    }
+  }
+  @keyframes wobble {
+    0%,
+    100% {
+      border-radius: 42% 58% 55% 45% / 48% 42% 58% 52%;
+    }
+    50% {
+      border-radius: 55% 45% 42% 58% / 58% 52% 48% 42%;
+    }
+  }
+  @keyframes floaty {
+    0%,
+    100% {
+      transform: translateY(0) rotate(var(--rot, 0deg));
+    }
+    50% {
+      transform: translateY(-12px) rotate(var(--rot, 0deg));
+    }
+  }
+  @keyframes ping-soft {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent);
+    }
+    70%,
+    100% {
+      box-shadow: 0 0 0 7px transparent;
+    }
+  }
+}
+
+/* ---------- base ---------- */
+@layer base {
+  body {
+    @apply bg-page font-body text-ink antialiased;
+    font-size: 16px;
+    line-height: 1.55;
+    overflow-x: hidden;
+    transition:
+      background-color 0.3s,
+      color 0.3s;
+  }
+  /* soft paper grain behind everything */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    opacity: var(--grain);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .55 0 0 0 0 .4 0 0 0 0 .3 0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  #root {
+    position: relative;
+    z-index: 1;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display font-bold;
+    line-height: 1.1;
+    letter-spacing: -0.01em;
+  }
+  ::selection {
+    background: var(--butter);
+    color: #2b2140;
+  }
+  :focus-visible {
+    outline: 3px solid var(--tangerine);
+    outline-offset: 3px;
+  }
+  /* range slider: clay track + tangerine knob */
+  input[type='range'] {
+    @apply h-3.5 w-full cursor-pointer appearance-none rounded-full bg-sunken shadow-well;
+  }
+  input[type='range']::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--tangerine);
+    box-shadow:
+      inset -3px -4px 6px var(--tangerine-d),
+      inset 3px 3px 6px rgba(255, 255, 255, 0.5),
+      3px 5px 10px rgba(224, 100, 58, 0.3);
+    cursor: grab;
+  }
+  input[type='range']::-moz-range-thumb {
+    width: 26px;
+    height: 26px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--tangerine);
+    box-shadow: inset -3px -4px 6px var(--tangerine-d);
+  }
+  /* full screen must show the whole vertical clip, never crop it */
+  video:fullscreen {
+    object-fit: contain !important;
+    background: #000;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
+}
+
+/* Tinted clay blobs (icons, logo, accent tiles). Kept as utilities because they mix 3 shadows with each colour. */
+@utility clay-tangerine {
+  background: var(--tangerine);
+  box-shadow:
+    inset -5px -7px 12px var(--tangerine-d),
+    inset 5px 7px 12px rgba(255, 255, 255, 0.45),
+    5px 9px 18px rgba(224, 100, 58, 0.28);
+}
+@utility clay-mint {
+  background: var(--mint);
+  box-shadow:
+    inset -5px -7px 12px var(--mint-d),
+    inset 5px 7px 12px rgba(255, 255, 255, 0.5),
+    5px 9px 18px rgba(63, 191, 152, 0.26);
+}
+@utility clay-butter {
+  background: var(--butter);
+  box-shadow:
+    inset -5px -7px 12px var(--butter-d),
+    inset 5px 7px 12px rgba(255, 255, 255, 0.5),
+    5px 9px 18px rgba(232, 181, 44, 0.28);
+}
+@utility clay-sky {
+  background: var(--sky);
+  box-shadow:
+    inset -5px -7px 12px var(--sky-d),
+    inset 5px 7px 12px rgba(255, 255, 255, 0.5),
+    5px 9px 18px rgba(84, 166, 232, 0.26);
+}
+@utility clay-lilac {
+  background: var(--lilac);
+  box-shadow:
+    inset -5px -7px 12px var(--lilac-d),
+    inset 5px 7px 12px rgba(255, 255, 255, 0.5),
+    5px 9px 18px rgba(145, 122, 236, 0.26);
+}
+@utility clay-bubble {
+  background: var(--bubble);
+  box-shadow:
+    inset -5px -7px 12px var(--bubble-d),
+    inset 5px 7px 12px rgba(255, 255, 255, 0.45),
+    5px 9px 18px rgba(226, 89, 143, 0.26);
+}
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Clay button: colours come from --b-* variables set by each variant (see components/ui/Button.tsx). */
+@utility btn-clay {
+  background: var(--b-bg, var(--surface));
+  color: var(--b-fg, var(--ink));
+  box-shadow:
+    inset -4px -5px 10px var(--b-deep, var(--sh-deep)),
+    inset 4px 5px 10px var(--b-hi, var(--sh-hi)),
+    5px 8px 16px var(--sh-drop);
+  &:active {
+    box-shadow:
+      inset 5px 6px 12px var(--b-deep, var(--sh-deep)),
+      inset -4px -4px 8px var(--b-hi, var(--sh-hi));
+  }
+}

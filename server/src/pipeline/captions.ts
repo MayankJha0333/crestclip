@@ -24,7 +24,7 @@ interface StyleDef {
 }
 
 // Colors are ASS format &HAABBGGRR
-export const CAPTION_STYLES: Record<Exclude<CaptionStyle, 'none'>, StyleDef> = {
+const CAPTION_STYLES: Record<Exclude<CaptionStyle, 'none'>, StyleDef> = {
   pop: {
     font: 'Anton', size: 118, bold: 0, upper: true, primary: '&H00FFFFFF', outline: '&H00000000', back: '&H80000000',
     borderStyle: 1, outlineW: 7, shadow: 3, maxWords: 3, maxChars: 18,

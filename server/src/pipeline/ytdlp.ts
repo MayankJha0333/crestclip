@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
 import { run, ProcError } from '../lib/proc.js';
-import { ensureYtdlp, ytdlpPath, ytStatus } from '../tools.js';
+import { ensureYtdlp, ytdlpPath, ytStatus } from '../infra/tools.js';
 import type { HeatPoint } from '../types.js';
 
 export interface SourceInfo {
@@ -141,12 +141,6 @@ export async function fetchInfo(url: string, saveTo?: string): Promise<SourceInf
     height: Number(j.height) || null,
     fullSizeEstimate: estimateFullSize(j),
   };
-}
-
-/** Raw yt-dlp JSON for listings (search pages, channel tabs) — flat, fast, no per-video requests. */
-export async function listJson(url: string, limit: number): Promise<Record<string, unknown>> {
-  const { stdout } = await ytdlp(['-J', '--flat-playlist', '--playlist-end', String(limit), url], { timeoutMs: 60_000 });
-  return JSON.parse(stdout);
 }
 
 /** Top comments (only used to find timestamps people mention, e.g. "12:34 was insane"). Best effort. */
@@ -308,15 +302,6 @@ export async function downloadSections(
   }
   if (out.length < want.length) throw new Error(`Only ${out.length} of ${want.length} video parts could be downloaded.`);
   return out;
-}
-
-export async function ytdlpVersion(): Promise<string | null> {
-  try {
-    const { stdout } = await run(ytdlpPath(), ['--version'], { timeoutMs: 15_000 });
-    return stdout.trim();
-  } catch {
-    return null;
-  }
 }
 
 /** Run yt-dlp and parse its JSON output (used by Explore for search / channel listings). */

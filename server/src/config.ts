@@ -4,8 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-export const SERVER_ROOT = path.resolve(here, '..');
-export const REPO_ROOT = path.resolve(SERVER_ROOT, '..');
+const SERVER_ROOT = path.resolve(here, '..');
+const REPO_ROOT = path.resolve(SERVER_ROOT, '..');
 
 // Load ../.env (repo root) then server/.env — whichever exists. Real env vars always win.
 for (const p of [path.join(REPO_ROOT, '.env'), path.join(SERVER_ROOT, '.env')]) {

@@ -2,8 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
 import { withRequiredTags } from './instructions.js';
-import { clips as clipDb, projects, type ClipDefaults, type ClipRow, type ProjectRow } from '../db.js';
-import { pool } from '../lib/proc.js';
+import { clips as clipDb, projects, type ClipDefaults, type ClipRow, type ProjectRow } from '../db/index.js';
+import { pool, run } from '../lib/proc.js';
+import { projectDir } from '../lib/paths.js';
 import { buildAss, wordsInRange } from './captions.js';
 import { part, uploadToGcs, deleteFromGcs, usage } from './gemini.js';
 import { extractAudio, extractAudioRange, hasLibass, loudnessPerSecond, makeProxy, probe, silences as findSilences, thumbnail } from './media.js';
@@ -15,13 +16,8 @@ import { buildSignals, rangeScore } from './signals.js';
 import { transcribe } from './transcribe.js';
 import { download, downloadAudio, fetchComments, fetchInfo, type Comment, type SourceInfo } from './ytdlp.js';
 import { endSectionMode, footageFor, footageSavings, infoJsonPath, prefetchFootage, readFootage, startSectionMode } from './footage.js';
-import { run } from '../lib/proc.js';
 import { classifyFileLink, downloadFileLink, fileLinkLabel } from './filelink.js';
 import type { CaptionStyle, Layout, ProjectOptions, ReframePlan, Segment, Signals, TimeRange } from '../types.js';
-
-export const projectDir = (id: string) => path.join(config.dataDir, 'projects', id);
-export const toMediaUrl = (abs: string | null) =>
-  abs ? '/media/' + path.relative(config.dataDir, abs).split(path.sep).map(encodeURIComponent).join('/') : null;
 
 type Stage = 'fetch' | 'listen' | 'transcribe' | 'moments' | 'render';
 const STAGE_RANGE: Record<Stage, [number, number]> = {
@@ -430,7 +426,7 @@ function partsScore(p: ProjectRow, parts: TimeRange[]) {
   return w ? Math.round(sum / w) : null;
 }
 
-export function clipDefaults(o: ProjectOptions): ClipDefaults {
+function clipDefaults(o: ProjectOptions): ClipDefaults {
   return {
     layout: o.layout,
     captionStyle: o.captionStyle,
@@ -657,7 +653,7 @@ const formatClock = (t: number) => {
   return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
 };
 
-export function silencesFor(projectId: string): { s: number; e: number }[] {
+function silencesFor(projectId: string): { s: number; e: number }[] {
   try {
     return JSON.parse(fs.readFileSync(path.join(projectDir(projectId), 'work', 'silences.json'), 'utf8'));
   } catch {

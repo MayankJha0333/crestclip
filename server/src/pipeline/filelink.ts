@@ -56,7 +56,7 @@ const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (
 const decode = (s: string) => s.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
 
 /** Google Drive shows a "can't scan this file for viruses" page for big files — submit its form to get the file. */
-export function driveConfirmUrl(html: string): string | null {
+function driveConfirmUrl(html: string): string | null {
   const form = html.match(/<form[^>]*id="download-form"[^>]*action="([^"]+)"[^>]*>([\s\S]*?)<\/form>/i);
   if (!form) return null;
   const params = new URLSearchParams();
