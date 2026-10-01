@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Film, Link2, SlidersHorizontal, UploadCloud, Wand2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Cloud, Film, Link2, SlidersHorizontal, Twitch, UploadCloud, Wand2, X, Youtube } from 'lucide-react';
+import { detectLink } from '../lib/links';
 import { api, DEFAULT_OPTIONS, type LengthPref, type ProjectOptions } from '../lib/api';
 import { CaptionPicker, LAYOUT_OPTIONS, PLATFORM_OPTIONS, Seg, Toggle } from './bits';
 import { MotionPicker, MusicPicker } from './MusicPicker';
@@ -31,6 +32,36 @@ export function NewProject({ initialUrl = '' }: { initialUrl?: string }) {
   const [showMore, setShowMore] = useState(false);
   const [busy, setBusy] = useState(false);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
+  const [upInfo, setUpInfo] = useState<{ loaded: number; total: number; speed: number } | null>(null);
+  const [fileDur, setFileDur] = useState<number | null>(null);
+  const abort = useRef<AbortController | null>(null);
+  const link = detectLink(url);
+
+  // read the picked file's length (shown before uploading)
+  useEffect(() => {
+    setFileDur(null);
+    if (!file) return;
+    const v = document.createElement('video');
+    const src = URL.createObjectURL(file);
+    v.preload = 'metadata';
+    v.onloadedmetadata = () => {
+      if (Number.isFinite(v.duration)) setFileDur(v.duration);
+      URL.revokeObjectURL(src);
+    };
+    v.onerror = () => URL.revokeObjectURL(src);
+    v.src = src;
+  }, [file]);
+
+  const MAX_MB = 4096;
+  const pickFile = (f: File | null | undefined) => {
+    setError(null);
+    if (!f) return;
+    const looksVideo = f.type.startsWith('video/') || /\.(mp4|m4v|mov|mkv|webm|avi|mpe?g|ts|mts|wmv|flv|3gp)$/i.test(f.name);
+    if (!looksVideo) return setError(`“${f.name}” isn’t a video file. Use mp4, mov, mkv or webm.`);
+    if (f.size > MAX_MB * 1024 * 1024) return setError(`That file is ${(f.size / 1024 ** 3).toFixed(1)} GB — the limit is ${MAX_MB / 1024} GB.`);
+    setMode('upload');
+    setFile(f);
+  };
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -48,12 +79,25 @@ export function NewProject({ initialUrl = '' }: { initialUrl?: string }) {
     try {
       let p;
       if (mode === 'link') {
-        if (!/^https?:\/\//i.test(url.trim())) throw new Error('Paste a full link that starts with https://');
-        p = await api.createFromUrl(url.trim(), opts);
+        let u = url.trim();
+        if (u && !/^https?:\/\//i.test(u)) u = `https://${u}`;
+        if (!detectLink(u)) throw new Error('Paste a full video link (YouTube, Twitch, Google Drive, Dropbox…)');
+        if (link?.error) throw new Error(link.error);
+        p = await api.createFromUrl(u, opts);
       } else {
         if (!file) throw new Error('Choose a video file first');
         setUploadPct(0);
-        p = await api.upload(file, opts, setUploadPct);
+        const started = Date.now();
+        abort.current = new AbortController();
+        p = await api.upload(
+          file,
+          opts,
+          (pct, loaded, total) => {
+            setUploadPct(pct);
+            setUpInfo({ loaded, total, speed: loaded / Math.max(0.5, (Date.now() - started) / 1000) });
+          },
+          abort.current.signal,
+        );
       }
       nav(`/app/p/${p.id}`);
     } catch (err) {
@@ -61,15 +105,42 @@ export function NewProject({ initialUrl = '' }: { initialUrl?: string }) {
     } finally {
       setBusy(false);
       setUploadPct(null);
+      setUpInfo(null);
+      abort.current = null;
     }
   };
+  const fmtMB = (b: number) => (b >= 1024 ** 3 ? `${(b / 1024 ** 3).toFixed(2)} GB` : `${Math.max(0.1, b / 1024 ** 2).toFixed(b < 1024 ** 2 * 10 ? 1 : 0)} MB`);
+  const fmtLen = (sec: number) => {
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s2 = Math.floor(sec % 60);
+    return h ? `${h}:${String(m).padStart(2, '0')}:${String(s2).padStart(2, '0')}` : `${m}:${String(s2).padStart(2, '0')}`;
+  };
+  const eta = upInfo && upInfo.speed > 0 ? Math.max(0, (upInfo.total - upInfo.loaded) / upInfo.speed) : null;
 
   return (
-    <form className="new-card clay" onSubmit={submit}>
+    <form
+      className={`new-card clay ${drag ? 'is-dragging' : ''}`}
+      onSubmit={submit}
+      onDragOver={(e) => {
+        if (busy || !e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        setDrag(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) setDrag(false);
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.files?.length) return;
+        e.preventDefault();
+        setDrag(false);
+        pickFile(e.dataTransfer.files[0]);
+      }}
+    >
       <div className="row wrap" style={{ justifyContent: 'space-between', gap: 16, marginBottom: 18 }}>
         <div>
           <h2 style={{ fontSize: 30 }}>Find the peaks</h2>
-          <p className="muted">Paste a link or drop a long video. You'll get vertical clips of the moments people rewatch.</p>
+          <p className="muted">Paste a link, or drop a video file anywhere on this card. You'll get vertical clips of the moments people rewatch.</p>
         </div>
         <Seg
           label="Source"
@@ -83,47 +154,117 @@ export function NewProject({ initialUrl = '' }: { initialUrl?: string }) {
       </div>
 
       {mode === 'link' ? (
-        <div className="big-input well">
-          <Link2 size={22} className="faint" />
-          <input
-            autoFocus
-            aria-label="Video link"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://www.youtube.com/watch?v=…  (also Twitch VODs, Vimeo, TikTok, X…)"
-          />
-        </div>
+        <>
+          <div className={`big-input well ${link?.error ? 'has-error' : ''}`}>
+            {link?.kind === 'youtube' ? <Youtube size={22} color="#e0453a" /> : link?.kind === 'twitch' ? <Twitch size={22} color="#9146ff" /> : link && ['gdrive', 'dropbox', 'onedrive'].includes(link.kind) ? <Cloud size={22} color="#2f80ed" /> : <Link2 size={22} className="faint" />}
+            <input
+              autoFocus
+              aria-label="Video link"
+              aria-describedby="link-hint"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onPaste={(e) => {
+                const f = e.clipboardData.files?.[0];
+                if (f) {
+                  e.preventDefault();
+                  pickFile(f);
+                }
+              }}
+              placeholder="YouTube, Twitch, Google Drive, Dropbox or any video link…"
+            />
+            {url && (
+              <button type="button" className="btn btn-icon btn-sm" aria-label="Clear link" onClick={() => setUrl('')}>
+                <X size={16} />
+              </button>
+            )}
+          </div>
+          <p id="link-hint" className={`link-hint ${link?.error ? 'bad' : link ? 'ok' : ''}`}>
+            {link ? (
+              link.error ? (
+                <>
+                  <AlertTriangle size={14} /> {link.error}
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 size={14} /> <b>{link.label}</b> · {link.hint}
+                </>
+              )
+            ) : (
+              <>Works with YouTube · Twitch · Google Drive · Dropbox · OneDrive · direct .mp4 links · 1,000+ video sites</>
+            )}
+          </p>
+        </>
       ) : (
         <div
           className={`dropzone well ${drag ? 'drag' : ''}`}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDrag(true);
-          }}
-          onDragLeave={() => setDrag(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDrag(false);
-            const f = e.dataTransfer.files?.[0];
-            if (f) setFile(f);
-          }}
-          onClick={() => fileInput.current?.click()}
+          onClick={() => !busy && fileInput.current?.click()}
           role="button"
           tabIndex={0}
           onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && fileInput.current?.click()}
         >
-          <input ref={fileInput} type="file" accept="video/*,.mkv" hidden onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <input
+            ref={fileInput}
+            type="file"
+            accept="video/*,.mkv,.mov,.m4v,.webm"
+            hidden
+            onChange={(e) => {
+              pickFile(e.target.files?.[0]);
+              e.target.value = '';
+            }}
+          />
           <span className="tint-sky drop-icon">{file ? <Film size={28} /> : <UploadCloud size={28} />}</span>
           {file ? (
-            <div>
-              <b>{file.name}</b>
-              <div className="faint">{(file.size / 1024 / 1024).toFixed(1)} MB · click to change</div>
+            <div className="grow" style={{ minWidth: 0 }}>
+              <b className="clamp1">{file.name}</b>
+              <div className="faint">
+                {fmtMB(file.size)}
+                {fileDur ? ` · ${fmtLen(fileDur)} long` : ''}
+                {uploadPct == null ? ' · click to change' : ''}
+              </div>
+              {uploadPct != null && (
+                <div style={{ marginTop: 10 }}>
+                  <div className="progress well" style={{ height: 14 }}>
+                    <span style={{ width: `${Math.max(2, uploadPct)}%` }} />
+                  </div>
+                  <div className="faint" style={{ fontSize: 13, marginTop: 6, fontWeight: 700 }}>
+                    Uploading {Math.round(uploadPct)}%
+                    {upInfo ? ` · ${fmtMB(upInfo.loaded)} of ${fmtMB(upInfo.total)} · ${fmtMB(upInfo.speed)}/s` : ''}
+                    {eta != null && uploadPct < 100 ? ` · ~${eta < 60 ? `${Math.ceil(eta)} s` : `${Math.ceil(eta / 60)} min`} left` : ''}
+                    {uploadPct >= 100 ? ' · finishing…' : ''}
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div>
-              <b>Drop a video here</b>
-              <div className="faint">mp4, mov, mkv or webm — podcasts, streams, webinars</div>
+              <b>Drop a video here, or click to choose</b>
+              <div className="faint">mp4, mov, mkv or webm · up to {MAX_MB / 1024} GB — podcasts, streams, webinars</div>
             </div>
+          )}
+          {file && uploadPct != null && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                abort.current?.abort();
+              }}
+            >
+              <X size={14} /> Cancel
+            </button>
+          )}
+          {file && uploadPct == null && (
+            <button
+              type="button"
+              className="btn btn-icon btn-sm"
+              aria-label="Remove file"
+              onClick={(e) => {
+                e.stopPropagation();
+                setFile(null);
+              }}
+            >
+              <X size={16} />
+            </button>
           )}
         </div>
       )}

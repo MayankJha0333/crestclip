@@ -15,6 +15,7 @@ import { transcribe } from './transcribe.js';
 import { download, downloadAudio, fetchComments, fetchInfo, type Comment, type SourceInfo } from './ytdlp.js';
 import { endSectionMode, footageFor, footageSavings, infoJsonPath, prefetchFootage, readFootage, startSectionMode } from './footage.js';
 import { run } from '../lib/proc.js';
+import { classifyFileLink, downloadFileLink, fileLinkLabel } from './filelink.js';
 import type { CaptionStyle, Layout, ProjectOptions, ReframePlan, Segment, Signals, TimeRange } from '../types.js';
 
 export const projectDir = (id: string) => path.join(config.dataDir, 'projects', id);
@@ -65,6 +66,17 @@ export async function processProject(id: string) {
     // ---------- 1. fetch ----------
     stage(id, 'fetch', 0, p.sourceType === 'url' ? 'Reading the link…' : 'Reading your upload…');
     let src = p.mediaPath && fs.existsSync(p.mediaPath) ? p.mediaPath : null;
+    // a file link (Google Drive, Dropbox, OneDrive, direct .mp4): download it, then treat it like an upload
+    if (!src && p.sourceType === 'upload' && p.sourceUrl) {
+      const link = classifyFileLink(p.sourceUrl);
+      if (!link || 'error' in link) throw new Error(link && 'error' in link ? link.error : 'That link isn’t a video file.');
+      const where = fileLinkLabel[link.kind];
+      stage(id, 'fetch', 0.02, `Downloading from ${where}…`);
+      const got = await downloadFileLink(link, dir, (pct, detail) => stage(id, 'fetch', 0.02 + (pct / 100) * 0.9, `Downloading from ${where} · ${detail}`));
+      src = got.file;
+      const title = got.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim().slice(0, 120);
+      projects.update(id, { mediaPath: src, ...(title && title !== 'video' ? { title } : {}) });
+    }
     let info: SourceInfo | null = null;
     let commentsP: Promise<Comment[]> = Promise.resolve([]);
     if (p.sourceType === 'url' && p.sourceUrl) {

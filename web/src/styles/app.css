@@ -204,3 +204,12 @@ video:fullscreen, video:-webkit-full-screen { object-fit: contain !important; ba
 .thumb-play-btn { position: absolute; inset: 0; margin: auto; width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,138,91,.95); color: #fff; box-shadow: 0 8px 22px rgba(0,0,0,.25); transition: transform .25s var(--ease-squish); }
 .thumb-play:hover .thumb-play-btn { transform: scale(1.1); }
 .watch-card { scroll-margin-top: 20px; }
+
+/* ---------- new clip: links + uploads ---------- */
+.link-hint { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 10px 4px 0; font-size: 13px; font-weight: 600; color: var(--ink-3); }
+.link-hint.ok { color: #23735a; }
+.link-hint.bad { color: var(--bad); }
+.big-input.has-error { box-shadow: var(--clay-well), inset 0 0 0 2px var(--bad); }
+.new-card { position: relative; transition: box-shadow .2s, transform .2s; }
+.new-card.is-dragging { box-shadow: 0 0 0 4px var(--tangerine), var(--clay); }
+.new-card.is-dragging::after { content: 'Drop the video to upload it'; position: absolute; inset: 0; border-radius: inherit; display: grid; place-items: center; background: rgba(255, 233, 220, .88); font-family: var(--font-display); font-size: 24px; color: #8a3b17; pointer-events: none; z-index: 5; }

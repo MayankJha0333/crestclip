@@ -222,13 +222,17 @@ export const api = {
   exploreCategories: () => req<{ youtube: { id: string; label: string }[]; twitch: string[] }>('/api/explore/categories'),
 
   /** Upload with progress (fetch has no upload progress, so XHR). */
-  upload(file: File, options: ProjectOptions, onProgress: (pct: number) => void): Promise<Project> {
+  upload(file: File, options: ProjectOptions, onProgress: (pct: number, loaded: number, total: number) => void, signal?: AbortSignal): Promise<Project> {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
+      signal?.addEventListener('abort', () => {
+        xhr.abort();
+        reject(new Error('Upload cancelled'));
+      });
       const fd = new FormData();
       fd.append('options', JSON.stringify(options));
       fd.append('file', file);
-      xhr.upload.onprogress = (e) => e.lengthComputable && onProgress((e.loaded / e.total) * 100);
+      xhr.upload.onprogress = (e) => e.lengthComputable && onProgress((e.loaded / e.total) * 100, e.loaded, e.total);
       xhr.onload = () => {
         let body: { error?: string } = {};
         try {

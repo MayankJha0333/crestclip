@@ -14,6 +14,7 @@ import { enqueueJob, enqueueProject, enqueueRender, resumeUnfinished } from './q
 import { addUpload, generateMood, lyriaStatus, musicLibrary, removeUpload } from './pipeline/music.js';
 import { exploreRouter, warmExplore } from './explore.js';
 import { footageSavings, readFootage } from './pipeline/footage.js';
+import { classifyFileLink, fileLinkLabel } from './pipeline/filelink.js';
 import { ensureFfmpeg, ensureYtdlp, ffStatus, startToolUpkeep, ytStatus } from './tools.js';
 import { hasLibass } from './pipeline/media.js';
 import type { ProjectOptions } from './types.js';
@@ -172,6 +173,16 @@ app.post(
     const body = z.object({ url: z.string().url(), options: optionsSchema.default({}) }).safeParse(req.body);
     if (!body.success) return res.status(400).json({ error: 'Please paste a valid video link (https://…).' });
     if (!aiReady()) return res.status(400).json({ error: 'Gemini is not configured yet. Set VERTEX_API_KEY or GOOGLE_CLOUD_PROJECT in .env and restart.' });
+    // Google Drive / Dropbox / OneDrive / direct .mp4 → downloaded as a plain file (like an upload)
+    const file = classifyFileLink(body.data.url);
+    if (file && 'error' in file) return res.status(400).json({ error: file.error });
+    if (file) {
+      const opts = { ...(body.data.options as ProjectOptions) };
+      delete opts.ranges;
+      const p = projects.create({ sourceType: 'upload', sourceUrl: body.data.url, title: `Video from ${fileLinkLabel[file.kind]}`, options: opts });
+      enqueueProject(p.id);
+      return res.status(201).json(publicProject(p));
+    }
     const p = projects.create({ sourceType: 'url', sourceUrl: body.data.url, options: body.data.options as ProjectOptions });
     enqueueProject(p.id);
     res.status(201).json(publicProject(p));
