@@ -6,7 +6,8 @@ import { Button } from './Button';
 
 /**
  * Modal dialog, rendered at the page level. Esc / clicking outside closes it (unless `busy`),
- * page scroll is locked and focus returns to where it was.
+ * page scroll is locked and focus returns to where it was. It never grows past the screen:
+ * the title and footer stay put and only the middle scrolls.
  */
 export function Dialog({
   open,
@@ -59,16 +60,17 @@ export function Dialog({
         role={role}
         aria-modal="true"
         aria-label={typeof title === 'string' ? title : undefined}
-        className={cn('w-full animate-pop-in rounded-[28px] bg-surface p-6 shadow-clay outline-none sm:p-7', width)}
+        className={cn('flex max-h-[calc(100dvh-2rem)] w-full animate-pop-in flex-col rounded-[28px] bg-surface p-6 shadow-clay outline-none sm:p-7', width)}
       >
-        <header className="mb-5 flex items-start justify-between gap-4">
-          <h2 className="text-2xl">{title}</h2>
+        <header className="mb-5 flex shrink-0 items-start justify-between gap-4">
+          <h2 className="min-w-0 text-2xl">{title}</h2>
           <Button variant="ghost" size="icon-sm" onClick={onClose} disabled={busy} aria-label="Close">
             <X size={18} />
           </Button>
         </header>
-        {children}
-        {footer && <footer className="mt-6 flex flex-wrap items-center justify-end gap-2.5">{footer}</footer>}
+        {/* padding inside the scroll area keeps clay shadows and focus rings from being cut off */}
+        <div className="-mx-3 -my-2 min-h-0 flex-1 overflow-y-auto px-3 py-2">{children}</div>
+        {footer && <footer className={cn('mt-6 flex shrink-0 flex-wrap items-center justify-end gap-2.5', (size === 'lg' || size === 'xl') && 'mt-4 border-t border-line pt-4')}>{footer}</footer>}
       </div>
     </div>,
     document.body,
