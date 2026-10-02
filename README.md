@@ -212,16 +212,16 @@ Everyone signs up (email + password, or **Continue with Google**) and gets their
 | Creator | $15 / ₹1,299 | 400 (80 clips) | videos up to 2 h · 15 per project · 1080p · your own logo · scheduling · unused credits roll over 1 month |
 | Pro | $29 / ₹2,499 | 1,000 (200 clips) | videos up to 3 h · everything in Creator · Autopilot |
 
-**Top-up:** 100 credits for $5 (₹449), on any plan, usable for 12 months. Credits are used soonest-to-expire first. Prices follow `BILLING_CURRENCY` (USD or INR — an Indian Razorpay account can only charge INR until *International Payments* is turned on). To change prices or limits, edit `PRICES` / `PLANS` in `server/src/modules/billing/plans.ts`, then create Razorpay plans with the same amounts.
+**Top-up:** 100 credits for $5 (₹449), on any plan, usable for 12 months. Credits are used soonest-to-expire first. **Currency:** people in India see and pay **₹** (₹1,299 / ₹2,499 / ₹449); everyone else sees **$** ($15 / $29 / $5), picked from the browser's time zone. After someone's first payment they always see the currency they pay in. Dollar charging needs Razorpay *International Payments* (Payment Methods → International Payments → Request, up to 5 working days) plus two USD plans in `RAZORPAY_PLAN_CREATOR_USD` / `RAZORPAY_PLAN_PRO_USD`; until then people outside India see $ prices and are charged the ₹ amount, with a "Charged as ₹1,299 for now" note. To change prices or limits, edit `PRICES` / `PLANS` in `server/src/modules/billing/plans.ts`, then create Razorpay plans with the same amounts.
 
 ### Taking payments with Razorpay
 
 1. **API keys:** Razorpay Dashboard → API Keys → copy the Key Id and Secret into `.env` (`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`). Start with **Test Mode** keys.
-2. **Plans:** Dashboard → Subscriptions → Plans → create two **monthly** plans:
-   - Creator: 15 USD
-   - Pro: 29 USD
+2. **Plans:** Dashboard → Subscriptions → Plans → create **monthly** plans:
+   - In rupees (`BILLING_CURRENCY=INR`): Creator ₹1,299 → `RAZORPAY_PLAN_CREATOR`, Pro ₹2,499 → `RAZORPAY_PLAN_PRO`
+   - In dollars, for people outside India, once *International Payments* is approved: Creator $15 → `RAZORPAY_PLAN_CREATOR_USD`, Pro $29 → `RAZORPAY_PLAN_PRO_USD`
 
-   Put their ids (`plan_…`) in `RAZORPAY_PLAN_CREATOR` and `RAZORPAY_PLAN_PRO`. USD needs **International Payments** enabled on your account. To charge in rupees, set `BILLING_CURRENCY=INR` and change the prices in `plans.ts` to match.
+   The amounts must match `PRICES` in `plans.ts`.
 3. **Webhook** (renewals, and payments made after someone closes the tab): Dashboard → Webhooks → URL `<PUBLIC_URL>/api/billing/webhook`, pick a secret and put it in `RAZORPAY_WEBHOOK_SECRET`. Turn on these events:
    - `subscription.activated`, `subscription.charged`, `subscription.cancelled`, `subscription.halted`, `subscription.completed`
    - `payment.captured`

@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Check } from 'lucide-react';
 import type { Plan } from '../../lib/api';
 import { cn } from '../../lib/cn';
-import { money } from './money';
+import { chargedAs, money } from './money';
 
 /** Small label at the top-right of a card. */
 const BADGE: Partial<Record<Plan['id'], string>> = { creator: 'Most popular', pro: 'Best value' };
@@ -44,6 +44,7 @@ export function PlanCards({ plans, current, action }: { plans: Plan[]; current?:
               <b className="font-display text-5xl tracking-tight">{money(p.price, p.currency)}</b>
               <span className="font-bold text-ink-3">/ month</span>
             </p>
+            {chargedAs(p) && <p className="mt-1 text-xs font-semibold text-ink-3">{chargedAs(p)}</p>}
             <p className="mt-3 min-h-[2.75rem] text-[15px] text-ink-2">{p.tagline}</p>
             <div className="mt-4">{action(p)}</div>
             <hr className="my-6 h-1 rounded-full border-0 bg-sunken" />

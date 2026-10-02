@@ -6,7 +6,7 @@ import { toast } from '../../lib/toast';
 import { Badge, Button, Card, CardHeader, ConfirmDialog, PageHeader, Skeleton } from '../../components/ui';
 import { useAuth } from '../auth/auth';
 import { CheckoutClosed, openCheckout } from './checkout';
-import { money, shortDate } from './money';
+import { chargedAs, money, shortDate } from './money';
 import { PlanCards } from './PlanCards';
 
 const SOURCE: Record<BillingAccount['credits']['grants'][number]['source'], string> = { plan: 'Monthly credits', topup: 'Top-up', bonus: 'Bonus', refund: 'Refund' };
@@ -210,7 +210,7 @@ export function BillingPage() {
           <span className="text-xs font-extrabold tracking-wider text-ink-3 uppercase">Need more now?</span>
           <b className="mt-1 font-display text-2xl">{info.topup.credits} credits</b>
           <span className="text-sm text-ink-3">
-            {money(info.topup.price, info.currency)} once · use within {Math.round(info.topup.validDays / 30)} months
+            {money(info.topup.price, info.currency)} once{chargedAs(info.topup) ? ` (${chargedAs(info.topup)?.toLowerCase()})` : ''} · use within {Math.round(info.topup.validDays / 30)} months
           </span>
           <p className="mt-4 text-sm text-ink-2">Adds to your balance right away — handy when you have a big batch this month. Works on any plan.</p>
           <div className="mt-auto pt-5">

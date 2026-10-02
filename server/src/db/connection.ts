@@ -265,6 +265,11 @@ CREATE INDEX IF NOT EXISTS events_user ON credit_events(user_id, created_at);
   // the subscription opened in Checkout but not confirmed yet (so a payment that didn't report back is still found)
   const ucols = new Set((db.prepare('PRAGMA table_info(users)').all() as { name: string }[]).map((c) => c.name));
   if (!ucols.has('rz_pending_sub')) db.exec('ALTER TABLE users ADD COLUMN rz_pending_sub TEXT');
+  // the currency someone pays in, fixed by their first payment (INR / USD)
+  if (!ucols.has('billing_currency')) {
+    db.exec('ALTER TABLE users ADD COLUMN billing_currency TEXT');
+    db.prepare('UPDATE users SET billing_currency = (SELECT currency FROM payments p WHERE p.user_id = users.id AND currency IS NOT NULL ORDER BY created_at LIMIT 1)').run();
+  }
 }
 
 export const now = () => Date.now();

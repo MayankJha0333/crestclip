@@ -4,6 +4,7 @@ import { config } from '../../config.js';
 import { users } from '../../db/index.js';
 import { asyncHandler, validate } from '../../lib/http.js';
 import { accountSummary, reconcileSubscriptions, refreshAccount } from '../billing/billing.service.js';
+import { currencyHint } from '../billing/currency.js';
 import { clearSessionCookie, me, requireUser, setSessionCookie } from './auth.middleware.js';
 import * as service from './auth.service.js';
 
@@ -58,7 +59,7 @@ authRouter.get(
     const user = await refreshAccount(signedIn.pendingSubscriptionId ? await reconcileSubscriptions(signedIn) : signedIn);
     res.json({
       user: { id: user.id, email: user.email, name: user.name, avatar: user.avatar, isAdmin: user.isAdmin, hasPassword: Boolean(user.passwordHash), google: Boolean(user.googleSub) },
-      account: accountSummary(user),
+      account: accountSummary(user, currencyHint(req)),
     });
   }),
 );

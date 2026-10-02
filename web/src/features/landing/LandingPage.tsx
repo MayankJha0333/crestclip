@@ -10,7 +10,7 @@ import { CaptionSample } from '../clip-settings/CaptionPicker';
 import { CurveSvg, HeroArt } from './art';
 import { FAQ, FEATURES, SAMPLE_CLIPS, STEPS } from './content';
 import { useAuth } from '../auth/auth';
-import { money } from '../billing/money';
+import { chargedAs, money } from '../billing/money';
 import { PlanCards } from '../billing/PlanCards';
 
 function SectionTitle({ eyebrow, title, sub, left }: { eyebrow: string; title: React.ReactNode; sub?: string; left?: boolean }) {
@@ -266,8 +266,8 @@ export function LandingPage() {
           )}
           {pricing && (
             <p className="mt-6 text-center text-ink-3">
-              Need more in a busy month? Add {pricing.topup.credits} credits ({Math.floor(pricing.topup.credits / pricing.creditsPerClip)} clips) for {money(pricing.topup.price, pricing.currency)} —
-              on any plan.
+              Need more in a busy month? Add {pricing.topup.credits} credits ({Math.floor(pricing.topup.credits / pricing.creditsPerClip)} clips) for {money(pricing.topup.price, pricing.currency)}
+              {chargedAs(pricing.topup) ? ` (${chargedAs(pricing.topup)?.toLowerCase()})` : ''} — on any plan.
             </p>
           )}
         </div>

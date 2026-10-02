@@ -9,7 +9,27 @@ import type { PlanId } from '../../db/index.js';
  */
 
 export const razorpayReady = () => Boolean(config.razorpayKeyId && config.razorpayKeySecret);
-export const razorpayPlanId = (plan: PlanId) => (plan === 'creator' ? config.razorpayPlanCreator : plan === 'pro' ? config.razorpayPlanPro : '');
+/**
+ * The Razorpay plan for a CrestClip plan in a currency: RAZORPAY_PLAN_CREATOR / RAZORPAY_PLAN_PRO are in
+ * BILLING_CURRENCY; plans in another currency go in RAZORPAY_PLAN_CREATOR_USD / RAZORPAY_PLAN_PRO_USD (and so on).
+ */
+export function razorpayPlanId(plan: PlanId, currency = config.currency): string {
+  if (plan === 'free') return '';
+  const cur = currency.toUpperCase();
+  const own = (process.env[`RAZORPAY_PLAN_${plan.toUpperCase()}_${cur}`] ?? '').trim();
+  if (own) return own;
+  if (cur !== config.currency) return '';
+  return plan === 'creator' ? config.razorpayPlanCreator : config.razorpayPlanPro;
+}
+
+/** Can CrestClip charge plans in this currency? (both paid plans set up in Razorpay) */
+export const canChargeIn = (currency: string) => Boolean(razorpayPlanId('creator', currency) && razorpayPlanId('pro', currency));
+
+/** Which CrestClip plan (and currency) a Razorpay plan id is. */
+export function planForRazorpayPlan(planId: string, currencies: string[]): { plan: PlanId; currency: string } | null {
+  for (const currency of currencies) for (const plan of ['creator', 'pro'] as const) if (planId && razorpayPlanId(plan, currency) === planId) return { plan, currency };
+  return null;
+}
 
 async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
   const res = await fetch(`https://api.razorpay.com/v1${path}`, {

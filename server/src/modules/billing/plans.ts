@@ -13,15 +13,22 @@ import type { PlanId } from '../../db/index.js';
  */
 
 /**
- * Prices per billing currency (BILLING_CURRENCY in .env). Razorpay plans can't change their amount later, so if you
- * change a price here, create a new plan in Razorpay with the same amount and update its id in .env.
- * INR is what an Indian Razorpay account can charge without "International Payments" turned on.
+ * Prices per currency. People in India see and pay INR; everyone else sees USD (and pays USD once Razorpay
+ * International Payments is on and the USD plans are in .env — see razorpay.ts). Razorpay plans can't change their
+ * amount later, so if you change a price here, create a new plan in Razorpay with the same amount and update its id.
  */
-const PRICES: Record<string, { creator: number; pro: number; topup: number }> = {
+export const PRICES: Record<string, { creator: number; pro: number; topup: number }> = {
   USD: { creator: 15, pro: 29, topup: 5 },
   INR: { creator: 1299, pro: 2499, topup: 449 },
 };
-const price = PRICES[config.currency] ?? PRICES.USD;
+export const CURRENCIES = Object.keys(PRICES);
+/** BILLING_CURRENCY: the currency your Razorpay account charges by default (INR for an Indian account). */
+export const HOME_CURRENCY = config.currency in PRICES ? config.currency : 'USD';
+const price = PRICES[HOME_CURRENCY];
+
+/** A plan's monthly price in a currency (main unit, e.g. dollars). */
+export const priceIn = (plan: PlanId, currency: string) => (plan === 'free' ? 0 : (PRICES[currency] ?? PRICES[HOME_CURRENCY])[plan]);
+export const topupPriceIn = (currency: string) => (PRICES[currency] ?? PRICES[HOME_CURRENCY]).topup;
 export interface Plan {
   id: PlanId;
   name: string;

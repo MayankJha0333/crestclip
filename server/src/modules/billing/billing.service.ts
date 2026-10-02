@@ -1,8 +1,20 @@
 import { config } from '../../config.js';
 import { credits, NotEnoughCredits, payments, projects, users, type PlanId, type UserRow } from '../../db/index.js';
 import { HttpError } from '../../lib/http.js';
-import { CREDITS_PER_CLIP, creditsForClips, PLAN_ORDER, PLANS, planOf, TOPUP, type Plan } from './plans.js';
-import { minorUnits, razorpay, razorpayPlanId, razorpayReady, validOrderPayment, validSubscriptionPayment, validWebhook, type RzPayment, type RzSubscription } from './razorpay.js';
+import { CREDITS_PER_CLIP, creditsForClips, CURRENCIES, HOME_CURRENCY, PLAN_ORDER, PLANS, planOf, priceIn, TOPUP, topupPriceIn, type Plan } from './plans.js';
+import { chargeCurrency, shownCurrency } from './currency.js';
+import {
+  minorUnits,
+  planForRazorpayPlan,
+  razorpay,
+  razorpayPlanId,
+  razorpayReady,
+  validOrderPayment,
+  validSubscriptionPayment,
+  validWebhook,
+  type RzPayment,
+  type RzSubscription,
+} from './razorpay.js';
 
 const DAY = 86400_000;
 /** Same day next month (Jan 31 → Mar 3 is fine for a billing month). */
@@ -91,10 +103,11 @@ function syncSubscription(user: UserRow, sub: RzSubscription, planHint?: PlanId)
 
 function planFromSubscription(sub: RzSubscription): PlanId | null {
   if (sub.notes?.plan && sub.notes.plan in PLANS) return sub.notes.plan as PlanId;
-  if (sub.plan_id && sub.plan_id === config.razorpayPlanCreator) return 'creator';
-  if (sub.plan_id && sub.plan_id === config.razorpayPlanPro) return 'pro';
-  return null;
+  return planForRazorpayPlan(sub.plan_id, CURRENCIES)?.plan ?? null;
 }
+
+/** The currency a subscription charges in (from its Razorpay plan; noted when it was made). */
+const currencyOf = (sub: RzSubscription) => sub.notes?.currency || planForRazorpayPlan(sub.plan_id, CURRENCIES)?.currency || HOME_CURRENCY;
 
 /** Back to Free (credits already paid for stay until they expire). */
 function downgrade(user: UserRow, why: string) {
@@ -104,14 +117,34 @@ function downgrade(user: UserRow, why: string) {
 
 // ---------------- what the app shows ----------------
 
-export function publicPlan(p: Plan) {
-  return { ...p, clips: Math.floor(p.credits / CREDITS_PER_CLIP), currency: config.currency };
+/**
+ * A plan as the app shows it: price in the person's currency. When a payment would be made in another currency
+ * (USD shown, but Razorpay can only charge INR yet), chargePrice/chargeCurrency say what's actually charged.
+ */
+export function publicPlan(p: Plan, shown = HOME_CURRENCY) {
+  const charged = chargeCurrency(shown);
+  return {
+    ...p,
+    price: priceIn(p.id, shown),
+    currency: shown,
+    ...(charged !== shown && p.id !== 'free' ? { chargePrice: priceIn(p.id, charged), chargeCurrency: charged } : {}),
+    clips: Math.floor(p.credits / CREDITS_PER_CLIP),
+  };
 }
 
-export function accountSummary(user: UserRow) {
+/** The credit pack, priced the same way. */
+export function publicTopup(shown = HOME_CURRENCY) {
+  const charged = chargeCurrency(shown);
+  return { ...TOPUP, price: topupPriceIn(shown), ...(charged !== shown ? { chargePrice: topupPriceIn(charged), chargeCurrency: charged } : {}) };
+}
+
+export function accountSummary(user: UserRow, hint: string | null = null) {
   const plan = planOf(user.plan);
+  const shown = shownCurrency(user, hint);
   return {
-    plan: publicPlan(plan),
+    plan: publicPlan(plan, shown),
+    currency: shown,
+    topup: publicTopup(shown),
     cycleStart: user.cycleStart,
     cycleEnd: user.cycleEnd,
     cancelAtPeriodEnd: user.cancelAtPeriodEnd,
@@ -248,17 +281,23 @@ function needPayments() {
 }
 
 /** Start paying for a plan: a Razorpay subscription the browser opens in Checkout. */
-export async function startSubscription(user: UserRow, planId: PlanId) {
+export async function startSubscription(user: UserRow, planId: PlanId, hint: string | null = null) {
   needPayments();
   const plan = PLANS[planId];
   if (!plan || plan.id === 'free') throw new HttpError(400, 'Pick a paid plan.');
-  const rzPlan = razorpayPlanId(plan.id);
-  if (!rzPlan) throw new HttpError(503, `The ${plan.name} plan isn’t set up in Razorpay yet (RAZORPAY_PLAN_${plan.id.toUpperCase()} in .env).`);
+  // the currency they already pay in, or (first payment) the one for where they are
+  const currency = user.billingCurrency ?? chargeCurrency(shownCurrency(user, hint));
+  const rzPlan = razorpayPlanId(plan.id, currency);
+  if (!rzPlan)
+    throw new HttpError(
+      503,
+      `The ${plan.name} plan isn’t set up in Razorpay for ${currency} yet (RAZORPAY_PLAN_${plan.id.toUpperCase()}${currency === config.currency ? '' : `_${currency}`} in .env).`,
+    );
   if (user.plan === plan.id && user.rzSubscriptionId && !user.cancelAtPeriodEnd) throw new HttpError(409, `You’re already on ${plan.name}.`);
   // Only upgrades: a lower plan isn't offered while a higher one is active (it already includes everything).
   if (PLAN_ORDER.indexOf(plan.id) < PLAN_ORDER.indexOf(planOf(user.plan).id) && !user.cancelAtPeriodEnd)
     throw new HttpError(409, `You’re on ${planOf(user.plan).name}, which already includes everything in ${plan.name}.`);
-  const sub = await razorpay.createSubscription(rzPlan, { user_id: user.id, plan: plan.id, email: user.email });
+  const sub = await razorpay.createSubscription(rzPlan, { user_id: user.id, plan: plan.id, email: user.email, currency });
   users.update(user.id, { pendingSubscriptionId: sub.id }); // found again later even if Checkout never reports back
   return { key: config.razorpayKeyId, subscriptionId: sub.id, plan: plan.id, description: `${plan.name} plan · ${Math.floor(plan.credits / CREDITS_PER_CLIP)} clips a month` };
 }
@@ -282,9 +321,11 @@ async function adoptSubscription(user: UserRow, sub: RzSubscription, paymentId: 
     cancelAtPeriodEnd: false,
     pendingSubscriptionId: user.pendingSubscriptionId === sub.id ? null : user.pendingSubscriptionId,
   });
-  const pay = paymentId ? { payment_id: paymentId, amount: minorUnits(PLANS[plan].price), currency: config.currency } : await razorpay.lastPaymentOf(sub.id).catch(() => null);
+  const currency = currencyOf(sub);
+  if (!user.billingCurrency) users.update(user.id, { billingCurrency: currency }); // their currency from now on
+  const pay = paymentId ? { payment_id: paymentId, amount: minorUnits(priceIn(plan, currency)), currency } : await razorpay.lastPaymentOf(sub.id).catch(() => null);
   if (pay?.payment_id)
-    payments.record({ id: pay.payment_id, userId: user.id, kind: 'subscription', plan, amount: pay.amount ?? minorUnits(PLANS[plan].price), currency: pay.currency ?? config.currency, ref: sub.id });
+    payments.record({ id: pay.payment_id, userId: user.id, kind: 'subscription', plan, amount: pay.amount ?? minorUnits(priceIn(plan, currency)), currency: pay.currency ?? currency, ref: sub.id });
   syncSubscription(users.get(user.id)!, sub, plan);
 }
 
@@ -338,9 +379,10 @@ export async function reconcileSubscriptions(user: UserRow, opts: { scan?: boole
 }
 
 /** Start buying a credit pack: a Razorpay order the browser opens in Checkout. */
-export async function startTopup(user: UserRow) {
+export async function startTopup(user: UserRow, hint: string | null = null) {
   needPayments();
-  const order = await razorpay.createOrder(minorUnits(TOPUP.price), config.currency, `topup_${user.id}_${Date.now()}`.slice(0, 40), { user_id: user.id, kind: 'topup' });
+  const currency = user.billingCurrency ?? chargeCurrency(shownCurrency(user, hint));
+  const order = await razorpay.createOrder(minorUnits(topupPriceIn(currency)), currency, `topup_${user.id}_${Date.now()}`.slice(0, 40), { user_id: user.id, kind: 'topup' });
   return { key: config.razorpayKeyId, orderId: order.id, amount: order.amount, currency: order.currency, description: `${TOPUP.credits} credits` };
 }
 

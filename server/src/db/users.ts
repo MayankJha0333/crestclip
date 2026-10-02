@@ -17,6 +17,8 @@ export interface UserRow {
   rzSubscriptionId: string | null;
   /** a subscription opened in Checkout that hasn't been confirmed yet */
   pendingSubscriptionId: string | null;
+  /** the currency they pay in — set by their first payment (null = not paid yet; shown by where they are) */
+  billingCurrency: string | null;
   cancelAtPeriodEnd: boolean;
   createdAt: number;
 }
@@ -34,6 +36,7 @@ const toUser = (r: Raw): UserRow => ({
   cycleEnd: (r.cycle_end as number) ?? null,
   rzSubscriptionId: (r.rz_subscription_id as string) ?? null,
   pendingSubscriptionId: (r.rz_pending_sub as string) ?? null,
+  billingCurrency: (r.billing_currency as string) ?? null,
   cancelAtPeriodEnd: Boolean(r.cancel_at_period_end),
   createdAt: r.created_at as number,
 });
@@ -90,6 +93,7 @@ export const users = {
       cycleEnd: ['cycle_end', (v) => v],
       rzSubscriptionId: ['rz_subscription_id', (v) => v],
       pendingSubscriptionId: ['rz_pending_sub', (v) => v],
+      billingCurrency: ['billing_currency', (v) => v],
       cancelAtPeriodEnd: ['cancel_at_period_end', (v) => (v ? 1 : 0)],
     };
     const sets: string[] = ['updated_at = ?'];

@@ -368,6 +368,9 @@ export interface Plan {
   credits: number;
   /** clips those credits make (credits ÷ credits per clip) */
   clips: number;
+  /** set when the payment is made in another currency than the one shown (e.g. $ shown, charged in ₹) */
+  chargePrice?: number;
+  chargeCurrency?: string;
   rollover: boolean;
   maxVideoMinutes: number;
   maxVideosPerProject: number;
@@ -382,10 +385,20 @@ export interface PlansInfo {
   currency: string;
   creditsPerClip: number;
   plans: Plan[];
-  topup: { credits: number; price: number; validDays: number };
+  topup: Topup;
+}
+export interface Topup {
+  credits: number;
+  price: number;
+  validDays: number;
+  chargePrice?: number;
+  chargeCurrency?: string;
 }
 export interface BillingAccount {
   plan: Plan;
+  /** the currency prices are shown in for this person */
+  currency: string;
+  topup: Topup;
   cycleStart: number | null;
   cycleEnd: number | null;
   cancelAtPeriodEnd: boolean;
