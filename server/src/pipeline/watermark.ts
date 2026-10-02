@@ -22,11 +22,12 @@ export interface Watermark {
 
 /**
  * Where the logo sits on the 1080×1920 frame (kept in sync with the web preview in WatermarkMark.tsx).
- * Bottom corners sit above the area where TikTok / Reels / Shorts draw the caption and buttons.
+ * Everything stays inside the area no app covers: below the ~210 px Reels top bar, ~90 px in from the sides,
+ * and bottom corners above the caption + buttons area (~320 px) of TikTok / Reels / Shorts.
  */
 export const WATERMARK_BOX = { small: 0.13, medium: 0.19, large: 0.26 } as const; // max width AND height, as a share of the frame width
-const SIDE = 0.05; // gap from the left/right edge, share of width
-const TOP = 0.05; // gap from the top, share of height
+const SIDE = 0.085; // gap from the left/right edge, share of width (92 px)
+const TOP = 0.115; // gap from the top, share of height (221 px)
 const BOTTOM = 0.22; // gap from the bottom, share of height
 
 const DEFAULTS: Watermark = { enabled: true, file: null, name: '', position: 'top-right', size: 'medium', opacity: 85 };
@@ -73,6 +74,9 @@ export function removeWatermarkLogo() {
   if (w.file) fs.rmSync(w.file, { force: true });
   return writeWatermark({ ...w, file: null, name: '' });
 }
+
+/** Lowest point of a top-corner logo on the frame (px), so headlines can sit under it; null for bottom corners. */
+export const watermarkTopBottom = (w: Watermark) => (w.position.startsWith('top') ? Math.round(1920 * TOP + 1080 * WATERMARK_BOX[w.size]) : null);
 
 /** What the renderer needs, or null when there's nothing to stamp. */
 export function watermarkForRender(): (Watermark & { file: string }) | null {

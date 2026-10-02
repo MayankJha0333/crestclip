@@ -5,7 +5,7 @@ import { HttpError } from '../../lib/http.js';
 import type { ClipPatch } from './clips.schemas.js';
 
 /** Edits to these fields change the video, so the clip is rendered again. */
-const RENDER_KEYS = ['hook', 'start', 'end', 'layout', 'captionStyle', 'showHook', 'motion', 'music'] as const;
+const RENDER_KEYS = ['hook', 'start', 'end', 'layout', 'captionStyle', 'showHook', 'motion', 'music', 'pace', 'emoji', 'flashForward'] as const;
 const VARIANT_STYLES = ['pop', 'clay', 'neon', 'comic', 'minimal'];
 
 function getClip(id: string): ClipRow {
@@ -81,6 +81,10 @@ export function createVariant(id: string): ClipRow {
 export function clipDownload(id: string): { file: string; name: string } {
   const c = clips.get(id);
   if (!c?.filePath || !fs.existsSync(c.filePath)) throw new HttpError(404, 'This clip is not rendered yet.');
-  const safe = (c.title || 'clip').replace(/[^\p{L}\p{N} _-]+/gu, '').trim().slice(0, 60) || 'clip';
+  const safe =
+    (c.title || 'clip')
+      .replace(/[^\p{L}\p{N} _-]+/gu, '')
+      .trim()
+      .slice(0, 60) || 'clip';
   return { file: c.filePath, name: `${safe}.mp4` };
 }

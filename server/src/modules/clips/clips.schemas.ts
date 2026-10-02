@@ -11,9 +11,10 @@ export const clipPatchSchema = z.object({
   captionStyle: z.enum(['pop', 'clay', 'neon', 'comic', 'minimal', 'none']).optional(),
   showHook: z.boolean().optional(),
   motion: z.enum(['none', 'subtle', 'dynamic']).optional(),
-  music: z
-    .object({ track: z.string().max(40), volume: z.number().min(0).max(100), duck: z.boolean() })
-    .optional(),
+  pace: z.enum(['off', 'natural', 'fast']).optional(),
+  emoji: z.boolean().optional(),
+  flashForward: z.boolean().optional(),
+  music: z.object({ track: z.string().max(40), volume: z.number().min(0).max(100), duck: z.boolean() }).optional(),
 });
 
 export type ClipPatch = z.infer<typeof clipPatchSchema>;

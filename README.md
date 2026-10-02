@@ -114,6 +114,11 @@ No YouTube API key is needed. Explore uses yt-dlp, which CrestClip keeps up to d
 
 - **Edit motion:** *Subtle* adds a punch-in zoom every few seconds at natural pauses and glides between speakers in the same shot. *Dynamic* zooms more often and opens with a quick zoom-out on the hook. *Off* keeps steady framing.
 - **Background music:** pick a mood (Chill lo-fi, Upbeat, Inspiring, Hype, Suspense, Funny, Emotional, Clean tech), *Auto* (matches each clip's category), or upload your own track. Mood tracks are instrumental, made once with Google's **Lyria** model on Vertex AI (your credits) and reused. Music loops smoothly, fades in/out, and ducks under speech.
+- **Cut pauses:** *Natural* (default) shortens pauses longer than ~0.6 s and drops a lone "um" sitting between two pauses; *Fast* cuts nearly every pause; *Off* keeps everything. Cuts are made only on real silences measured from the audio, and each cut gets a small zoom change so the jump isn't noticeable. Stories and emotional moments keep more breathing room.
+- **Key words:** the AI marks 3–8 important words per clip; captions show them bigger and in an accent colour (one per line). Turn on **Emoji on key words** to pop a matching emoji above them.
+- **Hooks:** the AI writes 3 headline options per clip; pick one in Edit → Hook & captions, or write your own.
+- **Flash-forward opening:** plays the clip's punchiest line (1–3 s, punched in) first, then the story from the start. Off by default; the AI only offers it when a line works as a tease.
+- **Auto length** aims for 20–45 seconds (where short clips keep the most viewers to the end) and only runs to 60 s when the story needs it.
 - **Pick your own parts:** on a project's "Where viewers rewatch" graph, drag across the parts you want (drag the yellow edges to adjust). Then **Make N clips** or **Join into 1 clip**. In **Explore**, click the graph to jump the preview there, drag to pick parts, and clip just those; only those parts are downloaded.
 
 ## Autopilot (clips that post themselves)
@@ -216,6 +221,10 @@ A 1-hour podcast costs about **$0.30–0.60 in Gemini usage**. That covers trans
 - YouTube Analytics API (`audienceWatchRatio`) for creators clipping their **own** channel. This is the most accurate retention data there is.
 - Live-chat spike detection for streams (`yt-dlp --sub-langs live_chat`).
 - Auto-posting to TikTok / YouTube / Instagram.
+
+## Credits
+
+Caption emoji are [Twemoji](https://github.com/jdecked/twemoji) graphics, © Twitter, Inc and other contributors, licensed under [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 ## Use responsibly
 

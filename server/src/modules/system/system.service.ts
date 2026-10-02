@@ -32,11 +32,7 @@ export async function refreshTools() {
   return { ytdlp: ytStatus, ffmpeg: ffStatus };
 }
 
-/** Clip length ranges for every platform × length choice (shown in the New clips form). */
+/** Clip length range for each length choice. */
 export function meta() {
-  return {
-    lengths: Object.fromEntries(
-      (['shorts', 'tiktok', 'reels'] as const).map((pl) => [pl, Object.fromEntries((['auto', 'short', 'medium', 'long'] as const).map((l) => [l, lengthRange(pl, l)]))]),
-    ),
-  };
+  return { lengths: Object.fromEntries((['auto', 'short', 'medium', 'long'] as const).map((l) => [l, lengthRange(l)])) };
 }

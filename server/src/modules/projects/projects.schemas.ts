@@ -11,6 +11,9 @@ export const optionsSchema = z.object({
   motion: z.enum(['none', 'subtle', 'dynamic']).default('subtle'),
   music: z.string().max(40).default('auto'),
   musicVolume: z.coerce.number().min(0).max(100).default(15),
+  pace: z.enum(['off', 'natural', 'fast']).default('natural'),
+  emoji: z.coerce.boolean().default(false),
+  flashForward: z.coerce.boolean().default(false),
   ranges: z
     .array(z.object({ start: z.number().min(0), end: z.number().min(0) }))
     .max(20)
@@ -26,6 +29,9 @@ export const createProjectSchema = z.object({ url: z.string().url(), options: op
 export const createBatchSchema = z.object({ urls: z.array(z.string().url()).min(1).max(15), options: optionsSchema.default({}) });
 
 export const pickClipsSchema = z.object({
-  ranges: z.array(z.object({ start: z.number().min(0), end: z.number().min(0) })).min(1).max(20),
+  ranges: z
+    .array(z.object({ start: z.number().min(0), end: z.number().min(0) }))
+    .min(1)
+    .max(20),
   join: z.boolean().default(false),
 });

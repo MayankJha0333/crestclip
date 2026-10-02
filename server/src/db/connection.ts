@@ -117,6 +117,13 @@ CREATE INDEX IF NOT EXISTS posts_due ON posts(status, scheduled_at);
   add('motion', "TEXT DEFAULT 'subtle'");
   add('music_json', 'TEXT');
   add('source', "TEXT DEFAULT 'ai'"); // 'ai' | 'manual'
+  add('pace', "TEXT DEFAULT 'off'"); // pause cutting; clips made before it existed stay uncut
+  add('hooks_json', 'TEXT'); // headline options
+  add('keywords_json', 'TEXT'); // [{w, emoji}] for caption emphasis
+  add('teaser_json', 'TEXT'); // {start,end} flash-forward line
+  add('emoji', 'INTEGER DEFAULT 0');
+  add('flash', 'INTEGER DEFAULT 0');
+  add('out_duration', 'REAL'); // length of the finished video (after pause cuts / tease)
 }
 {
   // one project can hold several videos: each video is a child project of a 'group' project

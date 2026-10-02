@@ -4,19 +4,26 @@ import type { ProjectOptions } from '../../lib/api';
 import { Button, FieldLabel, Segmented, Sheet, Toggle } from '../../components/ui';
 import { MotionPicker } from './MotionPicker';
 import { MusicPicker } from './MusicPicker';
-import { LAYOUTS, MOTIONS } from './options';
+import { LAYOUTS, MOTIONS, PACES } from './options';
 
 const musicName = (t: string) => (t === 'none' ? 'no music' : t === 'auto' ? 'auto music' : t.startsWith('upload:') ? 'your track' : `${t} music`);
 
 /**
- * The less-used settings (motion, music, framing, hook, audience data): one summary row that opens a side panel,
+ * The less-used settings (pauses, motion, music, framing, hook, flash-forward, emoji, audience data): one summary row that opens a side panel,
  * so the page layout never jumps.
  * Length, clip count and captions live next to the live preview instead. The watermark is set once in Settings.
  */
 export function ClipSettings({ value, onChange }: { value: ProjectOptions; onChange: (o: ProjectOptions) => void }) {
   const [open, setOpen] = useState(false);
   const set = <K extends keyof ProjectOptions>(k: K, v: ProjectOptions[K]) => onChange({ ...value, [k]: v });
-  const summary = [`${MOTIONS.find((m) => m.value === value.motion)?.label} motion`, musicName(value.music), LAYOUTS.find((l) => l.value === value.layout)?.label.toLowerCase() + ' framing'];
+  const summary = [
+    value.pace === 'off' ? 'pauses kept' : `${value.pace} pause cuts`,
+    `${MOTIONS.find((m) => m.value === value.motion)?.label.toLowerCase()} motion`,
+    musicName(value.music),
+    LAYOUTS.find((l) => l.value === value.layout)?.label.toLowerCase() + ' framing',
+    ...(value.flashForward ? ['flash-forward'] : []),
+    ...(value.emoji ? ['emoji'] : []),
+  ];
 
   return (
     <>
@@ -47,6 +54,11 @@ export function ClipSettings({ value, onChange }: { value: ProjectOptions; onCha
       >
         <div className="flex flex-col gap-7">
           <section>
+            <FieldLabel>Cut pauses</FieldLabel>
+            <Segmented label="Cut pauses" value={value.pace} onChange={(v) => set('pace', v)} options={PACES.map((o) => ({ value: o.value, label: o.label }))} />
+            <p className="mt-2 text-[13px] text-ink-3">{PACES.find((o) => o.value === value.pace)?.hint}</p>
+          </section>
+          <section>
             <FieldLabel>Edit motion</FieldLabel>
             <MotionPicker value={value.motion} onChange={(v) => set('motion', v)} />
           </section>
@@ -67,6 +79,18 @@ export function ClipSettings({ value, onChange }: { value: ProjectOptions; onCha
           <section className="flex flex-col gap-3 rounded-2xl bg-row p-4 shadow-flat">
             <Toggle checked={value.showHook} onChange={(v) => set('showHook', v)}>
               Hook headline in the first 3s
+            </Toggle>
+            <Toggle checked={value.flashForward} onChange={(v) => set('flashForward', v)}>
+              <span>
+                Flash-forward opening
+                <span className="block text-xs font-normal text-ink-3">Flashes the clip’s best line for ~2s first, then plays the story</span>
+              </span>
+            </Toggle>
+            <Toggle checked={value.emoji} onChange={(v) => set('emoji', v)}>
+              <span>
+                Emoji on key words
+                <span className="block text-xs font-normal text-ink-3">A matching emoji pops up above the most important words</span>
+              </span>
             </Toggle>
             <Toggle checked={value.useAudienceData} onChange={(v) => set('useAudienceData', v)}>
               Use “Most replayed” + comments

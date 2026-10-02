@@ -4,6 +4,13 @@ export type CaptionStyle = 'pop' | 'clay' | 'neon' | 'comic' | 'minimal' | 'none
 export type LengthPref = 'auto' | 'short' | 'medium' | 'long';
 /** Editing motion: none, occasional punch-in zooms + smooth pans, or fast-paced zooms like a pro editor. */
 export type Motion = 'none' | 'subtle' | 'dynamic';
+/** Pause cutting: keep every pause, shorten long ones (natural), or cut tight (fast). */
+export type Pace = 'off' | 'natural' | 'fast';
+/** A word the AI marked as important: shown bigger / coloured in captions, with an optional emoji. */
+export interface Keyword {
+  w: string;
+  emoji?: string;
+}
 
 export interface TimeRange {
   start: number;
@@ -29,6 +36,9 @@ export interface ProjectOptions {
   motion?: Motion;
   music?: string; // default track for new clips (see MusicSettings.track)
   musicVolume?: number;
+  pace?: Pace;
+  emoji?: boolean; // emoji next to key words in captions
+  flashForward?: boolean; // open on a short tease of the best line, then start the story
   /** Clip exactly these parts (picked on the graph) instead of letting Gemini choose. */
   ranges?: TimeRange[];
   joinRanges?: boolean; // true = all ranges become ONE clip
@@ -97,6 +107,11 @@ export interface ClipCandidate {
   reason: string;
   category: string;
   rubric: Rubric;
+  /** extra hook headlines to choose from (the first is `hook`) */
+  hooks?: string[];
+  keywords?: Keyword[];
+  /** the punchiest 1–3 s inside the clip, for a flash-forward opening (absolute seconds) */
+  teaser?: TimeRange | null;
 }
 
 export interface CropHold {

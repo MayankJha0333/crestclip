@@ -1,5 +1,5 @@
 import { db, newId, now, parse, type Raw } from './connection.js';
-import type { ClipCandidate, Motion, MusicSettings, ReframePlan, Rubric, TimeRange } from '../types.js';
+import type { ClipCandidate, Keyword, Motion, MusicSettings, Pace, ReframePlan, Rubric, TimeRange } from '../types.js';
 
 export interface ClipRow {
   id: string;
@@ -33,6 +33,14 @@ export interface ClipRow {
   motion: Motion;
   music: MusicSettings;
   source: 'ai' | 'manual';
+  pace: Pace;
+  hooks: string[];
+  keywords: Keyword[];
+  teaser: TimeRange | null;
+  emoji: boolean;
+  flashForward: boolean;
+  /** length of the rendered video; null until rendered */
+  outDuration: number | null;
 }
 
 const DEFAULT_MUSIC: MusicSettings = { track: 'none', volume: 15, duck: true };
@@ -69,6 +77,13 @@ function toClip(r: Raw): ClipRow {
     motion: ((r.motion as string) || 'subtle') as Motion,
     music: { ...DEFAULT_MUSIC, ...parse(r.music_json, {} as Partial<MusicSettings>) },
     source: ((r.source as string) || 'ai') as 'ai' | 'manual',
+    pace: ((r.pace as string) || 'off') as Pace,
+    hooks: parse(r.hooks_json, [] as string[]),
+    keywords: parse(r.keywords_json, [] as Keyword[]),
+    teaser: parse(r.teaser_json, null),
+    emoji: Boolean(r.emoji),
+    flashForward: Boolean(r.flash),
+    outDuration: (r.out_duration as number) ?? null,
   };
 }
 
@@ -78,14 +93,12 @@ export interface ClipDefaults {
   showHook: boolean;
   motion: Motion;
   music: MusicSettings;
+  pace: Pace;
+  emoji: boolean;
+  flashForward: boolean;
 }
 export const clips = {
-  replaceForProject(
-    projectId: string,
-    list: (ClipCandidate & { aiScore: number; audienceScore: number | null; peakScore: number })[],
-    defaults: ClipDefaults,
-    source: 'ai' | 'manual' = 'ai',
-  ) {
+  replaceForProject(projectId: string, list: (ClipCandidate & { aiScore: number; audienceScore: number | null; peakScore: number })[], defaults: ClipDefaults, source: 'ai' | 'manual' = 'ai') {
     db.prepare('DELETE FROM clips WHERE project_id = ?').run(projectId);
     this.insert(projectId, list, defaults, 0, source);
     return this.forProject(projectId);
@@ -103,8 +116,8 @@ export const clips = {
     const stmt = db.prepare(
       `INSERT INTO clips (id, project_id, idx, created_at, updated_at, start, end, title, hook, description, hashtags_json,
         reason, category, rubric_json, ai_score, audience_score, peak_score, layout, caption_style, show_hook, status,
-        segments_json, motion, music_json, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+        segments_json, motion, music_json, source, pace, hooks_json, keywords_json, teaser_json, emoji, flash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const ids: string[] = [];
     list.forEach((c, j) => {
@@ -136,14 +149,18 @@ export const clips = {
         defaults.motion,
         JSON.stringify(defaults.music),
         source,
+        defaults.pace,
+        JSON.stringify(c.hooks?.length ? c.hooks : c.hook ? [c.hook] : []),
+        JSON.stringify(c.keywords ?? []),
+        c.teaser ? JSON.stringify(c.teaser) : null,
+        defaults.emoji ? 1 : 0,
+        defaults.flashForward && c.teaser ? 1 : 0,
       );
     });
     return ids.map((id) => this.get(id)!).filter(Boolean);
   },
   forProject(projectId: string): ClipRow[] {
-    return (db.prepare('SELECT * FROM clips WHERE project_id = ? ORDER BY peak_score DESC, idx').all(projectId) as Raw[]).map(
-      toClip,
-    );
+    return (db.prepare('SELECT * FROM clips WHERE project_id = ? ORDER BY peak_score DESC, idx').all(projectId) as Raw[]).map(toClip);
   },
   get(id: string): ClipRow | null {
     const r = db.prepare('SELECT * FROM clips WHERE id = ?').get(id) as Raw | undefined;
@@ -175,6 +192,13 @@ export const clips = {
       segments: ['segments_json', (v) => JSON.stringify(v)],
       motion: ['motion', (v) => v],
       music: ['music_json', (v) => JSON.stringify(v)],
+      pace: ['pace', (v) => v],
+      hooks: ['hooks_json', (v) => JSON.stringify(v)],
+      keywords: ['keywords_json', (v) => JSON.stringify(v)],
+      teaser: ['teaser_json', (v) => JSON.stringify(v)],
+      emoji: ['emoji', (v) => (v ? 1 : 0)],
+      flashForward: ['flash', (v) => (v ? 1 : 0)],
+      outDuration: ['out_duration', (v) => v],
     };
     const sets: string[] = ['updated_at = ?'];
     const vals: unknown[] = [now()];
@@ -198,9 +222,11 @@ export const clips = {
     const maxIdx = (db.prepare('SELECT MAX(idx) AS m FROM clips WHERE project_id = ?').get(c.projectId) as Raw).m as number;
     db.prepare(
       `INSERT INTO clips (id, project_id, idx, created_at, updated_at, start, end, title, hook, description, hashtags_json, reason, category,
-        rubric_json, ai_score, audience_score, peak_score, layout, caption_style, show_hook, status, reframe_json, segments_json, motion, music_json, source)
+        rubric_json, ai_score, audience_score, peak_score, layout, caption_style, show_hook, status, reframe_json, segments_json, motion, music_json, source,
+        pace, hooks_json, keywords_json, teaser_json, emoji, flash)
        SELECT ?, project_id, ?, ?, ?, start, end, title || ?, hook, description, hashtags_json, reason, category, rubric_json, ai_score,
-        audience_score, peak_score - 0.01, layout, ?, show_hook, 'pending', reframe_json, segments_json, motion, music_json, source FROM clips WHERE id = ?`,
+        audience_score, peak_score - 0.01, layout, ?, show_hook, 'pending', reframe_json, segments_json, motion, music_json, source,
+        pace, hooks_json, keywords_json, teaser_json, emoji, flash FROM clips WHERE id = ?`,
     ).run(nid, (maxIdx ?? 0) + 1, now(), now(), o.titleSuffix, o.captionStyle, id);
     return this.get(nid);
   },

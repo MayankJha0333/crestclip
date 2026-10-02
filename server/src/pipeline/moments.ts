@@ -1,7 +1,7 @@
 import { config } from '../config.js';
 import { generateJson, part } from './gemini.js';
 import { formatTime, rangeScore } from './signals.js';
-import type { ClipCandidate, LengthPref, Platform, ProjectOptions, Rubric, Segment, Signals } from '../types.js';
+import type { ClipCandidate, Keyword, LengthPref, ProjectOptions, Rubric, Segment, Signals, TimeRange } from '../types.js';
 import type { Part } from '@google/genai';
 
 /** Scoring rubric distilled from platform docs + creator data (see docs/RESEARCH.md). */
@@ -18,18 +18,20 @@ export const RUBRIC_WEIGHTS: Rubric = {
 };
 
 /** The length rule for a project: an exact min/max (campaign briefs) wins over the general preference. */
-function rangeFor(o: Pick<ProjectOptions, 'platform' | 'length' | 'minSeconds' | 'maxSeconds'>) {
+function rangeFor(o: Pick<ProjectOptions, 'length' | 'minSeconds' | 'maxSeconds'>) {
   if (o.minSeconds && o.maxSeconds && o.maxSeconds > o.minSeconds) return { min: o.minSeconds, max: o.maxSeconds, label: `${o.minSeconds}–${o.maxSeconds} seconds (required by the campaign)` };
-  return lengthRange(o.platform, o.length);
+  return lengthRange(o.length);
 }
 
-export function lengthRange(platform: Platform, pref: LengthPref): { min: number; max: number; label: string } {
+/**
+ * Clip length for each choice. Auto aims for 20–45 s, where short clips keep the most viewers to the end
+ * (third-party TikTok data: 21–34 s clips finish ~62% vs ~48% for 60 s+), and only runs longer when the story needs it.
+ */
+export function lengthRange(pref: LengthPref): { min: number; max: number; label: string } {
   if (pref === 'short') return { min: 12, max: 30, label: '12–30 seconds' };
   if (pref === 'medium') return { min: 30, max: 60, label: '30–60 seconds' };
   if (pref === 'long') return { min: 60, max: 150, label: '60–150 seconds' };
-  if (platform === 'shorts') return { min: 18, max: 55, label: '20–50 seconds (YouTube Shorts sweet spot)' };
-  if (platform === 'reels') return { min: 25, max: 65, label: '30–60 seconds (Reels sweet spot)' };
-  return { min: 30, max: 95, label: '30–90 seconds (TikTok; 60s+ qualifies for Creator Rewards)' };
+  return { min: 18, max: 60, label: '20–45 seconds — short clips keep the most viewers to the end. Go up to 60 seconds ONLY when the story truly needs it' };
 }
 
 const clipSchema = {
@@ -44,7 +46,15 @@ const clipSchema = {
           start: { type: 'number', description: 'seconds; must be the start of the first word of the hook sentence' },
           end: { type: 'number', description: 'seconds; right after the payoff lands' },
           title: { type: 'string', description: 'post title, <= 70 chars, curiosity-driven, no clickbait lies' },
-          hook: { type: 'string', description: 'on-screen headline shown in the first 3 seconds, <= 8 words' },
+          hook: { type: 'string', description: 'the best on-screen headline for the first 3 seconds, <= 8 words' },
+          hooks: { type: 'array', items: { type: 'string' }, description: 'exactly 3 different headline options (<= 8 words each), each from a different angle; the first equals `hook`' },
+          keywords: {
+            type: 'array',
+            description: '3-8 single words spoken in this clip that carry its meaning, in the order they are said, each with one fitting emoji',
+            items: { type: 'object', properties: { w: { type: 'string' }, emoji: { type: 'string' } }, required: ['w', 'emoji'] },
+          },
+          teaser_start: { type: 'number', description: 'seconds; start of the cold-open tease line, or -1' },
+          teaser_end: { type: 'number', description: 'seconds; end of the cold-open tease line, or -1' },
           description: { type: 'string', description: '1-2 sentence post caption with a question or CTA to drive comments' },
           hashtags: { type: 'array', items: { type: 'string' } },
           reason: { type: 'string', description: 'why this will hold attention and get shared, in plain words (<= 30 words)' },
@@ -59,7 +69,29 @@ const clipSchema = {
           length_fit: { type: 'number' },
           trend: { type: 'number' },
         },
-        required: ['start', 'end', 'title', 'hook', 'description', 'hashtags', 'reason', 'category', 'hook_s', 'standalone', 'payoff', 'emotion', 'shareability', 'pacing', 'loop', 'length_fit', 'trend'],
+        required: [
+          'start',
+          'end',
+          'title',
+          'hook',
+          'hooks',
+          'keywords',
+          'teaser_start',
+          'teaser_end',
+          'description',
+          'hashtags',
+          'reason',
+          'category',
+          'hook_s',
+          'standalone',
+          'payoff',
+          'emotion',
+          'shareability',
+          'pacing',
+          'loop',
+          'length_fit',
+          'trend',
+        ],
       },
     },
   },
@@ -78,6 +110,11 @@ Rules for every clip:
 4. Prefer moments with emotion: laughter, disagreement, surprise, vulnerability, a bold claim, a counter-intuitive fact, a relatable struggle.
 5. Clips must not overlap each other by more than a few seconds. Spread across the whole video.
 6. Use ONLY timestamps that exist in the transcript. Start/end should line up with the transcript line boundaries.
+
+PACKAGING for every clip:
+- hooks: 3 on-screen headlines from different angles (curiosity gap, bold claim, direct question). Short, concrete, no clickbait lies, no hashtags. The first one is your best and equals "hook".
+- keywords: 3-8 words the speaker actually SAYS in the clip that carry the meaning — numbers, names, strong verbs and adjectives ("failed", "$10,000", "fired"). Never filler ("the", "really", "like"). One emoji each that fits the word.
+- teaser (cold open): the single punchiest line INSIDE the clip — the punchline, reveal or most shocking sentence, 1-3 seconds, ideally from the second half — to flash for ~1.5 s before the clip starts, so viewers stay to see how it happens. It must be a complete phrase that makes people curious, not confused. Use -1 for teaser_start and teaser_end when no line works as a tease.
 
 AUDIENCE DATA: when "audience hotspots" are given, they come from YouTube's "Most replayed" graph and viewers' timestamp comments — these are moments real viewers re-watched. Strongly prefer clips that contain a hotspot, but still apply the rules above (a hotspot is where to look, not an exact cut).
 
@@ -136,13 +173,11 @@ export async function findMoments(input: {
         .map((h) => `- ${formatTime(h.start)}–${formatTime(h.end)} (${h.start.toFixed(0)}s–${h.end.toFixed(0)}s), strength ${(h.value * 100).toFixed(0)}%, from ${h.source}`)
         .join('\n')
     : 'none available';
-  const chapters = input.signals?.chapters?.length
-    ? input.signals.chapters.map((c) => `- ${c.start_time.toFixed(0)}s: ${c.title}`).join('\n')
-    : 'none';
+  const chapters = input.signals?.chapters?.length ? input.signals.chapters.map((c) => `- ${c.start_time.toFixed(0)}s: ${c.title}`).join('\n') : 'none';
 
   const prompt = `VIDEO: "${input.title}"${input.channel ? ` by ${input.channel}` : ''}
 Duration: ${formatTime(duration)} (${duration.toFixed(0)} s)
-Target platform: ${options.platform === 'shorts' ? 'YouTube Shorts' : options.platform === 'reels' ? 'Instagram Reels' : 'TikTok'}
+Clips are posted to TikTok, YouTube Shorts and Instagram Reels.
 Target clip length: ${range.label}. Hard limits: ${range.min}–${range.max} s.
 Return the ${ask} best clip candidates, best first.
 ${options.focus ? `Creator's focus request: "${options.focus}" — prioritize moments that match it.` : ''}
@@ -174,6 +209,9 @@ ${transcriptForPrompt(input.segments)}`;
     end: Number(c.end) || 0,
     title: String(c.title || '').slice(0, 100),
     hook: String(c.hook || '').slice(0, 80),
+    hooks: parseHooks(c.hook, c.hooks),
+    keywords: parseKeywords(c.keywords),
+    teaser: Number(c.teaser_start) >= 0 && Number(c.teaser_end) > Number(c.teaser_start) ? { start: Number(c.teaser_start), end: Number(c.teaser_end) } : null,
     description: String(c.description || ''),
     hashtags: (Array.isArray(c.hashtags) ? c.hashtags : []).map((h) => '#' + String(h).replace(/^#+/, '').replace(/\s+/g, '')).slice(0, 6),
     reason: String(c.reason || ''),
@@ -195,6 +233,47 @@ ${transcriptForPrompt(input.segments)}`;
 
 const clamp10 = (v: unknown) => Math.max(0, Math.min(10, Number(v) || 0));
 
+/** Up to 3 distinct headline options, the main hook first. */
+function parseHooks(hook: unknown, hooks: unknown): string[] {
+  const list = [hook, ...(Array.isArray(hooks) ? hooks : [])]
+    .map((h) =>
+      String(h ?? '')
+        .trim()
+        .slice(0, 80),
+    )
+    .filter(Boolean);
+  return [...new Map(list.map((h) => [h.toLowerCase(), h])).values()].slice(0, 3);
+}
+
+/** Key words: one word each (lower-case, no punctuation), one short emoji, no repeats, at most 8. */
+function parseKeywords(v: unknown): Keyword[] {
+  const out: Keyword[] = [];
+  for (const k of Array.isArray(v) ? v : []) {
+    const w = String((k as Keyword)?.w ?? '')
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}$%'-]/gu, '');
+    const emoji = [...String((k as Keyword)?.emoji ?? '').trim()].slice(0, 2).join('');
+    if (w.length < 2 || out.some((x) => x.w === w)) continue;
+    out.push(emoji ? { w, emoji } : { w });
+  }
+  return out.slice(0, 8);
+}
+
+/**
+ * Check and tidy the AI's tease line against the final clip: it must sit inside the clip (not at its very start,
+ * which would just repeat the opening), last 0.8–3.5 s, and end in a real pause so no word is cut off.
+ */
+function fitTeaser(t: TimeRange | null | undefined, start: number, end: number, silences: { s: number; e: number }[]): TimeRange | null {
+  if (!t) return null;
+  let s = Math.max(start, t.start - 0.1);
+  if (s < start + 2.5 || s > end - 0.8) return null;
+  const pause = silences.find((x) => x.s >= s + 0.8 && x.s <= s + 3.5 && x.s >= t.end - 0.6);
+  const e = pause ? pause.s + 0.1 : Math.min(t.end + 0.15, end);
+  if (e - s < 0.8 || e - s > 3.6) return null;
+  s = +s.toFixed(3);
+  return { start: s, end: +e.toFixed(3) };
+}
+
 export function aiScore(r: Rubric): number {
   let s = 0;
   for (const k of Object.keys(RUBRIC_WEIGHTS) as (keyof Rubric)[]) s += r[k] * RUBRIC_WEIGHTS[k];
@@ -205,14 +284,7 @@ export function aiScore(r: Rubric): number {
  * Snap clip edges to real speech boundaries so clips never start or end mid-word,
  * enforce the length range, score, de-duplicate and keep the best N.
  */
-export function finalizeClips(
-  cands: ClipCandidate[],
-  segs: Segment[],
-  silences: { s: number; e: number }[],
-  duration: number,
-  signals: Signals | null,
-  options: ProjectOptions,
-) {
+export function finalizeClips(cands: ClipCandidate[], segs: Segment[], silences: { s: number; e: number }[], duration: number, signals: Signals | null, options: ProjectOptions) {
   const range = rangeFor(options);
   const minLen = Math.max(5, range.min * 0.8);
   const maxLen = range.max * 1.15;
@@ -231,7 +303,7 @@ export function finalizeClips(
     const aud = rangeScore(signals, duration, start, end);
     const isAudience = signals?.curveKind === 'audience';
     const peak = aud == null ? ai : isAudience ? Math.round(ai * 0.6 + aud * 0.4) : Math.round(ai * 0.88 + aud * 0.12);
-    out.push({ ...c, start: +start.toFixed(3), end: +end.toFixed(3), aiScore: ai, audienceScore: aud, peakScore: peak });
+    out.push({ ...c, start: +start.toFixed(3), end: +end.toFixed(3), teaser: fitTeaser(c.teaser, start, end, silences), aiScore: ai, audienceScore: aud, peakScore: peak });
   }
 
   // de-duplicate overlapping picks (keep the higher score)
@@ -301,6 +373,23 @@ function fakeMoments(segs: Segment[], duration: number, range: { min: number; ma
       end: Math.min(duration, (seg?.s ?? t) + len),
       title: ['The one tweet that changed everything', 'Why ads failed us (and what worked)', 'Stop selling, start teaching'][i % 3],
       hook: ['Nobody tells you this', 'Ads completely failed us', 'The whole secret'][i % 3],
+      hooks: [
+        ['Nobody tells you this', 'The startup truth nobody shares', 'Why are the first users so hard?'],
+        ['Ads completely failed us', 'We burned our ad budget', 'Do ads even work anymore?'],
+        ['The whole secret', 'Stop selling. Start teaching.', 'What actually grew us?'],
+      ][i % 3],
+      keywords: [
+        { w: 'failed', emoji: '💀' },
+        { w: 'tweet', emoji: '🐦' },
+        { w: 'numbers', emoji: '📈' },
+        { w: 'teaching', emoji: '📚' },
+        { w: 'secret', emoji: '🤫' },
+      ],
+      teaser: (() => {
+        const s0 = seg?.s ?? t;
+        const late = segs.find((x) => x.s > s0 + len * 0.55 && x.e < s0 + len - 0.5);
+        return late ? { start: late.s, end: Math.min(late.e, late.s + 2.8) } : null;
+      })(),
       description: 'Would you try this? Tell me below 👇',
       hashtags: ['#startup', '#growth', '#founder'],
       reason: 'Strong opening claim, clear payoff, relatable founder struggle.',
@@ -323,6 +412,8 @@ const describeSchema = {
           index: { type: 'number' },
           title: clipSchema.properties.clips.items.properties.title,
           hook: clipSchema.properties.clips.items.properties.hook,
+          hooks: clipSchema.properties.clips.items.properties.hooks,
+          keywords: clipSchema.properties.clips.items.properties.keywords,
           description: clipSchema.properties.clips.items.properties.description,
           hashtags: { type: 'array', items: { type: 'string' } },
           reason: { type: 'string', description: 'what makes this moment work (or what would make it stronger), plain words, <= 30 words' },
@@ -337,14 +428,33 @@ const describeSchema = {
           length_fit: { type: 'number' },
           trend: { type: 'number' },
         },
-        required: ['index', 'title', 'hook', 'description', 'hashtags', 'reason', 'category', 'hook_s', 'standalone', 'payoff', 'emotion', 'shareability', 'pacing', 'loop', 'length_fit', 'trend'],
+        required: [
+          'index',
+          'title',
+          'hook',
+          'hooks',
+          'keywords',
+          'description',
+          'hashtags',
+          'reason',
+          'category',
+          'hook_s',
+          'standalone',
+          'payoff',
+          'emotion',
+          'shareability',
+          'pacing',
+          'loop',
+          'length_fit',
+          'trend',
+        ],
       },
     },
   },
   required: ['clips'],
 };
 
-export type Described = Pick<ClipCandidate, 'title' | 'hook' | 'description' | 'hashtags' | 'reason' | 'category' | 'rubric'>;
+export type Described = Pick<ClipCandidate, 'title' | 'hook' | 'hooks' | 'keywords' | 'description' | 'hashtags' | 'reason' | 'category' | 'rubric'>;
 
 /** Titles, hooks, hashtags and an honest score for clips the user picked on the graph (Gemini, fast model). */
 export async function describeClips(input: {
@@ -366,13 +476,16 @@ export async function describeClips(input: {
   const blocks = input.clips
     .map((c, i) => {
       const where = c.parts.map((p) => `${formatTime(p.start)}–${formatTime(p.end)}`).join(' + ');
-      const text = c.segments.map((s) => s.text).join(' ').slice(0, 6000);
+      const text = c.segments
+        .map((s) => s.text)
+        .join(' ')
+        .slice(0, 6000);
       return `CLIP ${i}${c.parts.length > 1 ? ` (joined from ${c.parts.length} parts)` : ''} · ${where}\n${text || '(no speech)'}`;
     })
     .join('\n\n');
   const prompt = `VIDEO: "${input.title}"${input.channel ? ` by ${input.channel}` : ''}
-Platform: ${input.options.platform === 'shorts' ? 'YouTube Shorts' : input.options.platform === 'reels' ? 'Instagram Reels' : 'TikTok'}
-The creator hand-picked these moments. Write the packaging for each one (post title, on-screen hook, caption, hashtags) and score it honestly with the rubric. Use "index" = the CLIP number.
+Clips are posted to TikTok, YouTube Shorts and Instagram Reels.
+The creator hand-picked these moments. Write the packaging for each one (post title, hook options, key words, caption, hashtags) and score it honestly with the rubric. Use "index" = the CLIP number. Set teaser_start and teaser_end to -1 (no teaser for hand-picked clips).
 
 ${blocks}`;
   try {
@@ -391,6 +504,8 @@ ${blocks}`;
       return {
         title: String(c.title || fallback(i).title).slice(0, 100),
         hook: String(c.hook || '').slice(0, 80),
+        hooks: parseHooks(c.hook, c.hooks),
+        keywords: parseKeywords(c.keywords),
         description: String(c.description || ''),
         hashtags: (Array.isArray(c.hashtags) ? c.hashtags : []).map((h) => '#' + String(h).replace(/^#+/, '').replace(/\s+/g, '')).slice(0, 6),
         reason: String(c.reason || ''),

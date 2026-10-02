@@ -43,8 +43,10 @@ export const api = {
     ),
   retry: (id: string) => req<{ ok: boolean }>(`/api/projects/${id}/retry`, { method: 'POST' }),
   remove: (id: string) => req<{ ok: boolean }>(`/api/projects/${id}`, { method: 'DELETE' }),
-  updateClip: (id: string, patch: Partial<Pick<Clip, 'title' | 'hook' | 'description' | 'hashtags' | 'start' | 'end' | 'layout' | 'captionStyle' | 'showHook' | 'motion' | 'music'>>) =>
-    req<Clip>(`/api/clips/${id}`, json('PATCH', patch)),
+  updateClip: (
+    id: string,
+    patch: Partial<Pick<Clip, 'title' | 'hook' | 'description' | 'hashtags' | 'start' | 'end' | 'layout' | 'captionStyle' | 'showHook' | 'motion' | 'music' | 'pace' | 'emoji' | 'flashForward'>>,
+  ) => req<Clip>(`/api/clips/${id}`, json('PATCH', patch)),
   connections: () => req<Connections>('/api/connections'),
   connectUrl: (platform: 'youtube' | 'instagram') => `/api/connect/${platform}/start`,
   disconnect: (id: string) => req<{ ok: boolean }>(`/api/connections/${id}`, { method: 'DELETE' }),

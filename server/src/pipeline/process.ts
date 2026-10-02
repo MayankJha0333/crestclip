@@ -5,20 +5,22 @@ import { withRequiredTags } from './instructions.js';
 import { clips as clipDb, projects, type ClipDefaults, type ClipRow, type ProjectRow } from '../db/index.js';
 import { pool, run } from '../lib/proc.js';
 import { projectDir } from '../lib/paths.js';
-import { buildAss, wordsInRange } from './captions.js';
+import { buildAss, wordsInRange, type EmojiCue } from './captions.js';
 import { part, uploadToGcs, deleteFromGcs, usage } from './gemini.js';
 import { extractAudio, extractAudioRange, hasLibass, loudnessPerSecond, makeProxy, probe, silences as findSilences, thumbnail } from './media.js';
 import { aiScore, describeClips, findMoments, finalizeClips, snapRange } from './moments.js';
 import { planReframe } from './reframe.js';
 import { concatParts, mixMusic, planZooms, renderClip } from './render.js';
-import { watermarkForRender } from './watermark.js';
+import { emojiPng } from './emoji.js';
+import { cutTimes, keptLength, planKeep, retimeWords, silencesIn } from './pace.js';
+import { watermarkForRender, watermarkTopBottom } from './watermark.js';
 import { resolveMusic } from './music.js';
 import { buildSignals, rangeScore } from './signals.js';
 import { transcribe } from './transcribe.js';
 import { download, downloadAudio, fetchComments, fetchInfo, type Comment, type SourceInfo } from './ytdlp.js';
 import { endSectionMode, footageFor, footageSavings, infoJsonPath, prefetchFootage, readFootage, startSectionMode } from './footage.js';
 import { classifyFileLink, downloadFileLink, fileLinkLabel } from './filelink.js';
-import type { CaptionStyle, Layout, ProjectOptions, ReframePlan, Segment, Signals, TimeRange } from '../types.js';
+import type { CaptionStyle, Layout, ProjectOptions, ReframePlan, Segment, Signals, TimeRange, Word } from '../types.js';
 
 type Stage = 'fetch' | 'listen' | 'transcribe' | 'moments' | 'render';
 const STAGE_RANGE: Record<Stage, [number, number]> = {
@@ -301,6 +303,13 @@ export function renderClipJob(clipId: string): Promise<void> {
 
 const near = (a: number | undefined, b: number) => a != null && Math.abs(a - b) < 0.05;
 
+/** A reframe plan re-timed to start `by` seconds later (for rendering a piece from the middle of a part). */
+function shiftPlan(plan: ReframePlan, by: number): ReframePlan {
+  const before = plan.holds.filter((h) => h.t <= by).pop();
+  const after = plan.holds.filter((h) => h.t > by).map((h) => ({ ...h, t: +(h.t - by).toFixed(3) }));
+  return { ...plan, holds: [...(before ? [{ ...before, t: 0 }] : []), ...after] };
+}
+
 /** Parts of a clip: one continuous range, or several joined together. */
 export const clipParts = (c: Pick<ClipRow, 'start' | 'end' | 'segments'>): TimeRange[] => (c.segments?.length ? c.segments : [{ start: c.start, end: c.end }]);
 
@@ -321,11 +330,13 @@ async function renderOnce(clipId: string) {
     const oldPlans = c.reframe?.parts ?? (c.reframe ? [c.reframe] : []);
     const version = (c.version ?? 0) + 1;
     const out = path.join(dir, 'clips', `${c.id}_v${version}.mp4`);
-    const needsPost = parts.length > 1 || c.music.track !== 'none';
+    const needsPost = parts.length > 1 || c.music.track !== 'none' || Boolean(c.flashForward && c.teaser);
 
     const plans: ReframePlan[] = [];
     const files: string[] = [];
     const watermark = watermarkForRender();
+    const silences = c.pace !== 'off' ? silencesFor(p!.id) : [];
+    const gentle = c.category === 'story' || c.category === 'emotional'; // let these breathe
     let hasVoice = false;
     let total = 0;
     for (const [i, seg] of parts.entries()) {
@@ -346,7 +357,49 @@ async function renderOnce(clipId: string) {
       const dur = seg.end - seg.start;
       const words = wordsInRange(p!.transcript ?? [], seg.start, seg.end);
       const first = i === 0;
-      const ass = canText ? buildAss({ words, duration: dur, style, layout: plan.layout, hook: first ? c.hook : '', showHook: first && c.showHook }) : null;
+      const hookY = watermark && watermarkTopBottom(watermark) ? watermarkTopBottom(watermark)! + 30 : undefined;
+      const captions = (w: Word[], d: number, withHook: boolean) =>
+        canText ? buildAss({ words: w, duration: d, style, layout: plan.layout, hook: withHook ? c.hook : '', showHook: withHook && c.showHook, keywords: c.keywords, emoji: c.emoji, hookY }) : null;
+      const emojiImages = (cues: EmojiCue[] = []) =>
+        cues.flatMap((em) => {
+          const file = emojiPng(em.emoji);
+          return file ? [{ file, s: em.s, e: em.e }] : [];
+        });
+
+      // flash-forward: the tease line rendered as its own short piece, punched in, played before the story
+      if (first && c.flashForward && c.teaser && c.teaser.start >= seg.start && c.teaser.end <= seg.end) {
+        const t0 = c.teaser.start - seg.start;
+        const tLen = c.teaser.end - c.teaser.start;
+        const tWords = wordsInRange(p!.transcript ?? [], c.teaser.start, c.teaser.end);
+        const tCap = captions(tWords, tLen, false);
+        const teaserOut = path.join(work, 'teaser.mp4');
+        await renderClip({
+          src: foot.src,
+          start: ls + t0,
+          end: ls + t0 + tLen,
+          width: foot.width,
+          height: foot.height,
+          hasAudio: foot.hasAudio,
+          plan: shiftPlan(plan, t0),
+          assContent: tCap?.ass ?? null,
+          workDir: path.join(work, 'teaser'),
+          out: teaserOut,
+          motion: c.motion,
+          zooms: [{ t: 0, z: 1.16 }],
+          watermark,
+          emojis: emojiImages(tCap?.emojis),
+          captionY: tCap?.captionY,
+        });
+        files.push(teaserOut);
+        total += tLen;
+      }
+
+      // pieces to keep: long pauses shortened (and a lone "um" between pauses dropped)
+      const keep = planKeep({ dur, silences: silencesIn(silences, seg), words, pace: c.pace, gentle });
+      const cut = keep.length > 1 || keep[0].s > 0 || keep[0].e < dur;
+      const outWords = cut ? retimeWords(words, keep) : words;
+      const outDur = cut ? keptLength(keep) : dur;
+      const cap = captions(outWords, outDur, first);
       const partOut = needsPost ? path.join(work, `part_${i}.mp4`) : out;
       await renderClip({
         src: foot.src,
@@ -356,17 +409,20 @@ async function renderOnce(clipId: string) {
         height: foot.height,
         hasAudio: foot.hasAudio,
         plan,
-        assContent: ass,
+        assContent: cap?.ass ?? null,
         workDir: path.join(work, `r${i}`),
         out: partOut,
         motion: c.motion,
-        zooms: planZooms(words, dur, c.motion),
+        zooms: planZooms(outWords, outDur, c.motion, cut ? cutTimes(keep) : []),
         introZoom: c.motion === 'dynamic' && first,
         watermark,
+        keep: cut ? keep : undefined,
+        emojis: emojiImages(cap?.emojis),
+        captionY: cap?.captionY,
       });
       files.push(partOut);
       hasVoice ||= foot.hasAudio;
-      total += dur;
+      total += outDur;
     }
 
     let current = files[0];
@@ -401,6 +457,7 @@ async function renderOnce(clipId: string) {
       error: notes.join(' ') || null,
       filePath: out,
       thumbPath: fs.existsSync(thumbOut) ? thumbOut : null,
+      outDuration: +total.toFixed(2),
       version,
       reframe: plans.length > 1 ? { ...plans[0], parts: plans } : plans[0],
       ...(aud != null ? { audienceScore: aud } : {}),
@@ -433,6 +490,9 @@ function clipDefaults(o: ProjectOptions): ClipDefaults {
     showHook: o.showHook,
     motion: o.motion ?? 'subtle',
     music: { track: o.music ?? 'none', volume: o.musicVolume ?? 15, duck: true },
+    pace: o.pace ?? 'natural',
+    emoji: o.emoji ?? false,
+    flashForward: o.flashForward ?? false,
   };
 }
 
@@ -628,6 +688,8 @@ export async function preparePickedClips(projectId: string, clipIds: string[]) {
         segments: k.segments,
         title: k.title,
         hook: k.hook,
+        hooks: k.hooks ?? (k.hook ? [k.hook] : []),
+        keywords: k.keywords ?? [],
         description: k.description,
         hashtags: k.hashtags,
         reason: k.reason,

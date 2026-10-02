@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Info, Minus, Plus, RefreshCw, Scissors, Send, Sparkles, Type } from 'lucide-react';
-import { api, type CaptionStyle, type Clip, type Layout, type Motion, type MusicSettings } from '../../lib/api';
+import { api, type CaptionStyle, type Clip, type Layout, type Motion, type MusicSettings, type Pace } from '../../lib/api';
 import { cn } from '../../lib/cn';
 import { fmtPrecise, fmtTime } from '../../lib/format';
 import { Button, ConfirmDialog, Dialog, FieldLabel, Input, Segmented, Tabs, Textarea, Toggle } from '../../components/ui';
 import { CaptionPicker } from '../clip-settings/CaptionPicker';
 import { MotionPicker } from '../clip-settings/MotionPicker';
 import { MusicPicker } from '../clip-settings/MusicPicker';
-import { LAYOUTS } from '../clip-settings/options';
+import { LAYOUTS, PACES } from '../clip-settings/options';
 import { ClipVideo } from './ClipVideo';
 import { MIN_CLIP, TrimTimeline } from './TrimTimeline';
 
@@ -17,10 +17,10 @@ const TAB_NAME: Record<Tab, string> = { trim: 'Trim', text: 'Hook & captions', l
 const TAB_SHORT: Record<Tab, string> = { trim: 'Trim', text: 'Text', look: 'Look', post: 'Post' }; // phones
 
 /** A titled block inside a tab. */
-function Block({ title, hint, aside, children }: { title: string; hint?: ReactNode; aside?: ReactNode; children: ReactNode }) {
+function Block({ title, hint, aside, children }: { title: string; hint?: ReactNode; aside?: ReactNode; children?: ReactNode }) {
   return (
     <section>
-      <div className="mb-2.5 flex items-end justify-between gap-3">
+      <div className={cn('flex items-end justify-between gap-3', children != null && 'mb-2.5')}>
         <div className="min-w-0">
           <FieldLabel className="mb-0">{title}</FieldLabel>
           {hint && <p className="text-[13px] text-ink-3">{hint}</p>}
@@ -69,6 +69,9 @@ export function ClipEditor({ clip, siblings = [], onClose, onSaved }: { clip: Cl
   const [tags, setTags] = useState(clip.hashtags.join(' '));
   const [motion, setMotion] = useState<Motion>(clip.motion ?? 'subtle');
   const [music, setMusic] = useState<MusicSettings>(clip.music ?? { track: 'none', volume: 15, duck: true });
+  const [pace, setPace] = useState<Pace>(clip.pace);
+  const [emoji, setEmoji] = useState(clip.emoji);
+  const [flashForward, setFlashForward] = useState(clip.flashForward);
   const [applyAll, setApplyAll] = useState(false);
   const [lines, setLines] = useState<Line[] | null>(null);
   const [videoDuration, setVideoDuration] = useState(Infinity);
@@ -97,8 +100,8 @@ export function ClipEditor({ clip, siblings = [], onClose, onSaved }: { clip: Cl
 
   const hashtags = tags.split(/[\s,]+/).filter(Boolean);
   const changed: Record<Tab, boolean> = {
-    trim: Math.abs(start - clip.start) > 0.01 || Math.abs(end - clip.end) > 0.01,
-    text: hook !== clip.hook || showHook !== clip.showHook || captionStyle !== clip.captionStyle,
+    trim: Math.abs(start - clip.start) > 0.01 || Math.abs(end - clip.end) > 0.01 || pace !== clip.pace,
+    text: hook !== clip.hook || showHook !== clip.showHook || captionStyle !== clip.captionStyle || emoji !== clip.emoji || flashForward !== clip.flashForward,
     look: layout !== clip.layout || motion !== (clip.motion ?? 'subtle') || JSON.stringify(music) !== JSON.stringify(clip.music ?? { track: 'none', volume: 15, duck: true }) || applyAll,
     post: title !== clip.title || description !== clip.description || hashtags.join(' ') !== clip.hashtags.join(' '),
   };
@@ -135,7 +138,7 @@ export function ClipEditor({ clip, siblings = [], onClose, onSaved }: { clip: Cl
     setSaving(true);
     setError(null);
     try {
-      await api.updateClip(clip.id, { title, hook, showHook, captionStyle, layout, start, end, description, hashtags, motion, music });
+      await api.updateClip(clip.id, { title, hook, showHook, captionStyle, layout, start, end, description, hashtags, motion, music, pace, emoji, flashForward });
       if (applyAll) await Promise.all(siblings.filter((c) => c.id !== clip.id).map((c) => api.updateClip(c.id, { motion, music })));
       onSaved();
       onClose();
@@ -216,7 +219,12 @@ export function ClipEditor({ clip, siblings = [], onClose, onSaved }: { clip: Cl
                   <Block
                     title="Trim"
                     hint={parts ? `${parts.length} parts joined · the handles move the start of the first part and the end of the last` : 'Drag the handles, or use the buttons for half-second steps.'}
-                    aside={<span className="shrink-0 rounded-full bg-orange-bg px-3 py-1 font-display text-sm font-bold text-orange-ink tabular-nums">{len.toFixed(1)}s</span>}
+                    aside={
+                      <span className="flex shrink-0 flex-col items-end gap-1">
+                        <span className="rounded-full bg-orange-bg px-3 py-1 font-display text-sm font-bold text-orange-ink tabular-nums">{len.toFixed(1)}s</span>
+                        {!changed.trim && Math.abs(clip.duration - len) > 0.4 && <span className="text-xs text-ink-3 tabular-nums">Finished clip: {clip.duration.toFixed(1)}s</span>}
+                      </span>
+                    }
                   >
                     <TrimTimeline start={start} end={end} parts={ranges} lines={lines ?? []} bounds={bounds} onChange={trimTo} />
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
@@ -228,6 +236,10 @@ export function ClipEditor({ clip, siblings = [], onClose, onSaved }: { clip: Cl
                       )}
                       <Nudge label="End" value={end} onStep={(d) => trimTo(start, Math.max(start + MIN_CLIP, end + d))} />
                     </div>
+                  </Block>
+
+                  <Block title="Cut pauses" hint={PACES.find((o) => o.value === pace)?.hint}>
+                    <Segmented label="Cut pauses" size="sm" value={pace} onChange={setPace} options={PACES.map((o) => ({ value: o.value, label: o.label }))} />
                   </Block>
 
                   <section className="flex min-h-56 flex-1 flex-col">
@@ -280,15 +292,77 @@ export function ClipEditor({ clip, siblings = [], onClose, onSaved }: { clip: Cl
                     }
                   >
                     <div className={cn('transition-opacity', !showHook && 'opacity-50')}>
-                      <Input value={hook} maxLength={80} onChange={(e) => setHook(e.target.value)} placeholder="Nobody tells you this…" aria-label="Hook text" />
+                      {clip.hooks.length > 1 && (
+                        <div role="radiogroup" aria-label="Headline options" className="mb-3 grid gap-2">
+                          {clip.hooks.map((h, i) => (
+                            <button
+                              key={h}
+                              type="button"
+                              role="radio"
+                              aria-checked={hook === h}
+                              onClick={() => setHook(h)}
+                              className={cn(
+                                'flex items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-bold transition-shadow',
+                                hook === h ? 'bg-surface text-ink shadow-[0_0_0_3px_var(--tangerine)]' : 'bg-row text-ink-2 shadow-flat hover:text-ink',
+                              )}
+                            >
+                              <span className={cn('grid size-5 shrink-0 place-items-center rounded-full border-2', hook === h ? 'border-tangerine bg-tangerine' : 'border-line-strong')}>
+                                {hook === h && <span className="size-2 rounded-full bg-white" />}
+                              </span>
+                              <span className="min-w-0 flex-1">{h}</span>
+                              {i === 0 && <span className="shrink-0 rounded-full bg-orange-bg px-2 py-0.5 text-[11px] font-extrabold text-orange-ink">AI’s pick</span>}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <Input
+                        value={hook}
+                        maxLength={80}
+                        onChange={(e) => setHook(e.target.value)}
+                        placeholder={clip.hooks.length > 1 ? 'Or write your own…' : 'Nobody tells you this…'}
+                        aria-label="Hook text"
+                      />
                       <div className="mt-1.5 flex justify-end">
                         <Count n={hook.length} max={80} />
                       </div>
                     </div>
                   </Block>
+                  <Block
+                    title="Flash-forward opening"
+                    hint={
+                      clip.hasTeaser ? 'Flashes the clip’s best line for ~2 seconds first, so viewers stay to see how it happens.' : 'The AI didn’t find a line in this clip that works as a tease.'
+                    }
+                    aside={
+                      <span className={cn(!clip.hasTeaser && 'pointer-events-none opacity-40')} aria-disabled={!clip.hasTeaser}>
+                        <Toggle checked={flashForward && clip.hasTeaser} onChange={setFlashForward}>
+                          <span className="sr-only">Flash-forward opening</span>
+                        </Toggle>
+                      </span>
+                    }
+                  />
                   <Block title="Caption style" hint="How the spoken words appear on screen.">
                     <CaptionPicker value={captionStyle} onChange={setCaptionStyle} />
                   </Block>
+                  {clip.keywords.length > 0 && captionStyle !== 'none' && (
+                    <Block
+                      title="Key words"
+                      hint="The AI picked these. They show bigger and in colour in the captions."
+                      aside={
+                        <Toggle checked={emoji} onChange={setEmoji}>
+                          Emoji
+                        </Toggle>
+                      }
+                    >
+                      <div className="flex flex-wrap gap-1.5">
+                        {clip.keywords.map((k) => (
+                          <span key={k.w} className="inline-flex items-center gap-1 rounded-full bg-row px-3 py-1.5 text-sm font-bold shadow-flat">
+                            {emoji && k.emoji && <span aria-hidden>{k.emoji}</span>}
+                            {k.w}
+                          </span>
+                        ))}
+                      </div>
+                    </Block>
+                  )}
                 </div>
               )}
 

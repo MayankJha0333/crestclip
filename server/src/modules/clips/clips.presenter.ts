@@ -8,13 +8,22 @@ export function publicClip(c: ClipRow) {
     projectId: c.projectId,
     start: c.start,
     end: c.end,
-    duration: +clipParts(c)
-      .reduce((a, r) => a + r.end - r.start, 0)
-      .toFixed(2),
+    /** length of the finished clip (after pause cuts and any flash-forward), or of the source range before the first render */
+    duration:
+      c.outDuration ??
+      +clipParts(c)
+        .reduce((a, r) => a + r.end - r.start, 0)
+        .toFixed(2),
     segments: c.segments,
     posts: posts.forClip(c.id).map((p) => ({ id: p.id, platform: p.platform, status: p.status, scheduledAt: p.scheduledAt, remoteUrl: p.remoteUrl, error: p.error })),
     motion: c.motion,
     music: c.music,
+    pace: c.pace,
+    emoji: c.emoji,
+    flashForward: c.flashForward,
+    hasTeaser: Boolean(c.teaser),
+    hooks: c.hooks,
+    keywords: c.keywords,
     source: c.source,
     title: c.title,
     hook: c.hook,

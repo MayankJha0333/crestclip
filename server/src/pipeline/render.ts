@@ -41,23 +41,34 @@ export interface Zoom {
 /**
  * "Punch-in" zooms like a short-form editor: the frame jumps between a normal and a closer framing
  * at natural pauses, so talking-head clips feel cut and alive. Dynamic also opens with a quick zoom-out.
+ * Every jump cut (a removed pause) also gets a zoom change, which hides the jump in the picture.
  */
-export function planZooms(words: Word[], dur: number, motion: Motion): Zoom[] {
+export function planZooms(words: Word[], dur: number, motion: Motion, jumpCuts: number[] = []): Zoom[] {
   if (motion === 'none' || dur < 4) return [];
   const spacing = motion === 'dynamic' ? 2.2 : 4.5;
   const levels = motion === 'dynamic' ? [1.0, 1.12, 1.0, 1.2] : [1.0, 1.08];
-  const out: Zoom[] = [{ t: 0, z: levels[0] }];
-  let li = 0;
-  let last = 0;
+  const cuts = jumpCuts.filter((t) => t > 0.3 && t < dur - 0.3);
+  const forced = new Set(cuts);
+  const events = [...cuts];
+  let last = -Infinity;
   for (let i = 1; i < words.length; i++) {
     const w = words[i];
     const prev = words[i - 1];
     const pause = w.s - prev.e >= 0.25 || /[.!?,;:]$/.test(prev.w);
-    if (!pause || w.s - last < spacing || w.s > dur - 1.2) continue;
-    li = (li + 1) % levels.length;
     const t = Math.max(0, w.s - 0.04);
-    out.push({ t: +t.toFixed(3), z: levels[li] });
+    if (!pause || t - last < spacing || w.s > dur - 1.2 || cuts.some((c) => Math.abs(c - t) < 1)) continue;
+    events.push(t);
     last = t;
+  }
+  events.sort((a, b) => a - b);
+  const out: Zoom[] = [{ t: 0, z: levels[0] }];
+  let li = 0;
+  let prevT = 0;
+  for (const t of events) {
+    if (t - prevT < 0.5 && !forced.has(t)) continue;
+    li = (li + 1) % levels.length;
+    out.push({ t: +t.toFixed(3), z: levels[li] });
+    prevT = t;
   }
   return out;
 }
@@ -124,20 +135,50 @@ export async function renderClip(opts: {
   introZoom?: boolean;
   /** the person's logo, stamped under the captions */
   watermark?: (Watermark & { file: string }) | null;
+  /** pieces to keep, in play order (seconds from `start`); omitted = the whole range, uncut */
+  keep?: { s: number; e: number }[];
+  /** emoji images shown above the captions (times on the edited clip) */
+  emojis?: { file: string; s: number; e: number }[];
+  captionY?: number;
 }) {
   const { workDir } = opts;
   fs.mkdirSync(workDir, { recursive: true });
   const dur = Math.max(0.5, opts.end - opts.start);
+  const keep = opts.keep?.length ? opts.keep : null;
+  const outDur = keep ? keep.reduce((a, k) => a + k.e - k.s, 0) : dur;
 
   const motion = opts.motion ?? 'none';
   let graph = buildVideoGraph(opts.plan, opts.width, opts.height, motion !== 'none');
   let vOut = '[v0]';
+  let aIn = '[0:a]';
+  // jump cuts: keep only the listed pieces and join them (crop/face tracking above still uses source time)
+  if (keep) {
+    const n = keep.length;
+    const ids = keep.map((_, i) => i);
+    graph += `;[v0]fps=30,split=${n}${ids.map((i) => `[ks${i}]`).join('')}`;
+    graph += ids.map((i) => `;[ks${i}]trim=start=${keep[i].s.toFixed(3)}:end=${keep[i].e.toFixed(3)},setpts=PTS-STARTPTS[kc${i}]`).join('');
+    graph += `;${ids.map((i) => `[kc${i}]`).join('')}concat=n=${n}:v=1:a=0[vk]`;
+    vOut = '[vk]';
+    if (opts.hasAudio) {
+      // a 12 ms fade at each edge so the joins don't click
+      graph += `;[0:a]asplit=${n}${ids.map((i) => `[as${i}]`).join('')}`;
+      graph += ids
+        .map((i) => {
+          const len = keep[i].e - keep[i].s;
+          const f = Math.min(0.012, len / 4).toFixed(3);
+          return `;[as${i}]atrim=start=${keep[i].s.toFixed(3)}:end=${keep[i].e.toFixed(3)},asetpts=PTS-STARTPTS,afade=t=in:st=0:d=${f},afade=t=out:st=${(len - Number(f)).toFixed(3)}:d=${f}[ac${i}]`;
+        })
+        .join('');
+      graph += `;${ids.map((i) => `[ac${i}]`).join('')}concat=n=${n}:v=0:a=1[ak]`;
+      aIn = '[ak]';
+    }
+  }
   // punch-in zooms (not on split screen — it would cut the two halves)
   const zooms = opts.zooms ?? [];
   const wantZoom = motion !== 'none' && opts.plan.layout !== 'split' && (zooms.some((z) => z.z !== 1) || opts.introZoom);
   if (wantZoom) {
     const fy = opts.plan.layout === 'fit' ? 0.5 : 0.4; // keep faces in frame when zooming a crop
-    graph += `;[v0]fps=30,zoompan=z='${zoomExpr(zooms, Boolean(opts.introZoom))}':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)*${fy}':d=1:s=1080x1920:fps=30[vz]`;
+    graph += `;${vOut}fps=30,zoompan=z='${zoomExpr(zooms, Boolean(opts.introZoom))}':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)*${fy}':d=1:s=1080x1920:fps=30[vz]`;
     vOut = '[vz]';
   }
   if (opts.watermark) {
@@ -157,8 +198,18 @@ export async function renderClip(opts: {
     graph += `;${vOut}ass=captions.ass:fontsdir=fonts[v1]`;
     vOut = '[v1]';
   }
+  // emoji over the captions: each one fades in and out while its line is on screen
+  const emojis = opts.emojis ?? [];
+  const firstEmoji = 1 + (opts.watermark ? 1 : 0);
+  emojis.forEach((em, j) => {
+    const y = Math.round((opts.captionY ?? 1180) - 235);
+    const f = Math.min(0.12, (em.e - em.s) / 3).toFixed(3);
+    graph += `;[${firstEmoji + j}:v]format=rgba,fade=t=in:st=${em.s.toFixed(3)}:d=${f}:alpha=1,fade=t=out:st=${(em.e - Number(f)).toFixed(3)}:d=${f}:alpha=1[em${j}]`;
+    graph += `;${vOut}[em${j}]overlay=x=(W-w)/2:y=${y}:enable='between(t\\,${em.s.toFixed(3)}\\,${em.e.toFixed(3)})':format=auto[ve${j}]`;
+    vOut = `[ve${j}]`;
+  });
   graph += `;${vOut}fps=30,format=yuv420p[v]`;
-  if (opts.hasAudio) graph += `;[0:a]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[a]`;
+  if (opts.hasAudio) graph += `;${aIn}loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[a]`;
 
   const tmp = path.join(workDir, `render_${Date.now()}.mp4`);
   const args = [
@@ -175,6 +226,7 @@ export async function renderClip(opts: {
     '-i',
     opts.src,
     ...(opts.watermark ? ['-i', opts.watermark.file] : []),
+    ...emojis.flatMap((em) => ['-loop', '1', '-framerate', '30', '-t', outDur.toFixed(3), '-i', em.file]),
     '-filter_complex',
     graph,
     '-map',
@@ -194,7 +246,7 @@ export async function renderClip(opts: {
     '-movflags',
     '+faststart',
     '-t',
-    dur.toFixed(3),
+    outDur.toFixed(3),
     tmp,
   ];
   try {
@@ -204,7 +256,7 @@ export async function renderClip(opts: {
       onLine: (line, stream) => {
         if (stream !== 'stdout') return;
         const m = line.match(/^out_time_ms=(\d+)/);
-        if (m && opts.onProgress) opts.onProgress(Math.min(100, (Number(m[1]) / 1e6 / dur) * 100));
+        if (m && opts.onProgress) opts.onProgress(Math.min(100, (Number(m[1]) / 1e6 / outDur) * 100));
       },
     });
   } catch (e) {

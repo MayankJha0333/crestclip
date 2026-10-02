@@ -13,6 +13,9 @@ export const DEFAULT_OPTIONS: ProjectOptions = {
   motion: 'subtle',
   music: 'auto',
   musicVolume: 15,
+  pace: 'natural',
+  emoji: false,
+  flashForward: false,
 };
 
 const KEY = 'crestclip:opts';

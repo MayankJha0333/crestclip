@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import type { CaptionStyle, Layout, LengthPref, Motion } from '../../lib/api';
+import type { CaptionStyle, Layout, LengthPref, Motion, Pace } from '../../lib/api';
 
 export const LENGTHS: { value: LengthPref; label: string; long: string }[] = [
   { value: 'auto', label: 'Auto', long: 'Best length, picked by the AI' },
@@ -19,6 +19,12 @@ export const MOTIONS: { value: Motion; label: string; hint: string }[] = [
   { value: 'none', label: 'Off', hint: 'Steady framing, no zooms' },
   { value: 'subtle', label: 'Subtle', hint: 'A gentle punch-in every few seconds and smooth pans between speakers' },
   { value: 'dynamic', label: 'Dynamic', hint: 'Fast punch-in zooms and a zoom-out on the hook, like pro short-form edits' },
+];
+
+export const PACES: { value: Pace; label: string; hint: string }[] = [
+  { value: 'off', label: 'Off', hint: 'Keep every pause exactly as it was said' },
+  { value: 'natural', label: 'Natural', hint: 'Shortens long pauses and drops a lone “um” — stories and emotional moments keep more breathing room' },
+  { value: 'fast', label: 'Fast', hint: 'Cuts nearly every pause for a punchy, non-stop feel' },
 ];
 
 /** Mini preview of each burned-in caption style, drawn with the same fonts/colours the renderer uses. */

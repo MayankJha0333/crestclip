@@ -4,6 +4,8 @@ export type Layout = 'auto' | 'fill' | 'fit' | 'split';
 export type CaptionStyle = 'pop' | 'clay' | 'neon' | 'comic' | 'minimal' | 'none';
 export type LengthPref = 'auto' | 'short' | 'medium' | 'long';
 export type Motion = 'none' | 'subtle' | 'dynamic';
+/** Pause cutting: keep every pause, shorten long ones, or cut tight. */
+export type Pace = 'off' | 'natural' | 'fast';
 export interface TimeRange {
   start: number;
   end: number;
@@ -45,6 +47,9 @@ export interface ProjectOptions {
   motion: Motion;
   music: string;
   musicVolume: number;
+  pace: Pace;
+  emoji: boolean;
+  flashForward: boolean;
   ranges?: TimeRange[];
   joinRanges?: boolean;
   /** "Instructions for the AI" (rules, length, tags, what to clip) */
@@ -97,6 +102,16 @@ export interface Clip {
   motion: Motion;
   music: MusicSettings;
   source: 'ai' | 'manual';
+  pace: Pace;
+  /** emoji next to key words in the captions */
+  emoji: boolean;
+  /** open on a short tease of the best line (only possible when `hasTeaser`) */
+  flashForward: boolean;
+  hasTeaser: boolean;
+  /** headline options written by the AI (the current one is `hook`) */
+  hooks: string[];
+  /** words shown bigger / coloured in the captions */
+  keywords: { w: string; emoji?: string }[];
 }
 
 export interface Project {
