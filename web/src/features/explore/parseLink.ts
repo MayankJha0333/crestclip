@@ -1,6 +1,6 @@
 import type { ExploreSource } from '../../lib/api';
 
-export type LinkHit = { kind: 'video' | 'short' | 'vod' | 'clip'; source: ExploreSource; id: string; url: string } | { kind: 'channel'; url: string };
+type LinkHit = { kind: 'video' | 'short' | 'vod' | 'clip'; source: ExploreSource; id: string; url: string } | { kind: 'channel'; url: string };
 
 /** Recognise a pasted video / channel link so it opens directly instead of being searched as text. */
 export function parseLink(text: string): LinkHit | null {

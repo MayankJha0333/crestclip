@@ -2,8 +2,8 @@ import { forwardRef, type ButtonHTMLAttributes } from 'react';
 import { cn } from '../../lib/cn';
 import { Spinner } from './Spinner';
 
-export type ButtonVariant = 'secondary' | 'primary' | 'ink' | 'mint' | 'danger' | 'ghost';
-export type ButtonSize = 'sm' | 'md' | 'lg' | 'icon' | 'icon-sm';
+type ButtonVariant = 'secondary' | 'primary' | 'ink' | 'mint' | 'danger' | 'ghost';
+type ButtonSize = 'sm' | 'md' | 'lg' | 'icon' | 'icon-sm';
 
 const VARIANT: Record<ButtonVariant, string> = {
   secondary: 'btn-clay',
@@ -33,7 +33,7 @@ export function buttonClass(variant: ButtonVariant = 'secondary', size: ButtonSi
   );
 }
 
-export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   size?: ButtonSize;
   /** shows a spinner in place of the icon and disables the button */

@@ -9,27 +9,12 @@ import type { PlanId } from '../../db/index.js';
  */
 
 export const razorpayReady = () => Boolean(config.razorpayKeyId && config.razorpayKeySecret);
-/**
- * The Razorpay plan for a CrestClip plan in a currency: RAZORPAY_PLAN_CREATOR / RAZORPAY_PLAN_PRO are in
- * BILLING_CURRENCY; plans in another currency go in RAZORPAY_PLAN_CREATOR_USD / RAZORPAY_PLAN_PRO_USD (and so on).
- */
-export function razorpayPlanId(plan: PlanId, currency = config.currency): string {
-  if (plan === 'free') return '';
-  const cur = currency.toUpperCase();
-  const own = (process.env[`RAZORPAY_PLAN_${plan.toUpperCase()}_${cur}`] ?? '').trim();
-  if (own) return own;
-  if (cur !== config.currency) return '';
-  return plan === 'creator' ? config.razorpayPlanCreator : config.razorpayPlanPro;
-}
 
-/** Can CrestClip charge plans in this currency? (both paid plans set up in Razorpay) */
-export const canChargeIn = (currency: string) => Boolean(razorpayPlanId('creator', currency) && razorpayPlanId('pro', currency));
+/** The Razorpay plan (in .env) behind a paid CrestClip plan. */
+export const razorpayPlanId = (plan: PlanId) => (plan === 'creator' ? config.razorpayPlanCreator : plan === 'pro' ? config.razorpayPlanPro : '');
 
-/** Which CrestClip plan (and currency) a Razorpay plan id is. */
-export function planForRazorpayPlan(planId: string, currencies: string[]): { plan: PlanId; currency: string } | null {
-  for (const currency of currencies) for (const plan of ['creator', 'pro'] as const) if (planId && razorpayPlanId(plan, currency) === planId) return { plan, currency };
-  return null;
-}
+/** Which CrestClip plan a Razorpay plan id is. */
+export const planForRazorpayPlan = (planId: string): PlanId | null => (planId && planId === config.razorpayPlanCreator ? 'creator' : planId && planId === config.razorpayPlanPro ? 'pro' : null);
 
 async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
   const res = await fetch(`https://api.razorpay.com/v1${path}`, {
@@ -56,7 +41,13 @@ export interface RzSubscription {
   short_url?: string;
   notes?: Record<string, string>;
 }
-export interface RzOrder {
+interface RzPlan {
+  id: string;
+  period: string;
+  interval: number;
+  item: { amount: number; currency: string; name?: string };
+}
+interface RzOrder {
   id: string;
   amount: number;
   currency: string;
@@ -76,6 +67,7 @@ export const razorpay = {
   /** A monthly subscription (renews until cancelled). The person pays for it in Razorpay Checkout. */
   createSubscription: (planId: string, notes: Record<string, string>) => call<RzSubscription>('POST', '/subscriptions', { plan_id: planId, total_count: 120, quantity: 1, customer_notify: 1, notes }),
   subscription: (id: string) => call<RzSubscription>('GET', `/subscriptions/${encodeURIComponent(id)}`),
+  plan: (id: string) => call<RzPlan>('GET', `/plans/${encodeURIComponent(id)}`),
   /** the newest subscriptions on the account (to find one whose payment never reported back) */
   recentSubscriptions: (count = 100) => call<{ items: RzSubscription[] }>('GET', `/subscriptions?count=${count}`).then((r) => r.items ?? []),
   /** the payment behind a subscription's latest paid invoice */
@@ -86,7 +78,7 @@ export const razorpay = {
     ).then((r) => (r.items ?? []).filter((i) => i.status === 'paid' && i.payment_id).sort((a, b) => (b.paid_at ?? 0) - (a.paid_at ?? 0))[0] ?? null),
   /** atEnd = keep the plan until the paid month runs out */
   cancelSubscription: (id: string, atEnd: boolean) => call<RzSubscription>('POST', `/subscriptions/${encodeURIComponent(id)}/cancel`, { cancel_at_cycle_end: atEnd ? 1 : 0 }),
-  /** amount in the smallest currency unit (cents / paise) */
+  /** amount in cents */
   createOrder: (amount: number, currency: string, receipt: string, notes: Record<string, string>) => call<RzOrder>('POST', '/orders', { amount, currency, receipt, notes }),
   payment: (id: string) => call<RzPayment>('GET', `/payments/${encodeURIComponent(id)}`),
 };
@@ -103,5 +95,5 @@ export const validOrderPayment = (orderId: string, paymentId: string, signature:
 /** Webhook: X-Razorpay-Signature = HMAC(webhook secret, raw request body). */
 export const validWebhook = (rawBody: Buffer, signature: string) => Boolean(config.razorpayWebhookSecret) && same(hmac(config.razorpayWebhookSecret, rawBody), signature);
 
-/** Price in the smallest currency unit (Razorpay amounts). */
-export const minorUnits = (price: number) => Math.round(price * 100);
+/** Dollars → cents (Razorpay amounts are in the smallest currency unit). */
+export const toCents = (dollars: number) => Math.round(dollars * 100);

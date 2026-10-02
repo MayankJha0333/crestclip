@@ -2,12 +2,12 @@ import { buildSignals } from '../../pipeline/signals.js';
 import { ytdlpJson } from '../../pipeline/ytdlp.js';
 import { ytWatchWeb, youtubeId } from '../../pipeline/ytweb.js';
 import type { HeatPoint, Signals } from '../../types.js';
-import { cached, cachedAt, cacheStats, refresh } from './explore.cache.js';
+import { cached, cachedAt, refresh } from './explore.cache.js';
 import type { ChannelQuery, SearchQuery } from './explore.schemas.js';
 import type { ExploreItem } from './explore.types.js';
 import { bestThumb, num, str, type Raw } from './providers/fields.js';
 import { twitchApi, twitchChannel, twitchSearch } from './providers/twitch.js';
-import { fastStats, youtubeChannel, youtubeSearch } from './providers/youtube.js';
+import { youtubeChannel, youtubeSearch } from './providers/youtube.js';
 
 /** Explore — find source videos to clip (YouTube + Twitch), with a disk-backed cache so it stays fast. */
 
@@ -34,8 +34,6 @@ export function channel(q: ChannelQuery) {
 }
 
 export const preview = (url: string) => cached(`p:${url}`, 30 * 60_000, () => peek(url));
-
-export const meta = () => ({ twitchApi: twitchApi(), fastSearch: fastStats, ...cacheStats() });
 
 // ---------------- peek ----------------
 /** The "Most replayed" curve and its top 5 hotspots, when the video has a rewatch graph. */
@@ -75,9 +73,7 @@ async function peek(url: string) {
   const j = await ytdlpJson<Raw>(['--skip-download', '--no-playlist', url], 90_000);
   const duration = num(j.duration) ?? 0;
   const heatmap = Array.isArray(j.heatmap) && j.heatmap.length ? (j.heatmap as HeatPoint[]) : null;
-  const chapters = Array.isArray(j.chapters)
-    ? (j.chapters as Raw[]).map((c) => ({ start_time: num(c.start_time) ?? 0, end_time: num(c.end_time) ?? 0, title: str(c.title) ?? '' }))
-    : [];
+  const chapters = Array.isArray(j.chapters) ? (j.chapters as Raw[]).map((c) => ({ start_time: num(c.start_time) ?? 0, end_time: num(c.end_time) ?? 0, title: str(c.title) ?? '' })) : [];
   const extractor = String(j.extractor_key ?? j.extractor ?? '');
   return {
     title: str(j.title) ?? 'Untitled',
@@ -112,17 +108,51 @@ interface SectionDef {
 const topic = (id: string, label: string, q: string): SectionDef[] => [
   { id: `${id}-popular`, title: `Popular ${label}`, subtitle: 'Long, well-watched videos — the most moments to clip', q, type: 'videos', duration: 'long', sort: 'views', uploaded: 'year' },
   { id: `${id}-fresh`, title: `Fresh this week`, subtitle: 'New uploads getting views right now — clip them while they trend', q, type: 'videos', duration: 'any', sort: 'views', uploaded: 'week' },
-  { id: `${id}-shorts`, title: `${label[0].toUpperCase()}${label.slice(1)} Shorts that work`, subtitle: 'Study the hooks and captions of clips that already went viral', q: `${q} clips`, type: 'shorts', sort: 'relevance' },
+  {
+    id: `${id}-shorts`,
+    title: `${label[0].toUpperCase()}${label.slice(1)} Shorts that work`,
+    subtitle: 'Study the hooks and captions of clips that already went viral',
+    q: `${q} clips`,
+    type: 'shorts',
+    sort: 'relevance',
+  },
 ];
 
 const DISCOVER: Record<string, { label: string; sections: SectionDef[] }> = {
   all: {
     label: 'For you',
     sections: [
-      { id: 'pods', title: 'Podcasts people keep replaying', subtitle: 'Full episodes over 20 min — the best raw material for clips', q: 'podcast', type: 'videos', duration: 'long', sort: 'views', uploaded: 'month' },
-      { id: 'interviews', title: 'Interviews blowing up this week', subtitle: 'Fresh and popular — clip them while the topic is hot', q: 'interview', type: 'videos', duration: 'long', sort: 'views', uploaded: 'week' },
+      {
+        id: 'pods',
+        title: 'Podcasts people keep replaying',
+        subtitle: 'Full episodes over 20 min — the best raw material for clips',
+        q: 'podcast',
+        type: 'videos',
+        duration: 'long',
+        sort: 'views',
+        uploaded: 'month',
+      },
+      {
+        id: 'interviews',
+        title: 'Interviews blowing up this week',
+        subtitle: 'Fresh and popular — clip them while the topic is hot',
+        q: 'interview',
+        type: 'videos',
+        duration: 'long',
+        sort: 'views',
+        uploaded: 'week',
+      },
       { id: 'shorts', title: 'What winning clips look like', subtitle: 'Top Shorts cut from long videos — the kind CrestClip makes for you', q: 'podcast clips', type: 'shorts', sort: 'relevance' },
-      { id: 'talks', title: 'Talks with big moments', subtitle: 'Keynotes and speeches with quotable lines', q: 'best speech keynote', type: 'videos', duration: 'medium', sort: 'views', uploaded: 'year' },
+      {
+        id: 'talks',
+        title: 'Talks with big moments',
+        subtitle: 'Keynotes and speeches with quotable lines',
+        q: 'best speech keynote',
+        type: 'videos',
+        duration: 'medium',
+        sort: 'views',
+        uploaded: 'year',
+      },
     ],
   },
   podcasts: { label: 'Podcasts', sections: topic('podcasts', 'podcasts', 'podcast') },
@@ -141,20 +171,29 @@ const TWITCH_FEATURED = ['kaicenat', 'xqc', 'shroud', 'pokimane', 'hasanabi', 't
 async function discover(source: 'youtube' | 'twitch', category: string) {
   if (source === 'twitch') {
     const pick = TWITCH_FEATURED.slice(0, 4);
-    const lists = await Promise.allSettled(
-      pick.map((c) => twitchChannel({ id: c, tab: 'clips', sort: 'views', range: 'week', limit: 6 }).then((r) => r.items)),
-    );
+    const lists = await Promise.allSettled(pick.map((c) => twitchChannel({ id: c, tab: 'clips', sort: 'views', range: 'week', limit: 6 }).then((r) => r.items)));
     const clips = lists
       .flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
       .sort((a, b) => (b.views ?? 0) - (a.views ?? 0))
       .slice(0, 12);
-    const vods = await Promise.allSettled(
-      pick.slice(0, 3).map((c) => twitchChannel({ id: c, tab: 'vods', sort: 'time', range: 'week', limit: 3 }).then((r) => r.items)),
-    );
+    const vods = await Promise.allSettled(pick.slice(0, 3).map((c) => twitchChannel({ id: c, tab: 'vods', sort: 'time', range: 'week', limit: 3 }).then((r) => r.items)));
     const streams = vods.flatMap((r) => (r.status === 'fulfilled' ? r.value : [])).slice(0, 8);
     const channels: ExploreItem[] = TWITCH_FEATURED.map((c) => ({
-      kind: 'channel', source: 'twitch', id: c, url: `https://www.twitch.tv/${c}`, title: c, channel: c, channelId: c, channelUrl: `https://www.twitch.tv/${c}`,
-      thumbnail: null, duration: null, views: null, subscribers: null, uploaded: null, isLive: false, description: 'Past streams & clips',
+      kind: 'channel',
+      source: 'twitch',
+      id: c,
+      url: `https://www.twitch.tv/${c}`,
+      title: c,
+      channel: c,
+      channelId: c,
+      channelUrl: `https://www.twitch.tv/${c}`,
+      thumbnail: null,
+      duration: null,
+      views: null,
+      subscribers: null,
+      uploaded: null,
+      isLive: false,
+      description: 'Past streams & clips',
     }));
     return {
       sections: [
@@ -166,9 +205,7 @@ async function discover(source: 'youtube' | 'twitch', category: string) {
   }
   const def = DISCOVER[category] ?? DISCOVER.all;
   const results = await Promise.allSettled(
-    def.sections.map((s) =>
-      youtubeSearch({ q: s.q, type: s.type, duration: s.duration ?? 'any', sort: s.sort ?? 'relevance', uploaded: s.uploaded ?? 'any', limit: s.type === 'shorts' ? 12 : 8 }),
-    ),
+    def.sections.map((s) => youtubeSearch({ q: s.q, type: s.type, duration: s.duration ?? 'any', sort: s.sort ?? 'relevance', uploaded: s.uploaded ?? 'any', limit: s.type === 'shorts' ? 12 : 8 })),
   );
   return {
     sections: def.sections

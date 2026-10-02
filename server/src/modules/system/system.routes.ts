@@ -18,6 +18,7 @@ systemRouter.post(
   }),
 );
 
-systemRouter.get('/meta', (_req, res) => {
-  res.json(service.meta());
+/** Public: who runs CrestClip and the numbers the policy pages quote. */
+systemRouter.get('/site', (_req, res) => {
+  res.json(service.site());
 });

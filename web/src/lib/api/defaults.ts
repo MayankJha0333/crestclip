@@ -1,7 +1,7 @@
 import { readLocal, writeLocal } from '../storage';
 import type { ProjectOptions } from './types';
 
-export const DEFAULT_OPTIONS: ProjectOptions = {
+const DEFAULT_OPTIONS: ProjectOptions = {
   platform: 'shorts',
   length: 'auto',
   clipCount: 8,

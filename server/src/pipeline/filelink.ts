@@ -11,8 +11,8 @@ import { config } from '../config.js';
  * These are downloaded like an upload — one plain HTTP download, no yt-dlp — and then processed as a file.
  */
 
-export type FileLinkKind = 'gdrive' | 'dropbox' | 'onedrive' | 'direct';
-export interface FileLink {
+type FileLinkKind = 'gdrive' | 'dropbox' | 'onedrive' | 'direct';
+interface FileLink {
   kind: FileLinkKind;
   url: string;
   id?: string;
@@ -53,7 +53,11 @@ export const fileLinkLabel: Record<FileLinkKind, string> = {
 };
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
-const decode = (s: string) => s.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+const decode = (s: string) =>
+  s
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
 
 /** Google Drive shows a "can't scan this file for viruses" page for big files — submit its form to get the file. */
 function driveConfirmUrl(html: string): string | null {
@@ -93,7 +97,7 @@ function fileNameFrom(res: Response, fallback: string) {
   const cd = res.headers.get('content-disposition') ?? '';
   const star = cd.match(/filename\*=(?:UTF-8'')?([^;]+)/i)?.[1];
   const plain = cd.match(/filename="?([^";]+)"?/i)?.[1];
-  let name = star ? decodeURIComponent(star.replace(/"/g, '')) : plain ?? '';
+  let name = star ? decodeURIComponent(star.replace(/"/g, '')) : (plain ?? '');
   if (!name) {
     try {
       name = decodeURIComponent(path.basename(new URL(res.url).pathname));
@@ -123,8 +127,7 @@ export async function downloadFileLink(link: FileLink, dir: string, onProgress: 
     res = await fetch(next, { headers: { 'user-agent': UA }, redirect: 'follow' });
   }
 
-  if (res.status === 401 || res.status === 403)
-    throw new Error(`${where} refused the download — make sure the file is shared publicly (“Anyone with the link”).`);
+  if (res.status === 401 || res.status === 403) throw new Error(`${where} refused the download — make sure the file is shared publicly (“Anyone with the link”).`);
   if (res.status === 404) throw new Error(`${where} says this file doesn’t exist (or isn’t shared).`);
   if (!res.ok || !res.body) throw new Error(`Couldn’t download from ${where} (error ${res.status}).`);
   const type = res.headers.get('content-type') ?? '';

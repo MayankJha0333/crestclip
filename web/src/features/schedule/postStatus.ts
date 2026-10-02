@@ -25,7 +25,7 @@ export const dayLabel = (ms: number) => {
   return d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' });
 };
 
-export type PostTone = 'ok' | 'sched' | 'busy' | 'bad' | 'muted';
+type PostTone = 'ok' | 'sched' | 'busy' | 'bad' | 'muted';
 export const TONE_BADGE: Record<PostTone, BadgeTone> = { ok: 'good', sched: 'info', busy: 'warn', bad: 'bad', muted: 'neutral' };
 
 /** What a post's status means, in words. */

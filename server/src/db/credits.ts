@@ -6,8 +6,8 @@ import { db, newId, now, parse, type Raw } from './connection.js';
  * (the history the person sees). Each grant can carry a `ref` so the same payment never adds credits twice.
  */
 
-export type GrantSource = 'plan' | 'topup' | 'bonus' | 'refund';
-export interface GrantRow {
+type GrantSource = 'plan' | 'topup' | 'bonus' | 'refund';
+interface GrantRow {
   id: string;
   source: GrantSource;
   amount: number;
@@ -15,7 +15,7 @@ export interface GrantRow {
   expiresAt: number;
   createdAt: number;
 }
-export interface CreditEventRow {
+interface CreditEventRow {
   id: string;
   delta: number;
   kind: 'grant' | 'topup' | 'spend' | 'refund' | 'adjust';
@@ -24,7 +24,7 @@ export interface CreditEventRow {
   refunded: boolean;
   createdAt: number;
 }
-export interface PaymentRow {
+interface PaymentRow {
   id: string;
   kind: 'subscription' | 'topup';
   plan: string | null;

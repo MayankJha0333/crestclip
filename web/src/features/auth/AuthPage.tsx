@@ -5,6 +5,7 @@ import { api } from '../../lib/api';
 import { Logo } from '../../components/brand/Logo';
 import { Button, Card, Field, Input } from '../../components/ui';
 import { useAuth } from './auth';
+import { LEGAL_LINKS } from '../../components/SiteFooter';
 
 /** Only go back to a page inside the app. */
 const safeNext = (n: string | null) => (n && /^\/app(\/|$|\?)/.test(n) ? n : '/app');
@@ -120,12 +121,25 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
 
           {signup && !cfg?.firstAccount && (
             <ul className="mt-6 grid gap-1.5 text-sm text-ink-2">
-              {['60 credits every month, free', 'Clips with captions, hooks and music', 'Upgrade any time — cancel any time'].map((t) => (
+              {['12 free clips every month', 'Clips with captions, hooks and music', 'Upgrade any time — cancel any time'].map((t) => (
                 <li key={t} className="flex items-center gap-2">
                   <Check size={15} className="text-good" /> {t}
                 </li>
               ))}
             </ul>
+          )}
+          {signup && (
+            <p className="mt-5 text-center text-xs text-ink-3">
+              By creating an account you agree to our{' '}
+              <Link to="/terms" className="font-bold text-ink-2">
+                Terms
+              </Link>{' '}
+              and{' '}
+              <Link to="/privacy" className="font-bold text-ink-2">
+                Privacy policy
+              </Link>
+              .
+            </p>
           )}
         </Card>
         {!cfg?.firstAccount && (
@@ -136,6 +150,13 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
             </Link>
           </p>
         )}
+        <nav aria-label="Policies" className="mt-8 flex flex-wrap justify-center gap-x-4 gap-y-1.5 text-xs font-bold text-ink-3">
+          {LEGAL_LINKS.map((l) => (
+            <Link key={l.to} to={l.to} className="text-ink-3 no-underline hover:text-ink">
+              {l.label}
+            </Link>
+          ))}
+        </nav>
       </div>
     </main>
   );

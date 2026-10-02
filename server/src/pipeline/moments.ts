@@ -27,7 +27,7 @@ function rangeFor(o: Pick<ProjectOptions, 'length' | 'minSeconds' | 'maxSeconds'
  * Clip length for each choice. Auto aims for 20–45 s, where short clips keep the most viewers to the end
  * (third-party TikTok data: 21–34 s clips finish ~62% vs ~48% for 60 s+), and only runs longer when the story needs it.
  */
-export function lengthRange(pref: LengthPref): { min: number; max: number; label: string } {
+function lengthRange(pref: LengthPref): { min: number; max: number; label: string } {
   if (pref === 'short') return { min: 12, max: 30, label: '12–30 seconds' };
   if (pref === 'medium') return { min: 30, max: 60, label: '30–60 seconds' };
   if (pref === 'long') return { min: 60, max: 150, label: '60–150 seconds' };
@@ -454,7 +454,7 @@ const describeSchema = {
   required: ['clips'],
 };
 
-export type Described = Pick<ClipCandidate, 'title' | 'hook' | 'hooks' | 'keywords' | 'description' | 'hashtags' | 'reason' | 'category' | 'rubric'>;
+type Described = Pick<ClipCandidate, 'title' | 'hook' | 'hooks' | 'keywords' | 'description' | 'hashtags' | 'reason' | 'category' | 'rubric'>;
 
 /** Titles, hooks, hashtags and an honest score for clips the user picked on the graph (Gemini, fast model). */
 export async function describeClips(input: {

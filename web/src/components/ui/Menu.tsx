@@ -3,7 +3,7 @@ import { MoreHorizontal } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { Button } from './Button';
 
-export interface MenuItem {
+interface MenuItem {
   label: ReactNode;
   icon?: ReactNode;
   onSelect: () => void;

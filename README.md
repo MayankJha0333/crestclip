@@ -202,32 +202,33 @@ crestclip/
 
 ## Accounts, plans & credits
 
-Everyone signs up (email + password, or **Continue with Google**) and gets their own projects, clips, connected accounts, watermark and music. **The first account is the owner**: an admin on the Pro plan, and it takes over everything made before accounts existed.
+Everyone signs up (email + password, or **Continue with Google**) and gets their own projects, clips, connected accounts, watermark and music. **The first account is the owner**: an admin on the Pro plan.
 
 **Credits** are spent per clip: **every clip costs 5 credits** (`CREDITS_PER_CLIP` in `plans.ts`). Asking for 8 clips takes 40 credits up front; if only 6 good moments come out, 10 go back. Clips you pick on the rewatch graph cost the same. Editing and re-rendering is free, and a video that fails gives all its credits back. Video length is limited per plan, which keeps the AI cost of very long videos in check.
 
 | Plan | Price | Credits / month (clips) | Limits |
 |---|---|---|---|
 | Free | $0 | 60 (12 clips) | videos up to 30 min · 3 videos per project · 720p with a small CrestClip mark · post now only |
-| Creator | $15 / ₹1,299 | 400 (80 clips) | videos up to 2 h · 15 per project · 1080p · your own logo · scheduling · unused credits roll over 1 month |
-| Pro | $29 / ₹2,499 | 1,000 (200 clips) | videos up to 3 h · everything in Creator · Autopilot |
+| Creator | $15 | 400 (80 clips) | videos up to 2 h · 15 per project · 1080p · your own logo · scheduling · unused credits roll over 1 month |
+| Pro | $29 | 1,000 (200 clips) | videos up to 3 h · everything in Creator · Autopilot |
 
-**Top-up:** 100 credits for $5 (₹449), on any plan, usable for 12 months. Credits are used soonest-to-expire first. **Currency:** people in India see and pay **₹** (₹1,299 / ₹2,499 / ₹449); everyone else sees **$** ($15 / $29 / $5), picked from the browser's time zone. After someone's first payment they always see the currency they pay in. Dollar charging needs Razorpay *International Payments* (Payment Methods → International Payments → Request, up to 5 working days) plus two USD plans in `RAZORPAY_PLAN_CREATOR_USD` / `RAZORPAY_PLAN_PRO_USD`; until then people outside India see $ prices and are charged the ₹ amount, with a "Charged as ₹1,299 for now" note. To change prices or limits, edit `PRICES` / `PLANS` in `server/src/modules/billing/plans.ts`, then create Razorpay plans with the same amounts.
+**Top-up:** 100 credits for $5, on any plan, usable for 12 months. Credits are used soonest-to-expire first. **Currency:** every price and every payment is in **US dollars (USD)** — one currency for everyone, so international customers pay exactly what they see (their bank converts if their card is in another currency). To change prices or limits, edit `PLANS` / `TOPUP` in `server/src/modules/billing/plans.ts`, then create Razorpay plans with the same amounts.
+
+### Company and policy pages
+
+`/about`, `/contact`, `/terms`, `/privacy`, `/refunds` and `/shipping` are linked in the footer of every public page. Razorpay needs them on your live website before it allows live payments and international cards, and Google needs the Privacy page for the YouTube connection. Your business details on them come from `.env`: `BUSINESS_NAME`, `BUSINESS_LEGAL_NAME`, `SUPPORT_EMAIL`, `SUPPORT_PHONE`, `BUSINESS_ADDRESS`, `BUSINESS_JURISDICTION`, `SUPPORT_HOURS`, `GRIEVANCE_OFFICER` — use the same details as in your Razorpay account. Numbers like the storage time and credits per clip come from the app's settings, so the pages always match how CrestClip works. Each page has its own file in `web/src/features/legal/` (shared layout in `LegalLayout.tsx`); it's a solid starting point, not legal advice.
 
 ### Taking payments with Razorpay
 
 1. **API keys:** Razorpay Dashboard → API Keys → copy the Key Id and Secret into `.env` (`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`). Start with **Test Mode** keys.
-2. **Plans:** Dashboard → Subscriptions → Plans → create **monthly** plans:
-   - In rupees (`BILLING_CURRENCY=INR`): Creator ₹1,299 → `RAZORPAY_PLAN_CREATOR`, Pro ₹2,499 → `RAZORPAY_PLAN_PRO`
-   - In dollars, for people outside India, once *International Payments* is approved: Creator $15 → `RAZORPAY_PLAN_CREATOR_USD`, Pro $29 → `RAZORPAY_PLAN_PRO_USD`
-
-   The amounts must match `PRICES` in `plans.ts`.
-3. **Webhook** (renewals, and payments made after someone closes the tab): Dashboard → Webhooks → URL `<PUBLIC_URL>/api/billing/webhook`, pick a secret and put it in `RAZORPAY_WEBHOOK_SECRET`. Turn on these events:
+2. **Dollar payments:** Dashboard → Payment Methods → *International Payments* → Request (Razorpay asks for your live website with these policy pages; approval takes up to 5 working days). CrestClip charges only in USD, so upgrades and top-ups stay off until this is approved.
+3. **Plans:** Dashboard → Subscriptions → Plans → create two **monthly USD** plans: Creator **$15** → `RAZORPAY_PLAN_CREATOR`, Pro **$29** → `RAZORPAY_PLAN_PRO`. CrestClip checks each plan before checkout and shows a clear message if its currency, amount or period doesn't match `plans.ts`.
+4. **Webhook** (renewals, and payments made after someone closes the tab): Dashboard → Webhooks → URL `<PUBLIC_URL>/api/billing/webhook`, pick a secret and put it in `RAZORPAY_WEBHOOK_SECRET`. Turn on these events:
    - `subscription.activated`, `subscription.charged`, `subscription.cancelled`, `subscription.halted`, `subscription.completed`
    - `payment.captured`
 
    Locally (no public URL), renewals are still picked up: CrestClip checks the subscription with Razorpay when a month runs out.
-4. Restart CrestClip. **Plan & credits** in the app now shows working Upgrade and Buy credits buttons.
+5. Restart CrestClip. **Plan & credits** in the app now shows working Upgrade and Buy credits buttons.
 
 Without Razorpay keys, everything else works (credits, limits, monthly refills). Upgrades are off, and an admin can give plans and credits by hand in **Settings → Admin**.
 

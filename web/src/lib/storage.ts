@@ -1,8 +1,7 @@
 /** Small, crash-proof localStorage helpers (private mode / blocked storage just means "no memory"). */
 export function readLocal<T>(key: string, fallback: T): T {
   try {
-    // renamed PeakClip → CrestClip: fall back to what was saved under the old name
-    const v = localStorage.getItem(key) ?? (key.startsWith('crestclip:') ? localStorage.getItem(`peakclip:${key.slice(10)}`) : null);
+    const v = localStorage.getItem(key);
     return v ? (JSON.parse(v) as T) : fallback;
   } catch {
     return fallback;

@@ -4,20 +4,18 @@ import { config } from '../../config.js';
 import { sessions, users, type UserRow } from '../../db/index.js';
 import { HttpError } from '../../lib/http.js';
 import { refreshAccount } from '../billing/billing.service.js';
-import { adoptLegacyUploads } from '../../pipeline/music.js';
-import { adoptLegacyWatermark } from '../../pipeline/watermark.js';
 
 const scrypt = promisify(crypto.scrypt) as (pw: string, salt: Buffer, len: number, opts: crypto.ScryptOptions) => Promise<Buffer>;
 const SCRYPT = { N: 16384, r: 8, p: 1 };
 
 /** "scrypt$N$r$p$salt$hash" — salted, slow on purpose, compared in constant time. */
-export async function hashPassword(pw: string): Promise<string> {
+async function hashPassword(pw: string): Promise<string> {
   const salt = crypto.randomBytes(16);
   const key = await scrypt(pw, salt, 64, SCRYPT);
   return ['scrypt', SCRYPT.N, SCRYPT.r, SCRYPT.p, salt.toString('base64'), key.toString('base64')].join('$');
 }
 
-export async function checkPassword(pw: string, stored: string | null): Promise<boolean> {
+async function checkPassword(pw: string, stored: string | null): Promise<boolean> {
   const [kind, n, r, p, salt, hash] = (stored ?? '').split('$');
   if (kind !== 'scrypt' || !hash) return false;
   const want = Buffer.from(hash, 'base64');
@@ -38,17 +36,12 @@ export function rateLimit(key: string, max: number, windowMs: number, message: s
 
 // ---------------- accounts ----------------
 
-/** New account. The first one ever is the owner: an admin on Pro, and it takes over everything made before accounts existed. */
+/** New account. The first one ever is the owner: an admin on Pro. */
 async function createUser(u: { email: string; name: string | null; passwordHash?: string | null; googleSub?: string | null; avatar?: string | null }): Promise<UserRow> {
   const first = users.count() === 0;
   if (!first && !config.allowSignups) throw new HttpError(403, 'Sign-ups are closed right now.');
   const email = u.email.toLowerCase();
   const user = users.create({ ...u, email, isAdmin: first || config.adminEmails.includes(email), plan: first ? 'pro' : 'free' });
-  if (first) {
-    users.claimOrphans(user.id);
-    adoptLegacyWatermark(user.id);
-    adoptLegacyUploads(user.id);
-  }
   return refreshAccount(user); // adds the first month's credits
 }
 
@@ -80,7 +73,7 @@ const googleRedirect = () => `${config.publicUrl}/api/auth/google/callback`;
 const pending = new Map<string, { next: string; at: number }>();
 
 /** Only send people back inside the app. */
-export const safeNext = (n: unknown) => (typeof n === 'string' && /^\/app(\/|$|\?)/.test(n) ? n : '/app');
+const safeNext = (n: unknown) => (typeof n === 'string' && /^\/app(\/|$|\?)/.test(n) ? n : '/app');
 
 export function googleStartUrl(next: unknown): string {
   const state = crypto.randomBytes(16).toString('hex');

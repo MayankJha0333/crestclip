@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import { clips, projects, type ClipRow, type ProjectRow, type UserRow } from '../../db/index.js';
 import { ensureLocal } from '../../infra/cloudStore.js';
 import { enqueueRender } from '../../infra/queue.js';

@@ -1,5 +1,4 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs';
 import { config } from '../../config.js';
 import { clips, connections, posts, projects, type ConnectionRow, type PostRow, type UserRow } from '../../db/index.js';
 import { assertCanSchedule } from '../billing/billing.service.js';

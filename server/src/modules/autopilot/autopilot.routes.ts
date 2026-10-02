@@ -21,10 +21,6 @@ autopilotRouter.post(
   }),
 );
 
-autopilotRouter.post('/autopilot/preview-times', (req, res) => {
-  res.json(service.previewTimes(req.body));
-});
-
 autopilotRouter.post(
   '/autopilot/preview-source',
   asyncHandler(async (req, res) => {

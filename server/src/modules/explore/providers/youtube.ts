@@ -87,22 +87,14 @@ export async function youtubeSearch(q: { q: string; type: string; duration: stri
   return youtubeSearchRaw(q);
 }
 
-/** How the fast (web page) search is doing — shown on /api/explore/meta. */
-export const fastStats = { ok: 0, fail: 0, lastMs: 0, lastError: '' };
-
 async function youtubeSearchRaw(q: { q: string; type: string; duration: string; sort: string; uploaded: string; limit: number }) {
   const sp = ytSearchParam(q);
   let items: ExploreItem[] | null = null;
-  const t0 = Date.now();
   // Fast path: read YouTube's results page directly (~1 s). Slow path: yt-dlp (starts a program, several seconds).
   try {
     const web = await ytSearchWeb(q.q, sp);
     if (web.length) items = web.map((w) => ({ ...w, source: 'youtube' as const, kind: q.type === 'shorts' && w.kind === 'video' ? ('short' as const) : w.kind }));
-    fastStats.ok++;
-    fastStats.lastMs = Date.now() - t0;
   } catch (e) {
-    fastStats.fail++;
-    fastStats.lastError = (e as Error).message;
     console.warn('[explore] fast YouTube search failed, using yt-dlp:', (e as Error).message);
   }
   if (!items) {

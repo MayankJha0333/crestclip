@@ -16,7 +16,7 @@ declare global {
   }
 }
 
-export const SESSION_COOKIE = 'cc_session';
+const SESSION_COOKIE = 'cc_session';
 
 function readCookie(req: Request, name: string): string | null {
   for (const part of (req.headers.cookie ?? '').split(';')) {

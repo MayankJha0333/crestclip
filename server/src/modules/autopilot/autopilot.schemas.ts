@@ -4,7 +4,7 @@ import { DEFAULT_CAPTION } from './autopilot.engine.js';
 import { isValidZone } from './autopilot.time.js';
 
 /** A posting time, "HH:MM" (24 h). */
-export const timeRe = /^([01]\d|2[0-3]):[0-5]\d$/;
+const timeRe = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 export const autopilotSchema = z.object({
   name: z.string().trim().min(1).max(80),
@@ -31,9 +31,7 @@ export const autopilotSchema = z.object({
   clipsPerVideo: z.coerce.number().int().min(1).max(5).default(2),
   times: z.array(z.string().regex(timeRe, 'Times look like 13:00')).min(1, 'Pick at least one posting time').max(12),
   timezone: z.string().refine(isValidZone, 'Unknown time zone'),
-  targets: z
-    .array(z.object({ connectionId: z.string(), privacy: z.enum(['public', 'unlisted', 'private']).optional() }))
-    .min(1, 'Pick at least one account to post to'),
+  targets: z.array(z.object({ connectionId: z.string(), privacy: z.enum(['public', 'unlisted', 'private']).optional() })).min(1, 'Pick at least one account to post to'),
   mode: z.enum(['review', 'auto']).default('review'),
   caption: z.string().max(2200).default(DEFAULT_CAPTION),
   rightsConfirmed: z.literal(true, { errorMap: () => ({ message: 'Confirm you have the rights to clip and repost these videos' }) }),

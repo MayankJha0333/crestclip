@@ -5,9 +5,7 @@ import type { ProjectOptions } from '../../types.js';
 import { optionsSchema } from '../projects/projects.schemas.js';
 import { kick, rejectClip, releaseScheduled, restoreSlot, scanNow, skipSlot } from './autopilot.engine.js';
 import type { AutopilotForm } from './autopilot.schemas.js';
-import { timeRe } from './autopilot.schemas.js';
 import { channelVideos, resolveChannel, topicVideos } from './autopilot.sources.js';
-import { isValidZone, upcomingSlots } from './autopilot.time.js';
 
 /** An Autopilot the person owns (404 otherwise). */
 export function getAutopilot(id: string, user: UserRow): AutopilotRow {
@@ -118,13 +116,6 @@ export async function reviewClip(autopilotId: string, user: UserRow, itemId: str
     await kick();
   } else if (action === 'reject') await rejectClip(item);
   else throw new HttpError(400, 'Unknown action');
-}
-
-/** The posting times a form would produce (for the editor). Bad times are dropped, a bad zone means UTC. */
-export function previewTimes(body: { times?: unknown; timezone?: unknown } | undefined) {
-  const times = (Array.isArray(body?.times) ? body.times : []).filter((t: unknown): t is string => typeof t === 'string' && timeRe.test(t));
-  const tz = isValidZone(String(body?.timezone)) ? String(body!.timezone) : 'UTC';
-  return upcomingSlots(times, tz, Date.now(), 2).slice(0, 6);
 }
 
 /** What a source would find right now (read-only) — shown under each source in the editor. */

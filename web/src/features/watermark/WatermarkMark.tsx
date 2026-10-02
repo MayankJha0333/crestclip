@@ -12,7 +12,7 @@ export const SPOT = {
   'bottom-left': 'bottom-[22%] left-[8.5%]',
   'bottom-right': 'bottom-[22%] right-[8.5%]',
 } as const;
-export const ALIGN = { 'top-left': 'object-left-top', 'top-right': 'object-right-top', 'bottom-left': 'object-left-bottom', 'bottom-right': 'object-right-bottom' } as const;
+const ALIGN = { 'top-left': 'object-left-top', 'top-right': 'object-right-top', 'bottom-left': 'object-left-bottom', 'bottom-right': 'object-right-bottom' } as const;
 
 export function WatermarkMark({ watermark: w }: { watermark: Watermark | null }) {
   if (!w?.enabled || !w.logoUrl) return null;

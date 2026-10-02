@@ -89,8 +89,6 @@ export const config = {
   razorpayWebhookSecret: env('RAZORPAY_WEBHOOK_SECRET'),
   razorpayPlanCreator: env('RAZORPAY_PLAN_CREATOR'),
   razorpayPlanPro: env('RAZORPAY_PLAN_PRO'),
-  /** currency your Razorpay plans and top-ups are priced in (must match the plans you created) */
-  currency: env('BILLING_CURRENCY', 'USD').toUpperCase(),
   dataDir: path.resolve(REPO_ROOT, env('DATA_DIR', 'data')),
   fontsDir: path.join(SERVER_ROOT, 'assets', 'fonts'),
   webDist: path.join(REPO_ROOT, 'web', 'dist'),
@@ -107,8 +105,22 @@ export const config = {
   cloudClips: env('CLOUD_CLIPS', 'true') !== 'false',
   /** projects (video, clips, files — here and in the bucket) are deleted this many days after they're made */
   retentionDays: num('RETENTION_DAYS', 7),
+  /** who runs CrestClip — shown on the About, Contact, Terms, Privacy and Refund pages (Razorpay checks these) */
+  business: {
+    name: env('BUSINESS_NAME', 'CrestClip'),
+    legalName: env('BUSINESS_LEGAL_NAME'),
+    email: env('SUPPORT_EMAIL'),
+    phone: env('SUPPORT_PHONE'),
+    address: env('BUSINESS_ADDRESS'),
+    /** courts for disputes, e.g. "Bengaluru, Karnataka" */
+    jurisdiction: env('BUSINESS_JURISDICTION'),
+    /** when support answers (shown on the Contact page) */
+    hours: env('SUPPORT_HOURS', 'Monday to Friday, 10 am – 6 pm IST'),
+    /** the person who handles complaints (defaults to BUSINESS_LEGAL_NAME) */
+    grievanceOfficer: env('GRIEVANCE_OFFICER'),
+  },
   sendVideoToGemini: env('GEMINI_SEND_VIDEO', 'true') !== 'false',
-  fakeAi: (env('CRESTCLIP_FAKE_AI') || env('PEAKCLIP_FAKE_AI')) === '1', // old name still works
+  fakeAi: env('CRESTCLIP_FAKE_AI') === '1',
 
   // Tools
   ytdlp: env('YTDLP_PATH', 'yt-dlp'),

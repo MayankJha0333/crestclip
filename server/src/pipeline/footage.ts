@@ -23,7 +23,7 @@ interface FootageIndex {
   fullSizeEstimate: number | null;
 }
 
-export interface Footage {
+interface Footage {
   src: string;
   offset: number; // global time of file time 0
   width: number;
@@ -59,9 +59,7 @@ const covers = (s: Section, start: number, end: number) => s.start <= start + 0.
 /** Merge padded clip ranges that touch, so nearby clips share one download. */
 function planRanges(ranges: { start: number; end: number }[], duration: number) {
   const pad = config.sectionPad;
-  const padded = ranges
-    .map((r) => ({ start: Math.max(0, r.start - pad), end: Math.min(duration || Infinity, r.end + pad) }))
-    .sort((a, b) => a.start - b.start);
+  const padded = ranges.map((r) => ({ start: Math.max(0, r.start - pad), end: Math.min(duration || Infinity, r.end + pad) })).sort((a, b) => a.start - b.start);
   const out: { start: number; end: number }[] = [];
   for (const r of padded) {
     const last = out[out.length - 1];
@@ -82,12 +80,7 @@ function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 }
 
 /** Download the video parts for these ranges that aren't on disk yet. */
-export function prefetchFootage(
-  p: ProjectRow,
-  dir: string,
-  ranges: { start: number; end: number }[],
-  onProgress: (done: number, total: number, detail: string) => void = () => {},
-): Promise<void> {
+export function prefetchFootage(p: ProjectRow, dir: string, ranges: { start: number; end: number }[], onProgress: (done: number, total: number, detail: string) => void = () => {}): Promise<void> {
   return withLock(p.id, async () => {
     const idx = readFootage(dir);
     if (!idx) return;

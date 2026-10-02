@@ -65,6 +65,3 @@ export async function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>
 
 /** When `key` was last stored (null if it isn't cached). */
 export const cachedAt = (key: string) => cache.get(key)?.at ?? null;
-
-/** For /api/explore/meta. */
-export const cacheStats = () => ({ cached: cache.size, refreshing: [...inflight.keys()] });

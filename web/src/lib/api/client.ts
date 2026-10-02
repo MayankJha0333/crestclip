@@ -7,6 +7,7 @@ import type {
   Payment,
   PlanId,
   PlansInfo,
+  SiteInfo,
   AutopilotDetail,
   AutopilotInput,
   AutopilotSource,
@@ -33,20 +34,8 @@ import type {
 /** Fired when the server says "please log in" (the session ended) — the app sends the person to the login page. */
 export const LOGGED_OUT = 'crestclip:logged-out';
 
-/** Prices are shown in ₹ to people in India and in $ everywhere else (the server decides; this is the hint). */
-const CURRENCY_HINT = (() => {
-  try {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    return tz === 'Asia/Kolkata' || tz === 'Asia/Calcutta' ? 'INR' : 'USD';
-  } catch {
-    return 'USD';
-  }
-})();
-
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
-  const headers = new Headers(init?.headers);
-  if (url.startsWith('/api/')) headers.set('x-cc-currency', CURRENCY_HINT);
-  const res = await fetch(url, { ...init, headers });
+  const res = await fetch(url, init);
   const body = await res.json().catch(() => ({}));
   if (res.status === 401 && !url.startsWith('/api/auth/')) window.dispatchEvent(new Event(LOGGED_OUT));
   if (!res.ok) throw new Error((body as { error?: string }).error || `Request failed (${res.status})`);
@@ -64,6 +53,7 @@ export const api = {
   changePassword: (body: { current: string; next: string }) => req<{ ok: boolean }>('/api/auth/password', json('POST', body)),
   // plans & credits
   plans: () => req<PlansInfo>('/api/billing/plans'),
+  site: () => req<SiteInfo>('/api/site'),
   billing: () => req<BillingAccount & { history: CreditEvent[]; payments: Payment[] }>('/api/billing/account'),
   subscribe: (plan: PlanId) => req<CheckoutStart>('/api/billing/subscribe', json('POST', { plan })),
   confirmSubscription: (body: { paymentId: string; subscriptionId: string; signature: string }) => req<BillingAccount & { pending?: boolean }>('/api/billing/subscribe/confirm', json('POST', body)),

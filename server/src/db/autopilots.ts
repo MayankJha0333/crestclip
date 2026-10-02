@@ -93,8 +93,8 @@ export const autopilots = {
   },
 };
 
-export type ApVideoStatus = 'waiting' | 'queued' | 'clipping' | 'done' | 'skipped' | 'failed';
-export interface ApVideoRow {
+type ApVideoStatus = 'waiting' | 'queued' | 'clipping' | 'done' | 'skipped' | 'failed';
+interface ApVideoRow {
   id: string;
   autopilotId: string;
   videoId: string;

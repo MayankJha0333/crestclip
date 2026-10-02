@@ -4,7 +4,7 @@
  * If YouTube changes its page and nothing can be read, callers fall back to yt-dlp.
  */
 
-export interface WebItem {
+interface WebItem {
   kind: 'video' | 'short' | 'channel' | 'live';
   id: string;
   url: string;
@@ -40,7 +40,9 @@ const text = (v: unknown): string | null => {
   if (typeof o.simpleText === 'string') return o.simpleText;
   if (typeof o.content === 'string') return o.content;
   if (typeof o.text === 'string') return o.text; // a single run
-  const runs = arr(o.runs).map((r) => (obj(r)?.text as string) ?? '').join('');
+  const runs = arr(o.runs)
+    .map((r) => (obj(r)?.text as string) ?? '')
+    .join('');
   return runs || null;
 };
 
@@ -253,7 +255,6 @@ export async function ytSearchWeb(query: string, sp: string, timeoutMs = 9000, g
   if (!m) throw new Error('Could not read the YouTube results page');
   return itemsFromInitialData(JSON.parse(m[1]));
 }
-
 
 // ---------------- watch page (for the "Most replayed" graph) ----------------
 export interface WebVideo {

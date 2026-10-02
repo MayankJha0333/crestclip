@@ -15,7 +15,7 @@ import { run } from '../lib/proc.js';
  * A clip's music setting is 'none', 'auto' (mood picked from the clip's category), a mood id, or 'upload:<id>'.
  */
 
-export interface Mood {
+interface Mood {
   id: string;
   label: string;
   hint: string;
@@ -83,7 +83,7 @@ const aiDir = () => path.join(root(), 'ai');
 const upDir = (userId: string) => path.join(root(), 'uploads', userId.replace(/[^\w-]/g, ''));
 const aiFile = (mood: string) => path.join(aiDir(), `${mood}.m4a`);
 
-export interface Upload {
+interface Upload {
   id: string;
   name: string;
   file: string;
@@ -99,26 +99,6 @@ function readUploads(userId: string): Upload[] {
 function writeUploads(userId: string, list: Upload[]) {
   fs.mkdirSync(upDir(userId), { recursive: true });
   fs.writeFileSync(path.join(upDir(userId), 'index.json'), JSON.stringify(list, null, 1));
-}
-
-/** Tracks uploaded before accounts existed (<data>/music/uploads/index.json) become the first account's. */
-export function adoptLegacyUploads(userId: string) {
-  const legacy = path.join(root(), 'uploads', 'index.json');
-  if (!fs.existsSync(legacy)) return;
-  try {
-    const list = (JSON.parse(fs.readFileSync(legacy, 'utf8')) as Upload[]).filter((u) => fs.existsSync(u.file));
-    fs.mkdirSync(upDir(userId), { recursive: true });
-    for (const u of list) {
-      const moved = path.join(upDir(userId), path.basename(u.file));
-      fs.renameSync(u.file, moved);
-      if (fs.existsSync(`${u.file}.ok`)) fs.renameSync(`${u.file}.ok`, `${moved}.ok`);
-      u.file = moved;
-    }
-    writeUploads(userId, list);
-    fs.rmSync(legacy, { force: true });
-  } catch (e) {
-    console.warn('[music] could not move old uploads:', (e as Error).message);
-  }
 }
 
 export function musicLibrary(userId: string) {

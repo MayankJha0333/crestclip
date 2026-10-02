@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate, useLocation } from 'react-router-dom';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { AppLayout } from './AppLayout';
 import { LandingPage } from '../features/landing/LandingPage';
 import { NewClipsPage } from '../features/create/NewClipsPage';
@@ -13,17 +13,20 @@ import { SettingsPage } from '../features/settings/SettingsPage';
 import { AuthPage } from '../features/auth/AuthPage';
 import { RequireAuth } from '../features/auth/auth';
 import { BillingPage } from '../features/billing/BillingPage';
-
-/** Old "Publishing" page: accounts moved to Settings (keep any ?connected= / ?error= from OAuth). */
-function LegacyAccounts() {
-  const { search } = useLocation();
-  return <Navigate to={`/app/settings${search}`} replace />;
-}
+import { AboutPage, ContactPage, PrivacyPage, RefundsPage, ShippingPage, TermsPage } from '../features/legal';
 
 export const router = createBrowserRouter([
   { path: '/', element: <LandingPage /> },
   { path: '/login', element: <AuthPage mode="login" /> },
   { path: '/signup', element: <AuthPage mode="signup" /> },
+  // company and policy pages (public — Razorpay and Google check them)
+  { path: '/about', element: <AboutPage /> },
+  { path: '/contact', element: <ContactPage /> },
+  { path: '/terms', element: <TermsPage /> },
+  { path: '/privacy', element: <PrivacyPage /> },
+  { path: '/refunds', element: <RefundsPage /> },
+  { path: '/refund-policy', element: <Navigate to="/refunds" replace /> },
+  { path: '/shipping', element: <ShippingPage /> },
   {
     path: '/app',
     element: (
@@ -43,7 +46,6 @@ export const router = createBrowserRouter([
       { path: 'autopilot/:id/edit', element: <AutopilotEditorPage /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: 'billing', element: <BillingPage /> },
-      { path: 'accounts', element: <LegacyAccounts /> },
       { path: '*', element: <Navigate to="/app" replace /> },
     ],
   },

@@ -10,8 +10,9 @@ import { CaptionSample } from '../clip-settings/CaptionPicker';
 import { CurveSvg, HeroArt } from './art';
 import { FAQ, FEATURES, SAMPLE_CLIPS, STEPS } from './content';
 import { useAuth } from '../auth/auth';
-import { chargedAs, money } from '../billing/money';
+import { money } from '../billing/money';
 import { PlanCards } from '../billing/PlanCards';
+import { SiteFooter } from '../../components/SiteFooter';
 
 function SectionTitle({ eyebrow, title, sub, left }: { eyebrow: string; title: React.ReactNode; sub?: string; left?: boolean }) {
   return (
@@ -249,7 +250,7 @@ export function LandingPage() {
         <SectionTitle
           eyebrow="Pricing"
           title="Simple plans that grow with your channel"
-          sub={`Every clip costs ${pricing?.creditsPerClip ?? 5} credits. Edits and re-renders are free, and clips that don’t come out give their credits back.`}
+          sub={`Prices in US dollars. Every clip costs ${pricing?.creditsPerClip ?? 5} credits; edits and re-renders are free, and clips that don’t come out give their credits back.`}
         />
         <div className="mt-12">
           {pricing ? (
@@ -266,8 +267,7 @@ export function LandingPage() {
           )}
           {pricing && (
             <p className="mt-6 text-center text-ink-3">
-              Need more in a busy month? Add {pricing.topup.credits} credits ({Math.floor(pricing.topup.credits / pricing.creditsPerClip)} clips) for {money(pricing.topup.price, pricing.currency)}
-              {chargedAs(pricing.topup) ? ` (${chargedAs(pricing.topup)?.toLowerCase()})` : ''} — on any plan.
+              Need more in a busy month? Add {pricing.topup.credits} credits ({Math.floor(pricing.topup.credits / pricing.creditsPerClip)} clips) for {money(pricing.topup.price)} — on any plan.
             </p>
           )}
         </div>
@@ -299,10 +299,7 @@ export function LandingPage() {
         </Link>
       </section>
 
-      <footer className="flex flex-wrap items-center justify-between gap-4 px-1 py-5">
-        <Logo size={30} />
-        <span className="text-ink-3">Made for creators and clippers · AI by Gemini on Google Cloud</span>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }

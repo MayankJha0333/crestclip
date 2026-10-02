@@ -23,7 +23,7 @@ export async function purgeProject(p: ProjectRow) {
 const busy = (p: ProjectRow) => p.status === 'processing' || p.status === 'queued';
 
 /** Delete every project whose storage time is over. Returns how many were deleted. */
-export async function sweepExpired(at = Date.now()): Promise<number> {
+async function sweepExpired(at = Date.now()): Promise<number> {
   let n = 0;
   for (const p of projects.expired(at)) {
     const kids = p.sourceType === 'group' ? projects.children(p.id) : [];

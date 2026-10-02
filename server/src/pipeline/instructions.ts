@@ -9,8 +9,8 @@ import type { ProjectOptions } from '../types.js';
  * Gemini reads it; a simple text-based reader is the backup (and the demo-mode version).
  */
 
-export type CampaignPlatform = 'tiktok' | 'instagram' | 'youtube' | 'x' | 'facebook';
-export interface CampaignBrief {
+type CampaignPlatform = 'tiktok' | 'instagram' | 'youtube' | 'x' | 'facebook';
+interface CampaignBrief {
   name: string;
   brand: string;
   summary: string;
@@ -63,7 +63,8 @@ const schema = {
 };
 
 const URL_RE = /https?:\/\/[^\s<>"'`)\]]+/g;
-const VIDEO_HOST = /(youtube\.com|youtu\.be|drive\.google\.com|docs\.google\.com\/file|dropbox\.com|1drv\.ms|onedrive\.live\.com|sharepoint\.com|twitch\.tv|kick\.com|vimeo\.com|streamable\.com|rumble\.com|x\.com\/\w+\/status|twitter\.com\/\w+\/status|tiktok\.com\/@[^/]+\/video|instagram\.com\/(reel|p)\/)/i;
+const VIDEO_HOST =
+  /(youtube\.com|youtu\.be|drive\.google\.com|docs\.google\.com\/file|dropbox\.com|1drv\.ms|onedrive\.live\.com|sharepoint\.com|twitch\.tv|kick\.com|vimeo\.com|streamable\.com|rumble\.com|x\.com\/\w+\/status|twitter\.com\/\w+\/status|tiktok\.com\/@[^/]+\/video|instagram\.com\/(reel|p)\/)/i;
 const clean = (u: string) => u.replace(/[.,;:!?]+$/, '');
 
 /** Every link in the text that looks like video/footage to clip. */
@@ -77,7 +78,12 @@ function videoLinks(text: string): { url: string; label: string }[] {
     const file = classifyFileLink(url);
     if (VIDEO_HOST.test(url) || (file && !('error' in file))) {
       // the words just before the link usually say what it is ("Podcast ep 12: https://…")
-      const before = text.slice(Math.max(0, (m.index ?? 0) - 60), m.index).split('\n').pop()?.replace(/[:\-–—|•]+\s*$/, '').trim();
+      const before = text
+        .slice(Math.max(0, (m.index ?? 0) - 60), m.index)
+        .split('\n')
+        .pop()
+        ?.replace(/[:\-–—|•]+\s*$/, '')
+        .trim();
       out.push({ url, label: before && before.length > 2 ? before.slice(-60) : new URL(url).hostname.replace(/^www\./, '') });
     }
   }
@@ -90,9 +96,11 @@ const uniq = (a: string[]) => [...new Set(a.map((x) => x.trim()).filter(Boolean)
 /** The backup reader: patterns only, no AI. */
 function readBriefPlain(text: string): CampaignBrief {
   const t = text.replace(/\r/g, '');
-  const lines = t.split('\n').map((l) => l.trim()).filter(Boolean);
-  const rate =
-    t.match(/\$\s?([\d.,]+)\s*(?:\/|per)\s*(?:1\s?k|1,?000|thousand)\s*views?/i) ?? t.match(/([\d.,]+)\s*(?:USD|\$)\s*(?:\/|per)\s*(?:1\s?k|1,?000)/i) ?? t.match(/\$\s?([\d.,]+)\s*cpm/i);
+  const lines = t
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const rate = t.match(/\$\s?([\d.,]+)\s*(?:\/|per)\s*(?:1\s?k|1,?000|thousand)\s*views?/i) ?? t.match(/([\d.,]+)\s*(?:USD|\$)\s*(?:\/|per)\s*(?:1\s?k|1,?000)/i) ?? t.match(/\$\s?([\d.,]+)\s*cpm/i);
   const maxPay = t.match(/max(?:imum)?\s*(?:payout|earnings?)?\s*(?:per\s*(?:post|video|submission))?\s*[:\-]?\s*\$\s?([\d.,]+)/i);
   const minV = t.match(/min(?:imum)?\s*(?:of\s*)?([\d.,]+)\s*(k)?\s*views/i);
   const secs = t.match(/(\d{1,3})\s*(?:-|–|to)\s*(\d{1,3})\s*(?:s\b|sec|seconds)/i);
@@ -103,11 +111,16 @@ function readBriefPlain(text: string): CampaignBrief {
   );
   const bullet = (l: string) => l.replace(/^[-•*✅❌✔✖️🚫⛔\d.)\s]+/, '').trim();
   // judge each sentence on its own: "Only the funny parts. No swearing." is one rule + one don't
-  const sentences = lines.flatMap((l) => l.split(/(?<=[.!?])\s+(?=[A-Z❌✅🚫⛔•\-])/)).map((x) => x.trim()).filter(Boolean);
+  const sentences = lines
+    .flatMap((l) => l.split(/(?<=[.!?])\s+(?=[A-Z❌✅🚫⛔•\-])/))
+    .map((x) => x.trim())
+    .filter(Boolean);
   const NEG = /^(❌|🚫|⛔|✖)|\b(don'?t|do not|not allowed|never|avoid|prohibited|will be (rejected|denied))\b|^no\b/i;
   const donts = sentences.filter((l) => NEG.test(l)).map(bullet);
   const isFact = (l: string) => /^https?:\/\//.test(l) || /^\$?[\d.,]+\s*(\/|per)/.test(l) || l.length < 6;
-  const rules = sentences.filter((l) => !NEG.test(l) && !isFact(l) && (/^(✅|✔|-|•|\*|\d+[.)])|\b(must|required|need to|make sure|include|tag|use|only|keep|add|clips?|captions?|focus)\b/i.test(l))).map(bullet);
+  const rules = sentences
+    .filter((l) => !NEG.test(l) && !isFact(l) && /^(✅|✔|-|•|\*|\d+[.)])|\b(must|required|need to|make sure|include|tag|use|only|keep|add|clips?|captions?|focus)\b/i.test(l))
+    .map(bullet);
   const name = lines.find((l) => l.length > 4 && l.length < 80 && !/^https?:/.test(l)) ?? 'Campaign';
   return {
     name,
@@ -165,7 +178,7 @@ async function readBrief(text: string, url?: string | null): Promise<CampaignBri
       readBy: 'ai',
     };
   } catch (e) {
-    console.warn('[campaigns] AI brief reading failed, using the plain reader:', (e as Error).message);
+    console.warn('[instructions] AI brief reading failed, using the plain reader:', (e as Error).message);
     return { ...plain, readBy: 'plain' };
   }
 }

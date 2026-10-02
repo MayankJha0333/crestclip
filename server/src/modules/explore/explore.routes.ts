@@ -36,8 +36,6 @@ exploreRouter.get(
   }),
 );
 
-exploreRouter.get('/meta', (_req, res) => res.json(service.meta()));
-
 exploreRouter.get('/categories', (_req, res) => res.json(service.categories()));
 
 exploreRouter.get(

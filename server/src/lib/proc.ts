@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 
-export interface RunOptions {
+interface RunOptions {
   cwd?: string;
   timeoutMs?: number;
   onLine?: (line: string, stream: 'stdout' | 'stderr') => void;

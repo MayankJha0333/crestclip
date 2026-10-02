@@ -6,7 +6,7 @@ import { toast } from '../../lib/toast';
 import { Badge, Button, Card, CardHeader, ConfirmDialog, PageHeader, Skeleton } from '../../components/ui';
 import { useAuth } from '../auth/auth';
 import { CheckoutClosed, openCheckout } from './checkout';
-import { chargedAs, money, shortDate } from './money';
+import { money, shortDate } from './money';
 import { PlanCards } from './PlanCards';
 
 const SOURCE: Record<BillingAccount['credits']['grants'][number]['source'], string> = { plan: 'Monthly credits', topup: 'Top-up', bonus: 'Bonus', refund: 'Refund' };
@@ -150,7 +150,7 @@ export function BillingPage() {
             <b className="font-display text-3xl">{plan.name}</b>
             {data.cancelAtPeriodEnd ? <Badge tone="warn">Ending</Badge> : paid ? <Badge tone="good">Active</Badge> : null}
           </span>
-          <span className="text-sm text-ink-3">{paid ? `${money(plan.price, plan.currency)} / month` : 'Free forever'}</span>
+          <span className="text-sm text-ink-3">{paid ? `${money(plan.price)} / month` : 'Free forever'}</span>
           <p className="mt-4 flex items-center gap-2 text-sm text-ink-2">
             <CalendarClock size={15} className="shrink-0 text-accent" />
             {data.cycleEnd
@@ -210,7 +210,7 @@ export function BillingPage() {
           <span className="text-xs font-extrabold tracking-wider text-ink-3 uppercase">Need more now?</span>
           <b className="mt-1 font-display text-2xl">{info.topup.credits} credits</b>
           <span className="text-sm text-ink-3">
-            {money(info.topup.price, info.currency)} once{chargedAs(info.topup) ? ` (${chargedAs(info.topup)?.toLowerCase()})` : ''} · use within {Math.round(info.topup.validDays / 30)} months
+            {money(info.topup.price)} once · use within {Math.round(info.topup.validDays / 30)} months
           </span>
           <p className="mt-4 text-sm text-ink-2">Adds to your balance right away — handy when you have a big batch this month. Works on any plan.</p>
           <div className="mt-auto pt-5">
@@ -244,7 +244,7 @@ export function BillingPage() {
           }
         />
         <p className="mt-4 text-center text-xs text-ink-3">
-          Prices in {info.currency}. Payments by Razorpay. Upgrading starts the new plan today; the credits you already have stay until they expire.
+          All prices in US dollars (USD). Payments by Razorpay; your bank may add a currency conversion fee. Upgrading starts the new plan today; the credits you already have stay until they expire.
         </p>
       </section>
 

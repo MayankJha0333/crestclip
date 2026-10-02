@@ -362,15 +362,13 @@ export interface Plan {
   id: PlanId;
   name: string;
   tagline: string;
+  /** monthly price in US dollars */
   price: number;
-  currency: string;
+  currency: 'USD';
   /** credits added every month */
   credits: number;
   /** clips those credits make (credits ÷ credits per clip) */
   clips: number;
-  /** set when the payment is made in another currency than the one shown (e.g. $ shown, charged in ₹) */
-  chargePrice?: number;
-  chargeCurrency?: string;
   rollover: boolean;
   maxVideoMinutes: number;
   maxVideosPerProject: number;
@@ -382,23 +380,19 @@ export interface Plan {
   points: string[];
 }
 export interface PlansInfo {
-  currency: string;
+  currency: 'USD';
   creditsPerClip: number;
   plans: Plan[];
   topup: Topup;
 }
+/** The one-off credit pack (price in US dollars). */
 export interface Topup {
   credits: number;
   price: number;
   validDays: number;
-  chargePrice?: number;
-  chargeCurrency?: string;
 }
 export interface BillingAccount {
   plan: Plan;
-  /** the currency prices are shown in for this person */
-  currency: string;
-  topup: Topup;
   cycleStart: number | null;
   cycleEnd: number | null;
   cancelAtPeriodEnd: boolean;
@@ -439,3 +433,22 @@ export interface AdminUser {
 }
 /** What the browser needs to open Razorpay Checkout. */
 export type CheckoutStart = { key: string; subscriptionId: string; plan: PlanId; description: string } | { key: string; orderId: string; amount: number; currency: string; description: string };
+
+/** Who runs CrestClip, for the About / Contact / policy pages. */
+export interface SiteInfo {
+  name: string;
+  legalName: string;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  jurisdiction: string | null;
+  /** when support answers */
+  hours: string;
+  /** who handles complaints */
+  grievanceOfficer: string;
+  url: string;
+  currency: 'USD';
+  retentionDays: number;
+  creditsPerClip: number;
+  topupValidMonths: number;
+}

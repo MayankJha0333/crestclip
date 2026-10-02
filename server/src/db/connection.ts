@@ -1,20 +1,13 @@
 import '../lib/quiet.js';
 import { createRequire } from 'node:module';
 import type { DatabaseSync as DatabaseSyncT } from 'node:sqlite';
-import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { config } from '../config.js';
 
 // required lazily (not a static import) so lib/quiet.ts can silence the experimental warning first
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as { DatabaseSync: typeof DatabaseSyncT };
-// The app was renamed PeakClip → CrestClip: move the old database file over once (with its -wal/-shm side files).
-const dbFile = path.join(config.dataDir, 'crestclip.db');
-const oldDbFile = path.join(config.dataDir, 'peakclip.db');
-if (!fs.existsSync(dbFile) && fs.existsSync(oldDbFile)) {
-  for (const ext of ['', '-wal', '-shm']) if (fs.existsSync(oldDbFile + ext)) fs.renameSync(oldDbFile + ext, dbFile + ext);
-}
-export const db = new DatabaseSync(dbFile);
+export const db = new DatabaseSync(path.join(config.dataDir, 'crestclip.db'));
 db.exec(`
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -41,7 +34,12 @@ CREATE TABLE IF NOT EXISTS projects (
   transcript_json TEXT,
   media_path TEXT,
   thumb_path TEXT,
-  ai_notes TEXT
+  ai_notes TEXT,
+  parent_id TEXT,                    -- one project can hold several videos: each video is a child of a 'group' project
+  user_id TEXT,
+  credits_charged INTEGER NOT NULL DEFAULT 0,
+  error_code TEXT,                   -- credits | plan_limit
+  expires_at INTEGER                 -- deleted after this (storage time)
 );
 CREATE TABLE IF NOT EXISTS clips (
   id TEXT PRIMARY KEY,
@@ -69,9 +67,21 @@ CREATE TABLE IF NOT EXISTS clips (
   file_path TEXT,
   thumb_path TEXT,
   reframe_json TEXT,
-  version INTEGER DEFAULT 0
+  version INTEGER DEFAULT 0,
+  segments_json TEXT,                -- multi-part clips: [{start,end}, ...]
+  motion TEXT DEFAULT 'subtle',
+  music_json TEXT,
+  source TEXT DEFAULT 'ai',          -- ai | manual
+  pace TEXT DEFAULT 'off',           -- pause cutting
+  hooks_json TEXT,                   -- headline options
+  keywords_json TEXT,                -- [{w, emoji}] for caption emphasis
+  teaser_json TEXT,                  -- {start,end} flash-forward line
+  emoji INTEGER DEFAULT 0,
+  flash INTEGER DEFAULT 0,
+  out_duration REAL                  -- length of the finished video (after pause cuts / tease)
 );
 CREATE INDEX IF NOT EXISTS clips_project ON clips(project_id);
+CREATE INDEX IF NOT EXISTS projects_user ON projects(user_id, created_at);
 `);
 
 // ---- publishing: connected accounts + posts ----
@@ -86,6 +96,7 @@ CREATE TABLE IF NOT EXISTS connections (
   tokens TEXT NOT NULL,              -- encrypted JSON {access, refresh, expiresAt}
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
+  user_id TEXT,
   UNIQUE(platform, account_id)
 );
 CREATE TABLE IF NOT EXISTS posts (
@@ -103,39 +114,13 @@ CREATE TABLE IF NOT EXISTS posts (
   error TEXT,
   attempts INTEGER DEFAULT 0,
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  autopilot_id TEXT,                 -- set when an Autopilot made this post
+  slot_key TEXT                      -- the Autopilot time slot it fills, e.g. "2026-10-02T13:00"
 );
 CREATE INDEX IF NOT EXISTS posts_clip ON posts(clip_id);
 CREATE INDEX IF NOT EXISTS posts_due ON posts(status, scheduled_at);
 `);
-
-// ---- migrations: add columns introduced after the first release ----
-{
-  const cols = new Set((db.prepare('PRAGMA table_info(clips)').all() as { name: string }[]).map((c) => c.name));
-  const add = (name: string, def: string) => !cols.has(name) && db.exec(`ALTER TABLE clips ADD COLUMN ${name} ${def}`);
-  add('segments_json', 'TEXT'); // multi-part clips: [{start,end}, ...]
-  add('motion', "TEXT DEFAULT 'subtle'");
-  add('music_json', 'TEXT');
-  add('source', "TEXT DEFAULT 'ai'"); // 'ai' | 'manual'
-  add('pace', "TEXT DEFAULT 'off'"); // pause cutting; clips made before it existed stay uncut
-  add('hooks_json', 'TEXT'); // headline options
-  add('keywords_json', 'TEXT'); // [{w, emoji}] for caption emphasis
-  add('teaser_json', 'TEXT'); // {start,end} flash-forward line
-  add('emoji', 'INTEGER DEFAULT 0');
-  add('flash', 'INTEGER DEFAULT 0');
-  add('out_duration', 'REAL'); // length of the finished video (after pause cuts / tease)
-}
-{
-  // one project can hold several videos: each video is a child project of a 'group' project
-  const cols = new Set((db.prepare('PRAGMA table_info(projects)').all() as { name: string }[]).map((c) => c.name));
-  if (!cols.has('parent_id')) db.exec('ALTER TABLE projects ADD COLUMN parent_id TEXT');
-}
-{
-  const cols = new Set((db.prepare('PRAGMA table_info(posts)').all() as { name: string }[]).map((c) => c.name));
-  const add = (name: string, def: string) => !cols.has(name) && db.exec(`ALTER TABLE posts ADD COLUMN ${name} ${def}`);
-  add('autopilot_id', 'TEXT'); // set when an Autopilot made this post
-  add('slot_key', 'TEXT'); // the Autopilot time slot it fills, e.g. "2026-10-02T13:00"
-}
 
 // ---- Autopilot: find videos → clip them → post at the chosen times every day ----
 db.exec(`
@@ -147,7 +132,8 @@ CREATE TABLE IF NOT EXISTS autopilots (
   last_scan_at INTEGER,
   last_error TEXT,
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  user_id TEXT
 );
 CREATE TABLE IF NOT EXISTS autopilot_videos (
   id TEXT PRIMARY KEY,
@@ -204,7 +190,8 @@ CREATE TABLE IF NOT EXISTS users (
   rz_subscription_id TEXT,                 -- Razorpay subscription paying for the plan
   cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  rz_pending_sub TEXT                      -- subscription opened in Checkout but not confirmed yet
 );
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,                     -- sha256 of the cookie token (the token itself is never stored)
@@ -247,31 +234,6 @@ CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS grants_user ON credit_grants(user_id, expires_at);
 CREATE INDEX IF NOT EXISTS events_user ON credit_events(user_id, created_at);
 `);
-{
-  // every project, social account and Autopilot belongs to a user (rows from before accounts → the first user)
-  for (const table of ['projects', 'connections', 'autopilots']) {
-    const cols = new Set((db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name));
-    if (!cols.has('user_id')) db.exec(`ALTER TABLE ${table} ADD COLUMN user_id TEXT`);
-  }
-  const cols = new Set((db.prepare('PRAGMA table_info(projects)').all() as { name: string }[]).map((c) => c.name));
-  if (!cols.has('credits_charged')) db.exec('ALTER TABLE projects ADD COLUMN credits_charged INTEGER NOT NULL DEFAULT 0');
-  if (!cols.has('error_code')) db.exec('ALTER TABLE projects ADD COLUMN error_code TEXT'); // credits | plan_limit
-  if (!cols.has('expires_at')) {
-    // auto-delete: projects made before this existed get the full storage time from today
-    db.exec('ALTER TABLE projects ADD COLUMN expires_at INTEGER');
-    db.prepare('UPDATE projects SET expires_at = ? WHERE expires_at IS NULL').run(Date.now() + config.retentionDays * 86400_000);
-  }
-  db.exec('CREATE INDEX IF NOT EXISTS projects_user ON projects(user_id, created_at)');
-  // the subscription opened in Checkout but not confirmed yet (so a payment that didn't report back is still found)
-  const ucols = new Set((db.prepare('PRAGMA table_info(users)').all() as { name: string }[]).map((c) => c.name));
-  if (!ucols.has('rz_pending_sub')) db.exec('ALTER TABLE users ADD COLUMN rz_pending_sub TEXT');
-  // the currency someone pays in, fixed by their first payment (INR / USD)
-  if (!ucols.has('billing_currency')) {
-    db.exec('ALTER TABLE users ADD COLUMN billing_currency TEXT');
-    db.prepare('UPDATE users SET billing_currency = (SELECT currency FROM payments p WHERE p.user_id = users.id AND currency IS NOT NULL ORDER BY created_at LIMIT 1)').run();
-  }
-}
-
 export const now = () => Date.now();
 /** Short random id for new rows. */
 export const newId = () => randomUUID().slice(0, 12);

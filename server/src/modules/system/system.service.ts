@@ -2,7 +2,8 @@ import { config } from '../../config.js';
 import { ensureFfmpeg, ensureYtdlp, ffStatus, ytStatus } from '../../infra/tools.js';
 import { checkGemini } from '../../pipeline/gemini.js';
 import { ffmpegVersion, hasLibass } from '../../pipeline/media.js';
-import { lengthRange, RUBRIC_WEIGHTS } from '../../pipeline/moments.js';
+import { RUBRIC_WEIGHTS } from '../../pipeline/moments.js';
+import { CREDITS_PER_CLIP, CURRENCY, TOPUP } from '../billing/plans.js';
 
 // Asking Gemini costs a request, so the answer is reused for 10 minutes (unless a refresh is asked for).
 let geminiStatus: { ok: boolean; detail: string; checkedAt: number } | null = null;
@@ -32,7 +33,22 @@ export async function refreshTools() {
   return { ytdlp: ytStatus, ffmpeg: ffStatus };
 }
 
-/** Clip length range for each length choice. */
-export function meta() {
-  return { lengths: Object.fromEntries((['auto', 'short', 'medium', 'long'] as const).map((l) => [l, lengthRange(l)])) };
+/** For the About / Contact / Terms / Privacy / Refund pages. */
+export function site() {
+  const b = config.business;
+  return {
+    name: b.name,
+    legalName: b.legalName || b.name,
+    email: b.email || null,
+    phone: b.phone || null,
+    address: b.address || null,
+    jurisdiction: b.jurisdiction || null,
+    hours: b.hours,
+    grievanceOfficer: b.grievanceOfficer || b.legalName || b.name,
+    url: config.publicUrl,
+    currency: CURRENCY,
+    retentionDays: config.retentionDays,
+    creditsPerClip: CREDITS_PER_CLIP,
+    topupValidMonths: Math.round(TOPUP.validDays / 30),
+  };
 }

@@ -4,36 +4,24 @@ import type { PlanId } from '../../db/index.js';
 /**
  * Plans, prices and limits — the one place to change them.
  *
- * Credits are spent per clip: every clip CrestClip makes costs CREDITS_PER_CLIP (5). A video asked for 8 clips takes
+ * Everything is priced and charged in US dollars. Paid plans are Razorpay subscriptions: create a monthly plan in the
+ * Razorpay Dashboard for each paid plan here, in USD with the same price, and put its id in .env
+ * (RAZORPAY_PLAN_CREATOR / RAZORPAY_PLAN_PRO). Razorpay plans can't change their amount later, so if you change a
+ * price here, create a new plan with the new amount and update its id. (CrestClip checks this before charging.)
+ *
+ * Credits are spent per clip: every clip CrestClip makes costs CREDITS_PER_CLIP. A video asked for 8 clips takes
  * 40 credits up front; if fewer clips come out, the difference goes back. Editing and re-rendering clips is always
  * free, and a video that fails to process gives all its credits back. Video length is capped per plan instead.
- *
- * Paid plans are Razorpay subscriptions: create a monthly plan in the Razorpay Dashboard for each paid plan here
- * (same price and currency as PRICES below) and put its id in .env (RAZORPAY_PLAN_CREATOR / RAZORPAY_PLAN_PRO).
  */
 
-/**
- * Prices per currency. People in India see and pay INR; everyone else sees USD (and pays USD once Razorpay
- * International Payments is on and the USD plans are in .env — see razorpay.ts). Razorpay plans can't change their
- * amount later, so if you change a price here, create a new plan in Razorpay with the same amount and update its id.
- */
-export const PRICES: Record<string, { creator: number; pro: number; topup: number }> = {
-  USD: { creator: 15, pro: 29, topup: 5 },
-  INR: { creator: 1299, pro: 2499, topup: 449 },
-};
-export const CURRENCIES = Object.keys(PRICES);
-/** BILLING_CURRENCY: the currency your Razorpay account charges by default (INR for an Indian account). */
-export const HOME_CURRENCY = config.currency in PRICES ? config.currency : 'USD';
-const price = PRICES[HOME_CURRENCY];
+/** The only currency CrestClip charges in. */
+export const CURRENCY = 'USD';
 
-/** A plan's monthly price in a currency (main unit, e.g. dollars). */
-export const priceIn = (plan: PlanId, currency: string) => (plan === 'free' ? 0 : (PRICES[currency] ?? PRICES[HOME_CURRENCY])[plan]);
-export const topupPriceIn = (currency: string) => (PRICES[currency] ?? PRICES[HOME_CURRENCY]).topup;
 export interface Plan {
   id: PlanId;
   name: string;
   tagline: string;
-  /** monthly price in the billing currency's main unit (e.g. dollars) */
+  /** monthly price in US dollars */
   price: number;
   /** credits added every month (÷ CREDITS_PER_CLIP = clips a month) */
   credits: number;
@@ -80,7 +68,7 @@ export const PLANS: Record<PlanId, Plan> = {
     id: 'creator',
     name: 'Creator',
     tagline: 'For creators posting clips every week.',
-    price: price.creator,
+    price: 15,
     credits: 400,
     rollover: true,
     maxVideoMinutes: 120,
@@ -96,7 +84,7 @@ export const PLANS: Record<PlanId, Plan> = {
     id: 'pro',
     name: 'Pro',
     tagline: 'For clippers, agencies and long streams.',
-    price: price.pro,
+    price: 29,
     credits: 1000,
     rollover: true,
     maxVideoMinutes: 180,
@@ -111,7 +99,7 @@ export const PLANS: Record<PlanId, Plan> = {
 };
 
 /** Most clips one video can be asked for (the New clips form allows up to this). */
-export const MAX_CLIPS_PER_VIDEO = 20;
+const MAX_CLIPS_PER_VIDEO = 20;
 
 /** The pricing-card list for a plan — every line is a real limit. */
 function cardPoints(p: Plan): string[] {
@@ -135,7 +123,7 @@ for (const p of Object.values(PLANS)) p.points = cardPoints(p);
 
 export const PLAN_ORDER: PlanId[] = ['free', 'creator', 'pro'];
 
-/** One-off credit pack, for when the month's credits run out. */
-export const TOPUP = { credits: 100, price: price.topup, validDays: 365 };
+/** One-off credit pack (price in US dollars), for when the month's credits run out. */
+export const TOPUP = { credits: 100, price: 5, validDays: 365 };
 
 export const planOf = (id: string | null | undefined): Plan => PLANS[(id as PlanId) in PLANS ? (id as PlanId) : 'free'];

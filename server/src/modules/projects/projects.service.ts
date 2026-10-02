@@ -15,7 +15,7 @@ import { optionsSchema } from './projects.schemas.js';
 import { purgeProject } from './retention.js';
 
 /** How many clips a project will make (and pay for): the parts picked in Explore, or the clip count asked for. */
-export const clipsAsked = (o: ProjectOptions) => (o.ranges?.length ? (o.joinRanges ? 1 : o.ranges.length) : Math.max(1, o.clipCount || 1));
+const clipsAsked = (o: ProjectOptions) => (o.ranges?.length ? (o.joinRanges ? 1 : o.ranges.length) : Math.max(1, o.clipCount || 1));
 
 /** New projects need Gemini. */
 function requireAi() {

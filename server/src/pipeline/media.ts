@@ -3,7 +3,7 @@ import path from 'node:path';
 import { config } from '../config.js';
 import { run } from '../lib/proc.js';
 
-export interface Probe {
+interface Probe {
   duration: number;
   width: number;
   height: number;
@@ -23,7 +23,9 @@ export async function probe(file: string, opts: { audioOnlyOk?: boolean } = {}):
     if (opts.audioOnlyOk && a) return { duration: Number(j.format?.duration || a.duration || 0), width: 0, height: 0, fps: 0, hasAudio: true, rotation: 0 };
     throw new Error('This file has no video track.');
   }
-  const [n, d] = String(v.avg_frame_rate || v.r_frame_rate || '30/1').split('/').map(Number);
+  const [n, d] = String(v.avg_frame_rate || v.r_frame_rate || '30/1')
+    .split('/')
+    .map(Number);
   let rotation = 0;
   for (const sd of v.side_data_list || []) if (typeof sd.rotation === 'number') rotation = sd.rotation;
   if (v.tags?.rotate) rotation = Number(v.tags.rotate);
@@ -63,21 +65,10 @@ export async function cutAudio(src: string, out: string, start: number, dur: num
 /** RMS loudness (dB) per second — a cheap "energy" signal (laughs, shouting, excitement). */
 export async function loudnessPerSecond(audio: string, workDir: string): Promise<number[]> {
   const out = path.join(workDir, 'rms.txt');
-  await run(
-    config.ffmpeg,
-    [
-      '-v',
-      'error',
-      '-i',
-      audio,
-      '-af',
-      `asetnsamples=n=16000,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=rms.txt`,
-      '-f',
-      'null',
-      '-',
-    ],
-    { timeoutMs: 30 * 60 * 1000, cwd: workDir },
-  );
+  await run(config.ffmpeg, ['-v', 'error', '-i', audio, '-af', `asetnsamples=n=16000,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=rms.txt`, '-f', 'null', '-'], {
+    timeoutMs: 30 * 60 * 1000,
+    cwd: workDir,
+  });
   const vals: number[] = [];
   for (const line of fs.readFileSync(out, 'utf8').split('\n')) {
     const m = line.match(/RMS_level=(-?[\d.]+|-inf)/);
@@ -107,11 +98,9 @@ export async function silences(audio: string): Promise<{ s: number; e: number }[
 
 /** Scene cuts (seconds relative to `start`) inside a range, detected on a low-res decode. */
 export async function sceneCuts(src: string, start: number, dur: number): Promise<number[]> {
-  const { stderr } = await run(
-    config.ffmpeg,
-    ['-v', 'info', '-ss', String(start), '-t', String(dur), '-i', src, '-an', '-vf', 'scale=320:-2,scdet=threshold=12', '-f', 'null', '-'],
-    { timeoutMs: 10 * 60 * 1000 },
-  );
+  const { stderr } = await run(config.ffmpeg, ['-v', 'info', '-ss', String(start), '-t', String(dur), '-i', src, '-an', '-vf', 'scale=320:-2,scdet=threshold=12', '-f', 'null', '-'], {
+    timeoutMs: 10 * 60 * 1000,
+  });
   const cuts: number[] = [];
   for (const line of stderr.split('\n')) {
     const m = line.match(/lavfi\.scd\.time:\s*([\d.]+)/);
@@ -127,11 +116,7 @@ export async function framesAt(src: string, start: number, times: number[], dir:
   // One ffmpeg call per frame with fast input seeking is simple and robust for ~40 frames.
   for (let i = 0; i < times.length; i++) {
     const f = path.join(dir, `f${String(i).padStart(3, '0')}.jpg`);
-    await run(
-      config.ffmpeg,
-      ['-y', '-v', 'error', '-ss', (start + times[i]).toFixed(3), '-i', src, '-frames:v', '1', '-vf', `scale=${width}:-2`, '-q:v', '5', f],
-      { timeoutMs: 60_000 },
-    );
+    await run(config.ffmpeg, ['-y', '-v', 'error', '-ss', (start + times[i]).toFixed(3), '-i', src, '-frames:v', '1', '-vf', `scale=${width}:-2`, '-q:v', '5', f], { timeoutMs: 60_000 });
     if (fs.existsSync(f)) files.push(f);
   }
   return files;
@@ -145,11 +130,9 @@ export async function thumbnail(src: string, at: number, out: string, width = 64
 
 /** Small proxy video (for sending to Gemini through Cloud Storage). */
 export async function makeProxy(src: string, out: string) {
-  await run(
-    config.ffmpeg,
-    ['-y', '-v', 'error', '-i', src, '-vf', 'scale=-2:360,fps=10', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '32', '-c:a', 'aac', '-b:a', '48k', '-ac', '1', out],
-    { timeoutMs: 2 * 60 * 60 * 1000 },
-  );
+  await run(config.ffmpeg, ['-y', '-v', 'error', '-i', src, '-vf', 'scale=-2:360,fps=10', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '32', '-c:a', 'aac', '-b:a', '48k', '-ac', '1', out], {
+    timeoutMs: 2 * 60 * 60 * 1000,
+  });
 }
 
 let libass: boolean | null = null;

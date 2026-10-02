@@ -1,10 +1,10 @@
 export { Badge, Chip, type BadgeTone } from './Badge';
-export { Button, buttonClass, type ButtonProps, type ButtonVariant } from './Button';
+export { Button, buttonClass } from './Button';
 export { Card, CardHeader } from './Card';
 export { ConfirmDialog, Dialog } from './Dialog';
 export { EmptyState } from './EmptyState';
 export { Field, FieldLabel, Input, Select, Textarea } from './Field';
-export { Menu, type MenuItem } from './Menu';
+export { Menu } from './Menu';
 export { PageHeader } from './PageHeader';
 export { Progress, Skeleton } from './Progress';
 export { Segmented } from './Segmented';

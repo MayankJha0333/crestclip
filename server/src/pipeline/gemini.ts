@@ -11,7 +11,7 @@ import { sleep } from '../lib/proc.js';
  * or GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
  */
 let client: GoogleGenAI | null = null;
-export function ai(): GoogleGenAI {
+function ai(): GoogleGenAI {
   if (client) return client;
   if (config.vertexApiKey) {
     // API-key mode: billed to the key's project, always on the global endpoint.
@@ -47,7 +47,7 @@ export const part = {
   }),
 };
 
-export interface JsonCall {
+interface JsonCall {
   model?: string;
   system?: string;
   parts: Part[];
@@ -59,7 +59,7 @@ export interface JsonCall {
   label?: string;
 }
 
-export interface Usage {
+interface Usage {
   input: number;
   output: number;
   calls: number;

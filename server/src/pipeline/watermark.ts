@@ -26,7 +26,7 @@ export interface Watermark {
  * Everything stays inside the area no app covers: below the ~210 px Reels top bar, ~90 px in from the sides,
  * and bottom corners above the caption + buttons area (~320 px) of TikTok / Reels / Shorts.
  */
-export const WATERMARK_BOX = { small: 0.13, medium: 0.19, large: 0.26 } as const; // max width AND height, as a share of the frame width
+const WATERMARK_BOX = { small: 0.13, medium: 0.19, large: 0.26 } as const; // max width AND height, as a share of the frame width
 const SIDE = 0.085; // gap from the left/right edge, share of width (92 px)
 const TOP = 0.115; // gap from the top, share of height (221 px)
 const BOTTOM = 0.22; // gap from the bottom, share of height
@@ -75,25 +75,6 @@ export function removeWatermarkLogo(userId: string) {
   const w = readWatermark(userId);
   if (w.file) fs.rmSync(w.file, { force: true });
   return writeWatermark(userId, { ...w, file: null, name: '' });
-}
-
-/** The watermark set up before accounts existed (<data>/brand/watermark.json) becomes the first account's. */
-export function adoptLegacyWatermark(userId: string) {
-  const legacy = path.join(config.dataDir, 'brand', 'watermark.json');
-  if (!fs.existsSync(legacy)) return;
-  try {
-    const w = { ...DEFAULTS, ...(JSON.parse(fs.readFileSync(legacy, 'utf8')) as Partial<Watermark>) };
-    fs.mkdirSync(dir(userId), { recursive: true });
-    if (w.file && fs.existsSync(w.file)) {
-      const moved = path.join(dir(userId), path.basename(w.file));
-      fs.renameSync(w.file, moved);
-      w.file = moved;
-    } else w.file = null;
-    writeWatermark(userId, w);
-    fs.rmSync(legacy, { force: true });
-  } catch (e) {
-    console.warn('[watermark] could not move the old watermark:', (e as Error).message);
-  }
 }
 
 /** Lowest point of a top-corner logo on the frame (px), so headlines can sit under it; null for bottom corners. */

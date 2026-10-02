@@ -33,7 +33,7 @@ function holdExpr(holds: { t: number; x: number; cut?: boolean }[], srcW: number
   return expr;
 }
 
-export interface Zoom {
+interface Zoom {
   t: number; // seconds from clip start
   z: number; // 1 = no zoom
 }
