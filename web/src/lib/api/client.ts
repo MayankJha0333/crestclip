@@ -1,4 +1,12 @@
 import type {
+  AdminUser,
+  BillingAccount,
+  CheckoutStart,
+  CreditEvent,
+  Me,
+  Payment,
+  PlanId,
+  PlansInfo,
   AutopilotDetail,
   AutopilotInput,
   AutopilotSource,
@@ -22,15 +30,39 @@ import type {
 } from './types';
 
 /** Every API error is `{ error: "<friendly message>" }` — surface that message. */
+/** Fired when the server says "please log in" (the session ended) — the app sends the person to the login page. */
+export const LOGGED_OUT = 'crestclip:logged-out';
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   const body = await res.json().catch(() => ({}));
+  if (res.status === 401 && !url.startsWith('/api/auth/')) window.dispatchEvent(new Event(LOGGED_OUT));
   if (!res.ok) throw new Error((body as { error?: string }).error || `Request failed (${res.status})`);
   return body as T;
 }
 const json = (method: string, data: unknown): RequestInit => ({ method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) });
 
 export const api = {
+  // accounts
+  authConfig: () => req<{ google: boolean; signups: boolean; firstAccount: boolean }>('/api/auth/config'),
+  me: () => req<Me>('/api/auth/me'),
+  signUp: (body: { email: string; password: string; name?: string }) => req<{ ok: boolean }>('/api/auth/signup', json('POST', body)),
+  logIn: (body: { email: string; password: string }) => req<{ ok: boolean }>('/api/auth/login', json('POST', body)),
+  logOut: () => req<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
+  changePassword: (body: { current: string; next: string }) => req<{ ok: boolean }>('/api/auth/password', json('POST', body)),
+  // plans & credits
+  plans: () => req<PlansInfo>('/api/billing/plans'),
+  billing: () => req<BillingAccount & { history: CreditEvent[]; payments: Payment[] }>('/api/billing/account'),
+  subscribe: (plan: PlanId) => req<CheckoutStart>('/api/billing/subscribe', json('POST', { plan })),
+  confirmSubscription: (body: { paymentId: string; subscriptionId: string; signature: string }) => req<BillingAccount & { pending?: boolean }>('/api/billing/subscribe/confirm', json('POST', body)),
+  buyTopup: () => req<CheckoutStart>('/api/billing/topup', { method: 'POST' }),
+  confirmTopup: (body: { orderId: string; paymentId: string; signature: string }) => req<BillingAccount>('/api/billing/topup/confirm', json('POST', body)),
+  cancelPlan: () => req<BillingAccount>('/api/billing/cancel', { method: 'POST' }),
+  // admin
+  adminUsers: () => req<AdminUser[]>('/api/admin/users'),
+  adminSetPlan: (id: string, plan: PlanId) => req<AdminUser>(`/api/admin/users/${id}/plan`, json('POST', { plan })),
+  adminCredits: (id: string, delta: number, note: string) => req<AdminUser>(`/api/admin/users/${id}/credits`, json('POST', { delta, note })),
+
   health: (refresh = false) => req<Health>(`/api/health${refresh ? '?refresh=1' : ''}`),
   refreshTools: () => req<unknown>('/api/tools/refresh', { method: 'POST' }),
   projects: () => req<Project[]>('/api/projects'),
@@ -117,6 +149,7 @@ export const api = {
         } catch {
           /* ignore */
         }
+        if (xhr.status === 401) window.dispatchEvent(new Event(LOGGED_OUT));
         if (xhr.status >= 200 && xhr.status < 300) resolve(body as Project);
         else reject(new Error(body.error || `Upload failed (${xhr.status})`));
       };

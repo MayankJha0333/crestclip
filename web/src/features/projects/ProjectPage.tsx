@@ -1,11 +1,12 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ChevronRight, Clapperboard, Download, ExternalLink, Film, Layers, ListChecks, RotateCcw, Trash2, Tv, XCircle } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Clapperboard, Download, ExternalLink, Film, Hourglass, Layers, ListChecks, RotateCcw, Trash2, Tv, XCircle } from 'lucide-react';
 import { api, type Project } from '../../lib/api';
-import { fmtTime, fmtViews } from '../../lib/format';
+import { deletesIn, fmtTime, fmtViews } from '../../lib/format';
 import { usePolling } from '../../lib/hooks';
 import { Badge, Button, Card, EmptyState, Progress, Skeleton, Spinner, Tabs } from '../../components/ui';
 import { ClipList, rankClips, type ClipSort } from './ClipList';
+import { UpgradeCallout } from '../billing/UpgradeCallout';
 import { DeleteProjectDialog } from './DeleteProjectDialog';
 import { ProcessingCard } from './ProcessingCard';
 import { ProjectHeader } from './ProjectHeader';
@@ -98,6 +99,7 @@ function SingleProject({ p, load }: { p: Project; load: () => void }) {
                 </Badge>
               </a>
             )}
+            <KeptUntil expiresAt={p.expiresAt} />
           </>
         }
         actions={
@@ -119,12 +121,21 @@ function SingleProject({ p, load }: { p: Project; load: () => void }) {
 
       <div className="mt-5 flex flex-col gap-5">
         {working && <ProcessingCard p={p} />}
-        {p.status === 'failed' && (
-          <Card tone="flat" className="bg-bad-bg p-5 text-bad-ink shadow-none">
-            <b>Something went wrong</b>
-            <p className="mt-1 font-semibold">{p.error}</p>
-          </Card>
-        )}
+        {p.status === 'failed' &&
+          (p.errorCode ? (
+            <UpgradeCallout
+              title={p.errorCode === 'credits' ? 'Not enough credits for this video' : 'This video is over your plan’s limit'}
+              cta={p.errorCode === 'credits' ? 'Get credits' : 'Upgrade'}
+            >
+              {p.error} Nothing was charged.
+            </UpgradeCallout>
+          ) : (
+            <Card tone="flat" className="bg-bad-bg p-5 text-bad-ink shadow-none">
+              <b>Something went wrong</b>
+              <p className="mt-1 font-semibold">{p.error}</p>
+              {(p.creditsCharged ?? 0) === 0 && <p className="mt-2 text-sm">Your credits for this video were given back.</p>}
+            </Card>
+          ))}
 
         {hasSource && (
           <Tabs
@@ -210,6 +221,7 @@ function GroupProject({ p, load }: { p: Project; load: () => void }) {
             </Badge>
             {p.duration ? <Badge>{fmtTime(p.duration)} in total</Badge> : null}
             {working && <Badge tone="warn">{p.stageDetail}</Badge>}
+            <KeptUntil expiresAt={p.expiresAt} />
           </>
         }
         actions={
@@ -323,5 +335,16 @@ function GroupProject({ p, load }: { p: Project; load: () => void }) {
         )}
       </div>
     </>
+  );
+}
+
+/** "Kept until 9 Oct": projects and their clips are deleted after the storage time. */
+function KeptUntil({ expiresAt }: { expiresAt?: number | null }) {
+  const left = deletesIn(expiresAt);
+  if (!left) return null;
+  return (
+    <Badge tone={left.soon ? 'warn' : undefined} title={`${left.text}. Projects and their clips are deleted 7 days after they’re made — download or post your clips before then.`}>
+      <Hourglass size={12} /> Kept until {left.until}
+    </Badge>
   );
 }

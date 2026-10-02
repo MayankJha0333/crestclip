@@ -1,0 +1,79 @@
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { KeyRound, LogOut } from 'lucide-react';
+import { api } from '../../lib/api';
+import { toast } from '../../lib/toast';
+import { Badge, Button, buttonClass, Card, CardHeader, Field, Input } from '../../components/ui';
+import { useAuth } from '../auth/auth';
+
+/** Who you're signed in as, your plan, password and log out. */
+export function ProfileSection() {
+  const { me, logOut, refresh } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [busy, setBusy] = useState(false);
+  if (!me) return null;
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api.changePassword({ current, next });
+      toast(me.user.hasPassword ? 'Password changed' : 'Password set — you can now log in with email too');
+      setOpen(false);
+      setCurrent('');
+      setNext('');
+      await refresh();
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Card className="p-5 sm:p-6">
+      <CardHeader
+        title="Your account"
+        actions={
+          <Button size="sm" variant="ghost" onClick={logOut}>
+            <LogOut size={15} /> Log out
+          </Button>
+        }
+      />
+      <div className="flex flex-wrap items-center gap-4">
+        <div className="min-w-0 flex-1">
+          <b className="block truncate">{me.user.name || me.user.email}</b>
+          <span className="block truncate text-sm text-ink-3">{me.user.email}</span>
+          <span className="mt-2 flex flex-wrap gap-1.5">
+            <Badge tone="orange">{me.account.plan.name} plan</Badge>
+            {me.user.google && <Badge>Google sign-in</Badge>}
+            {me.user.isAdmin && <Badge tone="lilac">Admin</Badge>}
+          </span>
+        </div>
+        <span className="flex flex-wrap gap-2">
+          <Link to="/app/billing" className={buttonClass('secondary', 'sm')}>
+            Plan & credits
+          </Link>
+          <Button size="sm" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+            <KeyRound size={15} /> {me.user.hasPassword ? 'Change password' : 'Set a password'}
+          </Button>
+        </span>
+      </div>
+      {open && (
+        <form onSubmit={save} className="mt-5 grid gap-4 rounded-[22px] bg-row p-4 shadow-flat sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+          {me.user.hasPassword && (
+            <Field label="Current password">
+              <Input type="password" required value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" />
+            </Field>
+          )}
+          <Field label="New password" hint="At least 8 characters.">
+            <Input type="password" required minLength={8} value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" />
+          </Field>
+          <Button type="submit" variant="primary" loading={busy}>
+            Save
+          </Button>
+        </form>
+      )}
+    </Card>
+  );
+}

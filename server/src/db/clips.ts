@@ -159,6 +159,10 @@ export const clips = {
     });
     return ids.map((id) => this.get(id)!).filter(Boolean);
   },
+  /** every rendered clip (for copying older clips to the cloud) */
+  allReady(): ClipRow[] {
+    return (db.prepare("SELECT * FROM clips WHERE status = 'ready' AND file_path IS NOT NULL").all() as Raw[]).map(toClip);
+  },
   forProject(projectId: string): ClipRow[] {
     return (db.prepare('SELECT * FROM clips WHERE project_id = ? ORDER BY peak_score DESC, idx').all(projectId) as Raw[]).map(toClip);
   },

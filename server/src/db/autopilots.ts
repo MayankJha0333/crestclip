@@ -26,6 +26,7 @@ export interface AutopilotConfig {
 }
 export interface AutopilotRow {
   id: string;
+  userId: string | null;
   name: string;
   status: 'active' | 'paused';
   config: AutopilotConfig;
@@ -36,6 +37,7 @@ export interface AutopilotRow {
 }
 const toAutopilot = (r: Raw): AutopilotRow => ({
   id: r.id as string,
+  userId: (r.user_id as string) ?? null,
   name: r.name as string,
   status: r.status as AutopilotRow['status'],
   config: parse<AutopilotConfig>(r.config_json, {} as AutopilotConfig),
@@ -45,17 +47,25 @@ const toAutopilot = (r: Raw): AutopilotRow => ({
   updatedAt: r.updated_at as number,
 });
 export const autopilots = {
-  create(name: string, cfg: AutopilotConfig): AutopilotRow {
+  create(userId: string, name: string, cfg: AutopilotConfig): AutopilotRow {
     const id = newId();
-    db.prepare('INSERT INTO autopilots (id, name, status, config_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, name, 'active', JSON.stringify(cfg), now(), now());
+    db.prepare('INSERT INTO autopilots (id, user_id, name, status, config_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+      id,
+      userId,
+      name,
+      'active',
+      JSON.stringify(cfg),
+      now(),
+      now(),
+    );
     return this.get(id)!;
   },
   get(id: string): AutopilotRow | null {
     const r = db.prepare('SELECT * FROM autopilots WHERE id = ?').get(id) as Raw | undefined;
     return r ? toAutopilot(r) : null;
   },
-  list(): AutopilotRow[] {
-    return (db.prepare('SELECT * FROM autopilots ORDER BY created_at DESC').all() as Raw[]).map(toAutopilot);
+  list(userId: string): AutopilotRow[] {
+    return (db.prepare('SELECT * FROM autopilots WHERE user_id = ? ORDER BY created_at DESC').all(userId) as Raw[]).map(toAutopilot);
   },
   active(): AutopilotRow[] {
     return (db.prepare(`SELECT * FROM autopilots WHERE status = 'active'`).all() as Raw[]).map(toAutopilot);
@@ -120,7 +130,19 @@ const toApVideo = (r: Raw): ApVideoRow => ({
 });
 export const apVideos = {
   /** insert if new; returns null when this autopilot already knows the video */
-  add(v: { autopilotId: string; videoId: string; url: string; title: string | null; channel: string | null; thumbnail: string | null; views: number | null; duration: number | null; publishedAt: number | null; status: ApVideoStatus; reason?: string | null }): ApVideoRow | null {
+  add(v: {
+    autopilotId: string;
+    videoId: string;
+    url: string;
+    title: string | null;
+    channel: string | null;
+    thumbnail: string | null;
+    views: number | null;
+    duration: number | null;
+    publishedAt: number | null;
+    status: ApVideoStatus;
+    reason?: string | null;
+  }): ApVideoRow | null {
     const id = newId();
     const r = db
       .prepare(

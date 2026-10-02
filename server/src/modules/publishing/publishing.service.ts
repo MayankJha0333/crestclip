@@ -1,7 +1,9 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { config } from '../../config.js';
-import { clips, connections, posts, type ConnectionRow, type PostRow } from '../../db/index.js';
+import { clips, connections, posts, projects, type ConnectionRow, type PostRow, type UserRow } from '../../db/index.js';
+import { assertCanSchedule } from '../billing/billing.service.js';
+import { ensureLocal } from '../../infra/cloudStore.js';
 import { HttpError } from '../../lib/http.js';
 import { open, seal } from '../../lib/secrets.js';
 import type { CreatePosts } from './publishing.schemas.js';
@@ -14,10 +16,10 @@ import { instagram, isConfigured, platformName, providers, youtube, type Platfor
 
 // ---------------- connecting accounts (OAuth) ----------------
 // pending OAuth "state" values (CSRF protection), 10 min lifetime
-const states = new Map<string, { platform: Platform; at: number }>();
-function newState(platform: Platform) {
+const states = new Map<string, { platform: Platform; userId: string; at: number }>();
+function newState(platform: Platform, userId: string) {
   const s = crypto.randomBytes(16).toString('hex');
-  states.set(s, { platform, at: Date.now() });
+  states.set(s, { platform, userId, at: Date.now() });
   for (const [k, v] of states) if (Date.now() - v.at > 600_000) states.delete(k);
   return s;
 }
@@ -30,9 +32,9 @@ const settingsPage = `${config.publicUrl}/app/settings`;
 const settingsUrl = (q: Record<string, string>) => `${settingsPage}?${new URLSearchParams(q)}`;
 
 /** Where to send the browser to start connecting an account. */
-export function connectUrl(platform: Platform): string {
+export function connectUrl(platform: Platform, user: UserRow): string {
   if (!isConfigured(platform)) return `${settingsPage}?error=${encodeURIComponent(`${platformName(platform)} isn’t set up yet — add its app keys to .env (see the setup steps).`)}`;
-  return providers[platform].authUrl(newState(platform));
+  return providers[platform].authUrl(newState(platform, user.id));
 }
 
 /** The platform sent the person back: save the account. Returns where to send the browser next. */
@@ -44,16 +46,24 @@ export async function finishConnect(platform: Platform, query: Record<string, un
   if (!pending || pending.platform !== platform) return settingsUrl({ error: 'That sign-in link expired. Please try connecting again.' });
   try {
     const r = await providers[platform].exchange(String(query.code ?? ''));
-    const c = connections.upsert({ platform, accountId: r.accountId, name: r.name, handle: r.handle, avatar: r.avatar, tokens: seal(r.tokens) });
+    const taken = connections.find(platform, r.accountId);
+    if (taken && taken.userId && taken.userId !== pending.userId) return settingsUrl({ error: `${r.handle ?? r.name ?? 'This account'} is already connected to another CrestClip account.` });
+    const c = connections.upsert({ userId: pending.userId, platform, accountId: r.accountId, name: r.name, handle: r.handle, avatar: r.avatar, tokens: seal(r.tokens) });
     return settingsUrl({ connected: platform, name: c.name ?? '' });
   } catch (e) {
     return settingsUrl({ error: `Couldn’t connect: ${(e as Error).message}` });
   }
 }
 
-export async function disconnect(id: string) {
+/** A connected account the person owns (404 otherwise). */
+function ownConnection(id: string, user: UserRow): ConnectionRow {
   const c = connections.get(id);
-  if (!c) throw new HttpError(404, 'Not found');
+  if (!c || c.userId !== user.id) throw new HttpError(404, 'Not found');
+  return c;
+}
+
+export async function disconnect(id: string, user: UserRow) {
+  const c = ownConnection(id, user);
   try {
     await providers[c.platform].revoke(open<Tokens>(c.tokens));
   } catch {
@@ -98,7 +108,7 @@ export async function runPost(postId: string) {
     const conn = connections.get(post.connectionId);
     const clip = clips.get(post.clipId);
     if (!conn) return posts.update(post.id, { status: 'failed', error: 'The account was disconnected.' });
-    if (!clip?.filePath || !fs.existsSync(clip.filePath)) return posts.update(post.id, { status: 'failed', error: 'The clip isn’t rendered (or was deleted). Re-render it and try again.' });
+    if (!clip?.filePath || !(await ensureLocal(clip.filePath))) return posts.update(post.id, { status: 'failed', error: 'The clip isn’t rendered (or was deleted). Re-render it and try again.' });
     posts.update(post.id, { status: 'uploading', attempts: post.attempts + 1, error: null });
     const token = await accessToken(conn);
     const res: { id: string; url: string; note?: string } =
@@ -126,16 +136,17 @@ function friendly(msg: string) {
 const startsNow = (p: Pick<PostRow, 'scheduledAt' | 'platform'>) => !p.scheduledAt || p.platform === 'youtube';
 
 /** One post per chosen account. */
-export function createPosts(r: CreatePosts): PostRow[] {
+export function createPosts(r: CreatePosts, user: UserRow): PostRow[] {
   const clip = clips.get(r.clipId);
-  if (!clip) throw new HttpError(404, 'Clip not found');
+  if (!clip || projects.get(clip.projectId)?.userId !== user.id) throw new HttpError(404, 'Clip not found');
   if (clip.status !== 'ready' || !clip.filePath) throw new HttpError(409, 'Wait for the clip to finish rendering first.');
   const when = r.scheduledAt ?? null;
   if (when && when < Date.now() - 60_000) throw new HttpError(400, 'That time is in the past.');
+  if (when && when > Date.now() + 5 * 60_000) assertCanSchedule(user);
   const made: PostRow[] = [];
   for (const t of r.targets) {
     const c = connections.get(t.connectionId);
-    if (!c) throw new HttpError(400, 'One of the accounts is no longer connected.');
+    if (!c || c.userId !== user.id) throw new HttpError(400, 'One of the accounts is no longer connected.');
     made.push(
       posts.create({
         clipId: clip.id,
@@ -152,16 +163,23 @@ export function createPosts(r: CreatePosts): PostRow[] {
   return made.map((p) => posts.get(p.id)!);
 }
 
-export const listPosts = (clipId?: string) => (clipId !== undefined ? posts.forClip(clipId) : posts.list());
+/** Posts of one clip, or all of the person's posts. */
+export function listPosts(user: UserRow, clipId?: string) {
+  if (clipId === undefined) return posts.list(user.id);
+  const clip = clips.get(clipId);
+  return clip && projects.get(clip.projectId)?.userId === user.id ? posts.forClip(clipId) : [];
+}
 
-function getPost(id: string): PostRow {
+/** A post on a clip the person owns (404 otherwise). */
+function getPost(id: string, user: UserRow): PostRow {
   const p = posts.get(id);
-  if (!p) throw new HttpError(404, 'Not found');
+  const clip = p && clips.get(p.clipId);
+  if (!p || !clip || projects.get(clip.projectId)?.userId !== user.id) throw new HttpError(404, 'Not found');
   return p;
 }
 
-export function retryPost(id: string): PostRow {
-  const p = getPost(id);
+export function retryPost(id: string, user: UserRow): PostRow {
+  const p = getPost(id, user);
   if (p.status !== 'failed' && p.status !== 'canceled') throw new HttpError(409, 'Only failed or canceled posts can be retried.');
   const keepTime = p.scheduledAt && p.scheduledAt > Date.now() + 60_000 ? p.scheduledAt : null;
   posts.update(p.id, { status: 'scheduled', error: null, scheduledAt: keepTime });
@@ -169,8 +187,8 @@ export function retryPost(id: string): PostRow {
   return posts.get(p.id)!;
 }
 
-export function cancelPost(id: string): PostRow {
-  const p = getPost(id);
+export function cancelPost(id: string, user: UserRow): PostRow {
+  const p = getPost(id, user);
   if (p.status !== 'scheduled')
     throw new HttpError(409, p.platform === 'youtube' && p.status === 'published' ? 'Already on YouTube — change or delete it in YouTube Studio.' : 'This post already started.');
   posts.update(p.id, { status: 'canceled' });

@@ -5,6 +5,7 @@ import { cn } from '../../lib/cn';
 import { toast } from '../../lib/toast';
 import { Badge, Button, Card, CardHeader, Segmented, Skeleton, Toggle } from '../../components/ui';
 import { setWatermark, useWatermark } from './useWatermark';
+import { UpgradeCallout } from '../billing/UpgradeCallout';
 import { POSITIONS, WatermarkPhone } from './WatermarkPhone';
 
 const SIZES: { value: WatermarkSize; label: string }[] = [
@@ -109,10 +110,14 @@ export function WatermarkSection() {
 
   return (
     <Card className="p-5 sm:p-6">
-      <CardHeader title="Watermark" description="Put your logo on every clip. Set it once here." actions={w && status} />
+      <CardHeader title="Watermark" description="Put your logo on every clip. Set it once here." actions={w && !w.locked && status} />
       <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => upload(e.target.files?.[0])} />
 
-      {!w || !preview ? (
+      {w?.locked ? (
+        <UpgradeCallout title="Your own logo is on Creator and Pro" cta="Upgrade">
+          Clips on the Free plan carry a small CrestClip mark in the corner. Upgrade to remove it and put your logo there instead.
+        </UpgradeCallout>
+      ) : !w || !preview ? (
         <Skeleton className="h-96" />
       ) : (
         <div className="grid gap-8 md:grid-cols-[15rem_minmax(0,1fr)]">

@@ -7,13 +7,15 @@ import { pool, run } from '../lib/proc.js';
 import { projectDir } from '../lib/paths.js';
 import { buildAss, wordsInRange, type EmojiCue } from './captions.js';
 import { part, uploadToGcs, deleteFromGcs, usage } from './gemini.js';
+import { removeFromCloud, saveToCloud } from '../infra/cloudStore.js';
 import { extractAudio, extractAudioRange, hasLibass, loudnessPerSecond, makeProxy, probe, silences as findSilences, thumbnail } from './media.js';
 import { aiScore, describeClips, findMoments, finalizeClips, snapRange } from './moments.js';
 import { planReframe } from './reframe.js';
 import { concatParts, mixMusic, planZooms, renderClip } from './render.js';
 import { emojiPng } from './emoji.js';
 import { cutTimes, keptLength, planKeep, retimeWords, silencesIn } from './pace.js';
-import { watermarkForRender, watermarkTopBottom } from './watermark.js';
+import { crestclipMark, watermarkForRender, watermarkTopBottom } from './watermark.js';
+import { BillingError, chargeProject, refundProject, renderRules, settleProject } from '../modules/billing/billing.service.js';
 import { resolveMusic } from './music.js';
 import { buildSignals, rangeScore } from './signals.js';
 import { transcribe } from './transcribe.js';
@@ -43,7 +45,7 @@ export async function processProject(id: string) {
   const work = path.join(dir, 'work');
   fs.mkdirSync(work, { recursive: true });
   fs.mkdirSync(path.join(dir, 'clips'), { recursive: true });
-  projects.update(id, { status: 'processing', error: null });
+  projects.update(id, { status: 'processing', error: null, errorCode: null });
   const startedUsage = { ...usage };
 
   try {
@@ -87,6 +89,8 @@ export async function processProject(id: string) {
       info = await fetchInfo(p.sourceUrl, infoJsonPath(dir));
       if (info.duration && info.duration > config.maxSourceMinutes * 60)
         throw new Error(`This video is ${Math.round(info.duration / 60)} min long. The limit is ${config.maxSourceMinutes} min (MAX_SOURCE_MINUTES).`);
+      // pay before downloading anything big (5 credits per clip asked for; checks the plan's length limit too)
+      if (info.duration) await chargeProject(id, info.duration, `Clipping “${info.title}”`);
       projects.update(id, {
         title: info.title,
         channel: info.channel,
@@ -117,6 +121,7 @@ export async function processProject(id: string) {
     if (pr.width && readFootage(dir)) endSectionMode(dir); // the "audio" download turned out to be a full video — use it as is
     const duration = pr.duration || info?.duration || 0;
     if (!duration) throw new Error('Could not read the video length.');
+    await chargeProject(id, duration, `Clipping “${projects.get(id)?.title ?? 'your video'}”`); // uploads / file links (links were charged above)
     const thumb = path.join(dir, 'thumb.jpg');
     if (pr.width) await thumbnail(src, Math.min(duration * 0.15, 60), thumb).catch(() => {});
     else if (info?.thumbnail) await remoteThumbnail(info.thumbnail, thumb, work).catch(() => {});
@@ -127,6 +132,7 @@ export async function processProject(id: string) {
       height: pr.height || info?.height || null,
       thumbPath: fs.existsSync(thumb) ? thumb : null,
     });
+    void saveToCloud(fs.existsSync(thumb) ? thumb : null);
     stage(id, 'fetch', 1, pr.width ? 'Video ready' : 'Audio ready — video will be fetched only for the clips');
 
     // ---------- 2. listen ----------
@@ -182,7 +188,7 @@ export async function processProject(id: string) {
           stage(id, 'moments', 0.15, 'Uploading a preview to Cloud Storage…');
           const proxy = path.join(work, 'proxy.mp4');
           await makeProxy(src, proxy);
-          gcsObject = `crestclip/${id}/proxy.mp4`;
+          gcsObject = `crestclip/tmp/${id}/proxy.mp4`; // temporary — deleted right after Gemini has watched it
           videoPart = part.uri(await uploadToGcs(proxy, gcsObject, 'video/mp4'), 'video/mp4', { fps: 0.5 });
         }
       } catch {
@@ -208,6 +214,7 @@ export async function processProject(id: string) {
     if (!final.length) throw new Error('Gemini did not find any clip-worthy moments in this video.');
     const saved = clipDb.replaceForProject(id, final, clipDefaults(p.options));
     projects.update(id, { aiNotes: notes });
+    settleProject(id, saved.length, `Clipping “${projects.get(id)?.title ?? 'your video'}”`); // fewer clips than asked → credits back
     stage(id, 'moments', 1, `Found ${saved.length} moments`);
 
     // ---------- 5. fetch only the clip parts (section mode), then reframe + render ----------
@@ -225,8 +232,9 @@ export async function processProject(id: string) {
     fs.rmSync(path.join(work, 'frames'), { recursive: true, force: true });
     for (const f of fs.readdirSync(work)) if (f.startsWith('chunk_')) fs.rmSync(path.join(work, f), { force: true });
   } catch (e) {
-    console.error(`[project ${id}]`, e);
-    projects.update(id, { status: 'failed', error: (e as Error).message || String(e) });
+    console.error(`[project ${id}]`, e instanceof BillingError ? e.message : e);
+    refundProject(id); // nothing usable came out of it, so the credits go back
+    projects.update(id, { status: 'failed', error: (e as Error).message || String(e), errorCode: e instanceof BillingError ? e.code : null });
   }
 }
 
@@ -334,7 +342,9 @@ async function renderOnce(clipId: string) {
 
     const plans: ReframePlan[] = [];
     const files: string[] = [];
-    const watermark = watermarkForRender();
+    // the owner's plan decides the watermark (Free: the CrestClip mark; paid: their own logo, if set) and the export size
+    const rules = renderRules(p!.userId);
+    const watermark = rules.crestclipWatermark ? crestclipMark() : rules.customLogo && p!.userId ? watermarkForRender(p!.userId) : null;
     const silences = c.pace !== 'off' ? silencesFor(p!.id) : [];
     const gentle = c.category === 'story' || c.category === 'emotional'; // let these breathe
     let hasVoice = false;
@@ -387,6 +397,7 @@ async function renderOnce(clipId: string) {
           motion: c.motion,
           zooms: [{ t: 0, z: 1.16 }],
           watermark,
+          exportHeight: rules.exportHeight,
           emojis: emojiImages(tCap?.emojis),
           captionY: tCap?.captionY,
         });
@@ -416,6 +427,7 @@ async function renderOnce(clipId: string) {
         zooms: planZooms(outWords, outDur, c.motion, cut ? cutTimes(keep) : []),
         introZoom: c.motion === 'dynamic' && first,
         watermark,
+        exportHeight: rules.exportHeight,
         keep: cut ? keep : undefined,
         emojis: emojiImages(cap?.emojis),
         captionY: cap?.captionY,
@@ -434,7 +446,7 @@ async function renderOnce(clipId: string) {
     if (wantsText && !canText) notes.push('Captions were skipped: the custom ffmpeg set in FFMPEG_PATH can’t draw text. Remove FFMPEG_PATH from .env to use the built-in one, then re-render.');
     if (c.music.track !== 'none') {
       try {
-        const m = await resolveMusic(c.music.track, c.category);
+        const m = await resolveMusic(c.music.track, c.category, p!.userId);
         if (m) {
           const mixed = path.join(work, 'music.mp4');
           await mixMusic({ input: current, music: m.file, volume: c.music.volume, duck: c.music.duck, hasVoice, duration: total, out: mixed });
@@ -449,8 +461,13 @@ async function renderOnce(clipId: string) {
     const thumbOut = path.join(dir, 'clips', `${c.id}_v${version}.jpg`);
     await thumbnail(out, Math.min(1.2, total / 3), thumbOut, 540).catch(() => {});
 
-    // remove the previous render
-    for (const old of [c.filePath, c.thumbPath]) if (old && old !== out && fs.existsSync(old)) fs.rmSync(old, { force: true });
+    // keep a copy in the cloud bucket, then remove the previous render (here and there)
+    await Promise.all([saveToCloud(out), saveToCloud(fs.existsSync(thumbOut) ? thumbOut : null)]);
+    for (const old of [c.filePath, c.thumbPath])
+      if (old && old !== out && old !== thumbOut) {
+        fs.rmSync(old, { force: true });
+        void removeFromCloud(old);
+      }
     const aud = partsScore(p!, parts);
     clipDb.update(clipId, {
       status: 'ready',
@@ -609,10 +626,21 @@ async function processPickedParts(id: string) {
   projects.update(id, { title: info.title, channel: info.channel, description: info.description, duration, viewCount: info.viewCount });
   const thumb = path.join(dir, 'thumb.jpg');
   if (info.thumbnail && !fs.existsSync(thumb)) await remoteThumbnail(info.thumbnail, thumb, work).catch(() => {});
-  if (fs.existsSync(thumb)) projects.update(id, { thumbPath: thumb });
+  if (fs.existsSync(thumb)) {
+    projects.update(id, { thumbPath: thumb });
+    void saveToCloud(thumb);
+  }
 
   const picked = (p0.options.ranges ?? []).map((r) => ({ start: Math.max(0, r.start), end: duration ? Math.min(duration, r.end) : r.end })).filter((r) => r.end - r.start >= 1);
   if (!picked.length) throw new Error('The picked parts are outside this video.');
+  // 5 credits per clip: each picked part is a clip (or one clip when they're joined). Only the picked minutes are
+  // processed, so they're what the plan's length limit applies to.
+  await chargeProject(
+    id,
+    picked.reduce((a, r) => a + r.end - r.start, 0),
+    `Picked parts of “${info.title}”`,
+    p0.options.joinRanges ? 1 : picked.length,
+  );
 
   // only the picked parts of the video are downloaded
   if (!readFootage(dir) && !(p0.mediaPath && fs.existsSync(p0.mediaPath))) startSectionMode(dir, info.webpageUrl, info.fullSizeEstimate);
@@ -632,6 +660,7 @@ async function processPickedParts(id: string) {
   const ranges = tidyRanges(picked, segs, [], duration);
   const list = await packagePicked(p, groupRanges(ranges, Boolean(p.options.joinRanges)), segs);
   const saved = clipDb.replaceForProject(id, list, clipDefaults(p.options), 'manual');
+  settleProject(id, saved.length, `Picked parts of “${info.title}”`);
   stage(id, 'moments', 1, `${saved.length} clip${saved.length > 1 ? 's' : ''} ready to render`);
 
   await renderAll(id, saved);

@@ -140,6 +140,8 @@ export async function renderClip(opts: {
   /** emoji images shown above the captions (times on the edited clip) */
   emojis?: { file: string; s: number; e: number }[];
   captionY?: number;
+  /** final height (1920 = full HD; 1280 = 720p for the Free plan). Everything is drawn at 1920 first. */
+  exportHeight?: number;
 }) {
   const { workDir } = opts;
   fs.mkdirSync(workDir, { recursive: true });
@@ -208,7 +210,8 @@ export async function renderClip(opts: {
     graph += `;${vOut}[em${j}]overlay=x=(W-w)/2:y=${y}:enable='between(t\\,${em.s.toFixed(3)}\\,${em.e.toFixed(3)})':format=auto[ve${j}]`;
     vOut = `[ve${j}]`;
   });
-  graph += `;${vOut}fps=30,format=yuv420p[v]`;
+  const h = opts.exportHeight && opts.exportHeight < 1920 ? opts.exportHeight : null;
+  graph += `;${vOut}fps=30,${h ? `scale=${Math.round((h * 9) / 32) * 2}:${h}:flags=lanczos,` : ''}format=yuv420p[v]`;
   if (opts.hasAudio) graph += `;${aIn}loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[a]`;
 
   const tmp = path.join(workDir, `render_${Date.now()}.mp4`);

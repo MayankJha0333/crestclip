@@ -8,6 +8,7 @@ import { fmtCount, fmtDate, fmtTime } from '../../lib/format';
 import { toast } from '../../lib/toast';
 import { Badge, Button, buttonClass, Skeleton } from '../../components/ui';
 import { HeatChart, PickBar } from '../media/HeatChart';
+import { useAccount } from '../auth/auth';
 
 const MAX_MINUTES = 240;
 
@@ -73,6 +74,7 @@ export function PeekDrawer({
   const [start, setStart] = useState(0);
   const [opts, setOpts] = useState<ProjectOptions>(savedOptions);
   const [busy, setBusy] = useState(false);
+  const perClip = useAccount().credits.perClip;
   const [picks, setPicks] = useState<TimeRange[]>([]);
   const [playhead, setPlayhead] = useState<number | null>(null);
   const frame = useRef<HTMLIFrameElement>(null);
@@ -362,7 +364,7 @@ export function PeekDrawer({
               disabled={Boolean(blocked)}
               onClick={() => start_({ ...opts, ranges: picks, joinRanges: false }, 'Clipping your parts — only those parts are downloaded')}
             >
-              {!busy && <Scissors size={16} />} {picks.length > 1 ? `Clip these ${picks.length} parts` : 'Clip this part'}
+              {!busy && <Scissors size={16} />} {picks.length > 1 ? `Clip these ${picks.length} parts` : 'Clip this part'} · {picks.length * perClip} credits
             </Button>
             {picks.length > 1 && (
               <Button
@@ -371,7 +373,7 @@ export function PeekDrawer({
                 onClick={() => start_({ ...opts, ranges: picks, joinRanges: true }, 'Joining your parts into one clip — only those parts are downloaded')}
                 title="Stitch the parts, in time order, into one clip"
               >
-                <Combine size={16} /> Join into 1 clip
+                <Combine size={16} /> Join into 1 clip · {perClip} credits
               </Button>
             )}
           </PickBar>
@@ -390,7 +392,8 @@ export function PeekDrawer({
           <p className="text-[13px] font-bold text-ink-3">
             {blocked ?? (
               <>
-                You’ll get {opts.clipCount} vertical clip{opts.clipCount > 1 ? 's' : ''} with captions, a hook and a score{dur ? ` · ready in ${estimate(dur)}` : ''}
+                You’ll get {opts.clipCount} vertical clip{opts.clipCount > 1 ? 's' : ''} with captions, a hook and a score · {opts.clipCount * perClip} credits
+                {dur ? ` · ready in ${estimate(dur)}` : ''}
               </>
             )}
           </p>

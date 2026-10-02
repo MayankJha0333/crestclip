@@ -4,17 +4,18 @@ import { publicConnections, publicPost } from './publishing.presenter.js';
 import { createPostsSchema } from './publishing.schemas.js';
 import * as service from './publishing.service.js';
 import type { Platform } from './providers/index.js';
+import { me } from '../auth/auth.middleware.js';
 
 export const publishingRouter = Router();
 
-publishingRouter.get('/connections', (_req, res) => {
-  res.json(publicConnections());
+publishingRouter.get('/connections', (req, res) => {
+  res.json(publicConnections(me(req)));
 });
 
 publishingRouter.get('/connect/:platform/start', (req, res) => {
   const platform = req.params.platform;
   if (!service.isPlatform(platform)) return res.status(404).send('Unknown platform');
-  res.redirect(service.connectUrl(platform));
+  res.redirect(service.connectUrl(platform, me(req)));
 });
 
 publishingRouter.get(
@@ -27,25 +28,25 @@ publishingRouter.get(
 publishingRouter.delete(
   '/connections/:id',
   asyncHandler(async (req, res) => {
-    await service.disconnect(req.params.id);
+    await service.disconnect(req.params.id, me(req));
     res.json({ ok: true });
   }),
 );
 
 publishingRouter.post('/posts', (req, res) => {
   const body = validate(createPostsSchema, req.body, 'Choose at least one account.');
-  res.status(201).json(service.createPosts(body).map(publicPost));
+  res.status(201).json(service.createPosts(body, me(req)).map(publicPost));
 });
 
 publishingRouter.get('/posts', (req, res) => {
   const clipId = typeof req.query.clipId === 'string' ? req.query.clipId : undefined;
-  res.json(service.listPosts(clipId).map(publicPost));
+  res.json(service.listPosts(me(req), clipId).map(publicPost));
 });
 
 publishingRouter.post('/posts/:id/retry', (req, res) => {
-  res.json(publicPost(service.retryPost(req.params.id)));
+  res.json(publicPost(service.retryPost(req.params.id, me(req))));
 });
 
 publishingRouter.post('/posts/:id/cancel', (req, res) => {
-  res.json(publicPost(service.cancelPost(req.params.id)));
+  res.json(publicPost(service.cancelPost(req.params.id, me(req))));
 });

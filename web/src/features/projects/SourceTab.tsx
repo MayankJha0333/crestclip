@@ -7,6 +7,7 @@ import { toast } from '../../lib/toast';
 import { Badge, Button, Card, CardHeader } from '../../components/ui';
 import { HeatChart, PickBar } from '../media/HeatChart';
 import { SourcePlayer, youtubeIdOf, type PlayerHandle } from '../media/SourcePlayer';
+import { useAccount, useAuth } from '../auth/auth';
 
 export const canWatchSource = (p: Project) => Boolean(youtubeIdOf(p.sourceUrl) || p.sourceVideoUrl || /twitch\.tv\/videos\//.test(p.sourceUrl ?? ''));
 
@@ -26,6 +27,8 @@ export const SourceTab = forwardRef<SourceTabHandle, { p: Project; rank: Map<str
   const [playT, setPlayT] = useState<number | null>(null);
   const [picks, setPicks] = useState<TimeRange[]>([]);
   const [adding, setAdding] = useState(false);
+  const perClip = useAccount().credits.perClip;
+  const { refresh } = useAuth();
   // the player reports time several times a second — only re-render when it moved noticeably
   const onTime = useCallback((t: number) => setPlayT((prev) => (prev == null || Math.abs(prev - t) >= 0.5 ? t : prev)), []);
   useImperativeHandle(ref, () => ({ play: (t) => player.current?.playFrom(t) }), []);
@@ -44,6 +47,7 @@ export const SourceTab = forwardRef<SourceTabHandle, { p: Project; rank: Map<str
       toast(join ? 'Joining your parts into one clip…' : `Making ${made.length} clip${made.length > 1 ? 's' : ''} from your picks…`);
       setPicks([]);
       onClipsAdded(made[0]?.id);
+      refresh(); // credits changed
     } catch (e) {
       toast((e as Error).message, 'error');
     } finally {
@@ -149,11 +153,11 @@ export const SourceTab = forwardRef<SourceTabHandle, { p: Project; rank: Map<str
           />
           <PickBar picks={picks} onChange={setPicks}>
             <Button variant="primary" size="sm" loading={adding} onClick={() => addPicked(false)}>
-              {!adding && <Scissors size={16} />} {picks.length > 1 ? `Make ${picks.length} clips` : 'Make clip'}
+              {!adding && <Scissors size={16} />} {picks.length > 1 ? `Make ${picks.length} clips` : 'Make clip'} · {picks.length * perClip} credits
             </Button>
             {picks.length > 1 && (
               <Button size="sm" disabled={adding} onClick={() => addPicked(true)} title="Stitch all picked parts, in time order, into one clip">
-                <Combine size={16} /> Join into 1 clip
+                <Combine size={16} /> Join into 1 clip · {perClip} credits
               </Button>
             )}
           </PickBar>

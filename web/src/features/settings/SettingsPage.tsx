@@ -10,6 +10,9 @@ import { Button, Card, CardHeader, PageHeader } from '../../components/ui';
 import { SOCIAL } from '../schedule/postStatus';
 import { WatermarkSection } from '../watermark/WatermarkSection';
 import { AccountsSection } from './AccountsSection';
+import { AdminSection } from './AdminSection';
+import { useAuth } from '../auth/auth';
+import { ProfileSection } from './ProfileSection';
 import { useHealth } from './health';
 
 function StatusRow({ ok, pending, label }: { ok: boolean; pending?: boolean; label: string }) {
@@ -112,6 +115,7 @@ function AppearanceSection() {
 
 /** One-time setup lives here: watermark, connected accounts, look, and system health. */
 export function SettingsPage() {
+  const { me } = useAuth();
   const [data, setData] = useState<Connections | null>(null);
   const [params, setParams] = useSearchParams();
   const load = () =>
@@ -132,15 +136,17 @@ export function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Settings" description="Add your watermark, connect where your clips get posted, choose a theme, and check that everything is running." />
+      <PageHeader title="Settings" description="Your account, watermark, connected accounts, theme and system status." />
       <div className="flex flex-col gap-6">
+        <ProfileSection />
         <WatermarkSection />
         <Card className="p-5 sm:p-6">
           <CardHeader title="Connected accounts" description="Connect each account once. Then press Post on any clip, or let Autopilot post for you." />
           <AccountsSection data={data} onChange={load} />
         </Card>
         <AppearanceSection />
-        <SystemSection />
+        {me?.user.isAdmin && <SystemSection />}
+        <AdminSection />
       </div>
     </>
   );

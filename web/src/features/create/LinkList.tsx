@@ -6,9 +6,6 @@ import { splitLinks } from './instructions';
 import { LinkSourceIcon } from './LinkSourceIcon';
 import { detectLink } from './links';
 
-/** Most videos one project can hold (the server checks this too). */
-export const MAX_VIDEOS = 15;
-
 const SOURCES = ['YouTube', 'Twitch', 'Google Drive', 'Dropbox', 'OneDrive', '.mp4 link'];
 
 /** Little numbered dot that marks each video slot. */
@@ -22,6 +19,8 @@ const Num = ({ n, ghost }: { n: number; ghost?: boolean }) => (
  * and all of them go into one project.
  */
 export function LinkList({
+  max,
+  upgradeHint,
   items,
   onItems,
   draft,
@@ -29,6 +28,10 @@ export function LinkList({
   onFile,
   onSubmit,
 }: {
+  /** most videos one project can hold on this plan (the server checks it too) */
+  max: number;
+  /** shown when the list is full and a bigger plan holds more */
+  upgradeHint?: string | null;
   items: string[];
   onItems: (v: string[]) => void;
   draft: string;
@@ -44,11 +47,11 @@ export function LinkList({
     const found = splitLinks(text);
     if (!found.length) return false;
     const fresh = found.filter((u) => !items.includes(u));
-    const room = MAX_VIDEOS - items.length;
+    const room = max - items.length;
     const added = fresh.slice(0, room);
     setNote(
       fresh.length > room
-        ? `Only ${MAX_VIDEOS} videos fit in one project — ${fresh.length - room} link${fresh.length - room > 1 ? 's were' : ' was'} left out`
+        ? `Only ${max} videos fit in one project on your plan — ${fresh.length - room} link${fresh.length - room > 1 ? 's were' : ' was'} left out`
         : fresh.length < found.length
           ? 'Skipped a link you already added'
           : null,
@@ -59,7 +62,7 @@ export function LinkList({
   };
   const draftInfo = draft.trim() ? detectLink(draft) : null;
   const next = items.length + 1;
-  const full = items.length >= MAX_VIDEOS;
+  const full = items.length >= max;
 
   return (
     <div className="flex flex-col gap-2" aria-describedby="link-hint">
@@ -160,14 +163,14 @@ export function LinkList({
         ) : full ? (
           <span className="font-semibold text-warn-ink">
             <b>
-              {MAX_VIDEOS} of {MAX_VIDEOS} videos
+              {max} of {max} videos
             </b>{' '}
-            — that’s the most one project can hold. Start another project for more.
+            — the most one project holds on your plan. {upgradeHint ?? 'Start another project for more.'}
           </span>
         ) : items.length > 1 ? (
           <span>
             <b className="text-ink">
-              {items.length} of {MAX_VIDEOS} videos
+              {items.length} of {max} videos
             </b>{' '}
             → one project, same settings for every video{note ? ` · ${note}` : ''}
           </span>

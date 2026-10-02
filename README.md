@@ -88,15 +88,24 @@ gcloud run deploy crestclip --source . --region us-central1 \
 
 Cloud Run disks are temporary. For many users, move jobs and clips to Cloud SQL and Cloud Storage (see "Next steps").
 
-### Optional: let Gemini *watch* uploaded files too
+### Clip storage: Cloud Storage + 7-day auto-delete
 
-YouTube links are sent to Gemini directly. For uploaded files, create a bucket and set `GCS_BUCKET` in `.env`:
+Create a bucket and set `GCS_BUCKET` in `.env` (it uses the same Google login as Gemini):
 
 ```bash
 gcloud storage buckets create gs://YOUR-BUCKET --location=us
 ```
 
-Without a bucket, uploads are judged from the transcript and audio only. That still works well for podcasts.
+With a bucket:
+
+- **Every rendered clip** (and its thumbnail) is copied to `gs://YOUR-BUCKET/crestclip/media/…`, the same path it has in the data folder. If a clip isn't on this disk (a new server, a wiped disk), it's fetched back from the bucket when someone watches, downloads or posts it. Clips rendered before the bucket was set are copied up on the next start.
+- **Gemini can also watch uploaded files**, not just listen. (YouTube links get video analysis without a bucket.)
+
+**Auto-delete:** every project — its video, clips and work files, on this disk and in the bucket — is deleted **7 days after it's made** (`RETENTION_DAYS`). CrestClip checks every hour. A project is kept a little longer only while it's still processing or a clip from it is still scheduled to post. Each project shows "Deletes in N days". As a safety net, CrestClip adds one lifecycle rule to the bucket: files under `crestclip/` are deleted by Google a day after the storage time, even if CrestClip is off. Other files and rules in the bucket aren't touched. Temporary previews for Gemini go under `crestclip/tmp/` and are deleted right after use; if you keep a short "delete after 1 day" rule for them, limit it to that prefix, otherwise it deletes the stored clips too (CrestClip warns about this at start-up). Projects made before this existed got 7 days from the day it was switched on.
+
+`CLOUD_CLIPS=false` keeps clips on this disk only. Without a bucket, everything still works and auto-delete still runs; uploads are judged from the transcript and audio only.
+
+Still on this disk only: the original video and work files, needed while editing. On Cloud Run (temporary disk), a clip can still be watched, downloaded and posted after a restart, but re-rendering an edit needs the original again.
 
 ---
 
@@ -191,9 +200,48 @@ crestclip/
 └─ docs/RESEARCH.md           why each decision was made, with sources
 ```
 
+## Accounts, plans & credits
+
+Everyone signs up (email + password, or **Continue with Google**) and gets their own projects, clips, connected accounts, watermark and music. **The first account is the owner**: an admin on the Pro plan, and it takes over everything made before accounts existed.
+
+**Credits** are spent per clip: **every clip costs 5 credits** (`CREDITS_PER_CLIP` in `plans.ts`). Asking for 8 clips takes 40 credits up front; if only 6 good moments come out, 10 go back. Clips you pick on the rewatch graph cost the same. Editing and re-rendering is free, and a video that fails gives all its credits back. Video length is limited per plan, which keeps the AI cost of very long videos in check.
+
+| Plan | Price | Credits / month (clips) | Limits |
+|---|---|---|---|
+| Free | $0 | 60 (12 clips) | videos up to 30 min · 3 videos per project · 720p with a small CrestClip mark · post now only |
+| Creator | $15 / ₹1,299 | 400 (80 clips) | videos up to 2 h · 15 per project · 1080p · your own logo · scheduling · unused credits roll over 1 month |
+| Pro | $29 / ₹2,499 | 1,000 (200 clips) | videos up to 3 h · everything in Creator · Autopilot |
+
+**Top-up:** 100 credits for $5 (₹449), on any plan, usable for 12 months. Credits are used soonest-to-expire first. Prices follow `BILLING_CURRENCY` (USD or INR — an Indian Razorpay account can only charge INR until *International Payments* is turned on). To change prices or limits, edit `PRICES` / `PLANS` in `server/src/modules/billing/plans.ts`, then create Razorpay plans with the same amounts.
+
+### Taking payments with Razorpay
+
+1. **API keys:** Razorpay Dashboard → API Keys → copy the Key Id and Secret into `.env` (`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`). Start with **Test Mode** keys.
+2. **Plans:** Dashboard → Subscriptions → Plans → create two **monthly** plans:
+   - Creator: 15 USD
+   - Pro: 29 USD
+
+   Put their ids (`plan_…`) in `RAZORPAY_PLAN_CREATOR` and `RAZORPAY_PLAN_PRO`. USD needs **International Payments** enabled on your account. To charge in rupees, set `BILLING_CURRENCY=INR` and change the prices in `plans.ts` to match.
+3. **Webhook** (renewals, and payments made after someone closes the tab): Dashboard → Webhooks → URL `<PUBLIC_URL>/api/billing/webhook`, pick a secret and put it in `RAZORPAY_WEBHOOK_SECRET`. Turn on these events:
+   - `subscription.activated`, `subscription.charged`, `subscription.cancelled`, `subscription.halted`, `subscription.completed`
+   - `payment.captured`
+
+   Locally (no public URL), renewals are still picked up: CrestClip checks the subscription with Razorpay when a month runs out.
+4. Restart CrestClip. **Plan & credits** in the app now shows working Upgrade and Buy credits buttons.
+
+Without Razorpay keys, everything else works (credits, limits, monthly refills). Upgrades are off, and an admin can give plans and credits by hand in **Settings → Admin**.
+
+**Cancelling** keeps the plan until the paid month ends, then moves to Free. Credits already bought stay until they expire. Failed renewals (Razorpay "halted") move the account to Free.
+
 ## API (for automation)
 
+Every call needs a signed-in session (the `cc_session` cookie from `POST /api/auth/login`). Public: `/api/auth/*`, `/api/billing/plans`, `/api/billing/webhook`.
+
 ```
+POST   /api/auth/signup | /api/auth/login | /api/auth/logout
+GET    /api/auth/me                you, your plan and credits
+GET    /api/billing/plans          the pricing table
+GET    /api/billing/account        plan, credits, history, payments
 GET    /api/health                 setup status (Gemini, ffmpeg, yt-dlp)
 POST   /api/projects               { url, options }        → start from a link
 POST   /api/projects/upload        multipart: file, options → start from a file
@@ -216,8 +264,8 @@ A 1-hour podcast costs about **$0.30–0.60 in Gemini usage**. That covers trans
 
 ## Next steps to make it a full SaaS
 
-- Accounts and billing (for example Clerk + Stripe) and per-user minute limits. The pricing on the landing page is placeholder copy.
-- Move storage to Cloud Storage and run render workers on Cloud Run Jobs.
+- Email verification and password-reset emails (needs an email provider). Until then, Free credits can be farmed with throwaway emails — new accounts are capped at 5 per network per day.
+- Keep the original videos in Cloud Storage too (so edits can re-render on any server) and run render workers on Cloud Run Jobs.
 - YouTube Analytics API (`audienceWatchRatio`) for creators clipping their **own** channel. This is the most accurate retention data there is.
 - Live-chat spike detection for streams (`yt-dlp --sub-langs live_chat`).
 - Auto-posting to TikTok / YouTube / Instagram.

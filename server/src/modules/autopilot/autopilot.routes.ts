@@ -3,6 +3,7 @@ import { autopilots } from '../../db/index.js';
 import { asyncHandler, validate } from '../../lib/http.js';
 import { autopilotDetail, autopilotStatus, autopilotSummary } from './autopilot.presenter.js';
 import { autopilotSchema } from './autopilot.schemas.js';
+import { me } from '../auth/auth.middleware.js';
 import * as service from './autopilot.service.js';
 
 export const autopilotRouter = Router();
@@ -31,49 +32,49 @@ autopilotRouter.post(
   }),
 );
 
-autopilotRouter.get('/autopilots', (_req, res) => {
-  res.json(autopilots.list().map(autopilotSummary));
+autopilotRouter.get('/autopilots', (req, res) => {
+  res.json(autopilots.list(me(req).id).map(autopilotSummary));
 });
 
 autopilotRouter.post(
   '/autopilots',
   asyncHandler(async (req, res) => {
     const form = validate(autopilotSchema, req.body, formError);
-    res.status(201).json(autopilotSummary(await service.createAutopilot(form)));
+    res.status(201).json(autopilotSummary(await service.createAutopilot(me(req), form)));
   }),
 );
 
 autopilotRouter.get('/autopilots/:id', (req, res) => {
-  res.json(autopilotDetail(service.getAutopilot(req.params.id)));
+  res.json(autopilotDetail(service.getAutopilot(req.params.id, me(req))));
 });
 
 autopilotRouter.put(
   '/autopilots/:id',
   asyncHandler(async (req, res) => {
-    const ap = service.getAutopilot(req.params.id);
+    const ap = service.getAutopilot(req.params.id, me(req));
     const form = validate(autopilotSchema, req.body, formError);
-    res.json(autopilotSummary(await service.updateAutopilot(ap, form)));
+    res.json(autopilotSummary(await service.updateAutopilot(me(req), ap, form)));
   }),
 );
 
 autopilotRouter.post(
   '/autopilots/:id/pause',
   asyncHandler(async (req, res) => {
-    res.json(autopilotSummary(await service.pauseAutopilot(req.params.id)));
+    res.json(autopilotSummary(await service.pauseAutopilot(req.params.id, me(req))));
   }),
 );
 
 autopilotRouter.post(
   '/autopilots/:id/resume',
   asyncHandler(async (req, res) => {
-    res.json(autopilotSummary(await service.resumeAutopilot(req.params.id)));
+    res.json(autopilotSummary(await service.resumeAutopilot(req.params.id, me(req))));
   }),
 );
 
 autopilotRouter.post(
   '/autopilots/:id/scan',
   asyncHandler(async (req, res) => {
-    await service.scanAutopilot(req.params.id);
+    await service.scanAutopilot(req.params.id, me(req));
     res.json({ ok: true });
   }),
 );
@@ -81,7 +82,7 @@ autopilotRouter.post(
 autopilotRouter.delete(
   '/autopilots/:id',
   asyncHandler(async (req, res) => {
-    await service.deleteAutopilot(req.params.id);
+    await service.deleteAutopilot(req.params.id, me(req));
     res.json({ ok: true });
   }),
 );
@@ -89,7 +90,7 @@ autopilotRouter.delete(
 autopilotRouter.post(
   '/autopilots/:id/slots/:key/skip',
   asyncHandler(async (req, res) => {
-    await service.skipAutopilotSlot(req.params.id, req.params.key);
+    await service.skipAutopilotSlot(req.params.id, me(req), req.params.key);
     res.json({ ok: true });
   }),
 );
@@ -97,7 +98,7 @@ autopilotRouter.post(
 autopilotRouter.post(
   '/autopilots/:id/slots/:key/restore',
   asyncHandler(async (req, res) => {
-    await service.restoreAutopilotSlot(req.params.id, req.params.key);
+    await service.restoreAutopilotSlot(req.params.id, me(req), req.params.key);
     res.json({ ok: true });
   }),
 );
@@ -105,7 +106,7 @@ autopilotRouter.post(
 autopilotRouter.post(
   '/autopilots/:id/clips/:itemId/:action',
   asyncHandler(async (req, res) => {
-    await service.reviewClip(req.params.id, req.params.itemId, req.params.action);
+    await service.reviewClip(req.params.id, me(req), req.params.itemId, req.params.action);
     res.json({ ok: true });
   }),
 );

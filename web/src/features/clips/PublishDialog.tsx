@@ -6,6 +6,7 @@ import { cn } from '../../lib/cn';
 import { toast } from '../../lib/toast';
 import { Button, buttonClass, Dialog, Field, FieldLabel, Input, Segmented, Textarea } from '../../components/ui';
 import { SOCIAL } from '../schedule/postStatus';
+import { useAccount } from '../auth/auth';
 import { ClipVideo } from './ClipVideo';
 
 const nextHour = () => {
@@ -26,6 +27,7 @@ export function PublishDialog({ clip, onClose, onDone }: { clip: Clip; onClose: 
   const [caption, setCaption] = useState(`${clip.description}\n\n${clip.hashtags.join(' ')}`.trim());
   const [privacy, setPrivacy] = useState<'public' | 'unlisted' | 'private'>('public');
   const [when, setWhen] = useState<'now' | 'later'>('now');
+  const canSchedule = useAccount().plan.scheduling;
   const [at, setAt] = useState(toLocalInput(nextHour()));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -178,6 +180,8 @@ export function PublishDialog({ clip, onClose, onDone }: { clip: Clip; onClose: 
                 },
                 {
                   value: 'later',
+                  disabled: !canSchedule,
+                  title: canSchedule ? undefined : 'Scheduling is on the Creator and Pro plans',
                   label: (
                     <>
                       <CalendarClock size={14} /> Schedule
@@ -186,6 +190,14 @@ export function PublishDialog({ clip, onClose, onDone }: { clip: Clip; onClose: 
                 },
               ]}
             />
+            {!canSchedule && (
+              <p className="mt-2 text-xs text-ink-3">
+                Scheduling is on Creator and Pro.{' '}
+                <Link to="/app/billing" className="font-bold text-accent">
+                  See plans
+                </Link>
+              </p>
+            )}
             {when === 'later' && (
               <div className="mt-3">
                 <Input type="datetime-local" value={at} min={toLocalInput(new Date(Date.now() + 120_000))} onChange={(e) => setAt(e.target.value)} />

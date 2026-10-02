@@ -9,6 +9,7 @@ import type { ProjectOptions } from '../../types.js';
 import { publicClip } from '../clips/clips.presenter.js';
 import { publicGroupSummary, publicProject, publicProjectDetail, publicProjectListItem } from './projects.presenter.js';
 import { createBatchSchema, createProjectSchema, pickClipsSchema } from './projects.schemas.js';
+import { me } from '../auth/auth.middleware.js';
 import * as service from './projects.service.js';
 
 export const projectsRouter = Router();
@@ -20,15 +21,15 @@ const upload = multer({
   fileFilter: (_req, file, cb) => cb(null, /^video\//.test(file.mimetype) || /\.(mp4|mov|mkv|webm|m4v|avi)$/i.test(file.originalname)),
 });
 
-projectsRouter.get('/projects', (_req, res) => {
-  res.json(projects.list().map(publicProjectListItem));
+projectsRouter.get('/projects', (req, res) => {
+  res.json(projects.list(me(req).id).map(publicProjectListItem));
 });
 
 projectsRouter.post(
   '/projects',
   asyncHandler(async (req, res) => {
     const body = validate(createProjectSchema, req.body, 'Please paste a valid video link (https://…).');
-    const p = await service.createFromLink(body.url, body.options as ProjectOptions);
+    const p = await service.createFromLink(me(req), body.url, body.options as ProjectOptions);
     res.status(201).json(publicProject(p));
   }),
 );
@@ -37,7 +38,7 @@ projectsRouter.post(
   '/projects/batch',
   asyncHandler(async (req, res) => {
     const body = validate(createBatchSchema, req.body, 'Check the links — each must be a full https:// link (up to 15 per project).');
-    const { group, made, options } = await service.createFromLinks(body.urls, body.options as ProjectOptions);
+    const { group, made, options } = await service.createFromLinks(me(req), body.urls, body.options as ProjectOptions);
     res.status(201).json({
       project: group ? publicGroupSummary(group) : publicProject(made[0]),
       projects: made.map((p) => publicProject(p)),
@@ -56,28 +57,34 @@ projectsRouter.post(
   upload.single('file'),
   asyncHandler(async (req, res) => {
     if (!req.file) throw new HttpError(400, 'Please choose a video file (mp4, mov, mkv, webm).');
-    const p = await service.createFromUpload(req.file, req.body.options);
+    const p = await service.createFromUpload(me(req), req.file, req.body.options);
     res.status(201).json(publicProject(p));
   }),
 );
 
 projectsRouter.get('/projects/:id', (req, res) => {
-  res.json(publicProjectDetail(service.getProject(req.params.id)));
+  res.json(publicProjectDetail(service.getProject(req.params.id, me(req))));
 });
 
 projectsRouter.post('/projects/:id/retry', (req, res) => {
-  service.retryProject(req.params.id);
+  service.retryProject(req.params.id, me(req));
   res.json({ ok: true });
 });
 
-projectsRouter.delete('/projects/:id', (req, res) => {
-  service.deleteProject(req.params.id);
-  res.json({ ok: true });
-});
+projectsRouter.delete(
+  '/projects/:id',
+  asyncHandler(async (req, res) => {
+    await service.deleteProject(req.params.id, me(req));
+    res.json({ ok: true });
+  }),
+);
 
-projectsRouter.post('/projects/:id/clips', (req, res) => {
-  const p = service.getProject(req.params.id);
-  service.assertCanAddClips(p);
-  const body = validate(pickClipsSchema, req.body, 'Select at least one part of the graph.');
-  res.status(201).json(service.addPickedClips(p.id, body.ranges, body.join).map(publicClip));
-});
+projectsRouter.post(
+  '/projects/:id/clips',
+  asyncHandler(async (req, res) => {
+    const p = service.getProject(req.params.id, me(req));
+    service.assertCanAddClips(p);
+    const body = validate(pickClipsSchema, req.body, 'Select at least one part of the graph.');
+    res.status(201).json((await service.addPickedClips(me(req), p, body.ranges, body.join)).map(publicClip));
+  }),
+);

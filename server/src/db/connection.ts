@@ -188,6 +188,85 @@ CREATE INDEX IF NOT EXISTS ap_videos_status ON autopilot_videos(autopilot_id, st
 CREATE INDEX IF NOT EXISTS ap_clips_status ON autopilot_clips(autopilot_id, status);
 `);
 
+// ---- accounts, plans and credits ----
+db.exec(`
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  name TEXT,
+  password_hash TEXT,                      -- null for Google-only accounts
+  google_sub TEXT UNIQUE,
+  avatar TEXT,
+  is_admin INTEGER NOT NULL DEFAULT 0,
+  plan TEXT NOT NULL DEFAULT 'free',       -- free | creator | pro
+  cycle_start INTEGER,                     -- current credit month
+  cycle_end INTEGER,
+  rz_subscription_id TEXT,                 -- Razorpay subscription paying for the plan
+  cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,                     -- sha256 of the cookie token (the token itself is never stored)
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS credit_grants (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  source TEXT NOT NULL,                    -- plan | topup | bonus | refund
+  amount INTEGER NOT NULL,
+  remaining INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  ref TEXT UNIQUE,                         -- makes grants idempotent (payment / subscription cycle)
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS credit_events (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  delta INTEGER NOT NULL,                  -- + added, − used
+  kind TEXT NOT NULL,                      -- grant | topup | spend | refund | adjust
+  note TEXT,
+  project_id TEXT,
+  detail_json TEXT,                        -- spend: which grants it came from (so a refund can put it back)
+  refunded INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS payments (
+  id TEXT PRIMARY KEY,                     -- Razorpay payment id
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,                      -- subscription | topup
+  plan TEXT,
+  amount INTEGER,                          -- smallest currency unit
+  currency TEXT,
+  ref TEXT,                                -- order / subscription id
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS grants_user ON credit_grants(user_id, expires_at);
+CREATE INDEX IF NOT EXISTS events_user ON credit_events(user_id, created_at);
+`);
+{
+  // every project, social account and Autopilot belongs to a user (rows from before accounts → the first user)
+  for (const table of ['projects', 'connections', 'autopilots']) {
+    const cols = new Set((db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name));
+    if (!cols.has('user_id')) db.exec(`ALTER TABLE ${table} ADD COLUMN user_id TEXT`);
+  }
+  const cols = new Set((db.prepare('PRAGMA table_info(projects)').all() as { name: string }[]).map((c) => c.name));
+  if (!cols.has('credits_charged')) db.exec('ALTER TABLE projects ADD COLUMN credits_charged INTEGER NOT NULL DEFAULT 0');
+  if (!cols.has('error_code')) db.exec('ALTER TABLE projects ADD COLUMN error_code TEXT'); // credits | plan_limit
+  if (!cols.has('expires_at')) {
+    // auto-delete: projects made before this existed get the full storage time from today
+    db.exec('ALTER TABLE projects ADD COLUMN expires_at INTEGER');
+    db.prepare('UPDATE projects SET expires_at = ? WHERE expires_at IS NULL').run(Date.now() + config.retentionDays * 86400_000);
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS projects_user ON projects(user_id, created_at)');
+  // the subscription opened in Checkout but not confirmed yet (so a payment that didn't report back is still found)
+  const ucols = new Set((db.prepare('PRAGMA table_info(users)').all() as { name: string }[]).map((c) => c.name));
+  if (!ucols.has('rz_pending_sub')) db.exec('ALTER TABLE users ADD COLUMN rz_pending_sub TEXT');
+}
+
 export const now = () => Date.now();
 /** Short random id for new rows. */
 export const newId = () => randomUUID().slice(0, 12);

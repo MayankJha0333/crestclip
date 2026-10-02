@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { AlertTriangle, Bot, Check, Eye, Globe, Hash, Minus, Plus, Search, ShieldCheck, Sparkles, X, Youtube } from 'lucide-react';
+import { useAccount } from '../auth/auth';
+import { UpgradeCallout } from '../billing/UpgradeCallout';
 import { api, type Account, type AutopilotConfig, type AutopilotInput, type AutopilotSource, type CaptionStyle, type Motion } from '../../lib/api';
 import { cn } from '../../lib/cn';
 import { timeAgo } from '../../lib/format';
@@ -40,6 +42,7 @@ export function AutopilotEditorPage() {
   const [adding, setAdding] = useState(false);
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const zones = useMemo(allZones, []);
+  const allowed = useAccount().plan.autopilot;
   const capRef = useRef<HTMLTextAreaElement>(null);
   const srcKey = (s: AutopilotSource) => `${s.kind}|${s.channelId ?? s.value}|${s.region ?? ''}`;
 
@@ -145,6 +148,15 @@ export function AutopilotEditorPage() {
     }
   };
 
+  if (!allowed && !id)
+    return (
+      <>
+        <PageHeader back={{ to: '/app/autopilot', label: 'Back' }} title="New autopilot" />
+        <UpgradeCallout title="Autopilot is on the Pro plan" cta="See Pro">
+          Upgrade to Pro to set up an autopilot.
+        </UpgradeCallout>
+      </>
+    );
   if (!loaded) return <Skeleton className="h-96 rounded-[28px]" />;
   const sorted = [...f.times].sort();
 

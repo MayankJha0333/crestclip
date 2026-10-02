@@ -10,9 +10,9 @@ export async function makeMoodTrack(moodId: string, fresh: boolean) {
 }
 
 /** Add an uploaded audio file to the library. Returns the new track's id. */
-export async function addMusicUpload(file: { path: string; originalname: string }): Promise<string> {
+export async function addMusicUpload(userId: string, file: { path: string; originalname: string }): Promise<string> {
   try {
-    return (await addUpload(file.path, file.originalname)).id;
+    return (await addUpload(userId, file.path, file.originalname)).id;
   } catch {
     fs.rmSync(file.path, { force: true });
     throw new HttpError(400, 'That file doesn’t look like audio CrestClip can read.');

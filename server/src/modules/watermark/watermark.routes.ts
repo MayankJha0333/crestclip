@@ -2,6 +2,8 @@ import { Router, type RequestHandler } from 'express';
 import multer from 'multer';
 import { asyncHandler, HttpError, validate } from '../../lib/http.js';
 import { uploadTmpDir } from '../../lib/paths.js';
+import { me } from '../auth/auth.middleware.js';
+import { assertCustomLogo } from '../billing/billing.service.js';
 import { publicWatermark } from './watermark.presenter.js';
 import { updateWatermarkSchema } from './watermark.schemas.js';
 import * as service from './watermark.service.js';
@@ -14,11 +16,12 @@ const logoUpload: RequestHandler = (req, res, next) =>
     next((err as { code?: string })?.code === 'LIMIT_FILE_SIZE' ? new HttpError(413, `The logo must be under ${MAX_MB} MB.`) : err),
   );
 
-watermarkRouter.get('/watermark', (_req, res) => res.json(publicWatermark()));
+watermarkRouter.get('/watermark', (req, res) => res.json(publicWatermark(me(req))));
 
 watermarkRouter.put('/watermark', (req, res) => {
-  service.updateWatermark(validate(updateWatermarkSchema, req.body, 'Those watermark settings aren’t valid.'));
-  res.json(publicWatermark());
+  assertCustomLogo(me(req));
+  service.updateWatermark(me(req).id, validate(updateWatermarkSchema, req.body, 'Those watermark settings aren’t valid.'));
+  res.json(publicWatermark(me(req)));
 });
 
 watermarkRouter.post(
@@ -26,12 +29,18 @@ watermarkRouter.post(
   logoUpload,
   asyncHandler(async (req, res) => {
     if (!req.file) throw new HttpError(400, 'Choose an image for your logo.');
-    await service.uploadLogo(req.file);
-    res.json(publicWatermark());
+    try {
+      assertCustomLogo(me(req));
+    } catch (e) {
+      service.discardUpload(req.file.path);
+      throw e;
+    }
+    await service.uploadLogo(me(req).id, req.file);
+    res.json(publicWatermark(me(req)));
   }),
 );
 
-watermarkRouter.delete('/watermark/logo', (_req, res) => {
-  service.removeWatermarkLogo();
-  res.json(publicWatermark());
+watermarkRouter.delete('/watermark/logo', (req, res) => {
+  service.removeWatermarkLogo(me(req).id);
+  res.json(publicWatermark(me(req)));
 });

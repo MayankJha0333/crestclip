@@ -1,14 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowRight, AudioLines, Check, Flame, Link2, MessageSquareText, Plus, Sparkles, Wand2 } from 'lucide-react';
-import type { CaptionStyle } from '../../lib/api';
+import { api, type CaptionStyle, type PlansInfo } from '../../lib/api';
 import { cn } from '../../lib/cn';
 import { Badge, Button, buttonClass } from '../../components/ui';
 import { Logo } from '../../components/brand/Logo';
 import { ScoreRing } from '../../components/brand/ScoreRing';
 import { CaptionSample } from '../clip-settings/CaptionPicker';
 import { CurveSvg, HeroArt } from './art';
-import { FAQ, FEATURES, PLANS, SAMPLE_CLIPS, STEPS } from './content';
+import { FAQ, FEATURES, SAMPLE_CLIPS, STEPS } from './content';
+import { useAuth } from '../auth/auth';
+import { money } from '../billing/money';
+import { PlanCards } from '../billing/PlanCards';
 
 function SectionTitle({ eyebrow, title, sub, left }: { eyebrow: string; title: React.ReactNode; sub?: string; left?: boolean }) {
   return (
@@ -29,7 +32,15 @@ const SIGNALS = [
 
 export function LandingPage() {
   const nav = useNavigate();
+  const { me } = useAuth();
   const [url, setUrl] = useState('');
+  const [pricing, setPricing] = useState<PlansInfo | null>(null);
+  useEffect(() => {
+    api
+      .plans()
+      .then(setPricing)
+      .catch(() => {});
+  }, []);
   const go = (e: React.FormEvent) => {
     e.preventDefault();
     nav(url.trim() ? `/app?url=${encodeURIComponent(url.trim())}` : '/app');
@@ -54,9 +65,20 @@ export function LandingPage() {
             </a>
           ))}
         </nav>
-        <Link to="/app" className={buttonClass('ink', 'sm')}>
-          Open app <ArrowRight size={16} />
-        </Link>
+        {me ? (
+          <Link to="/app" className={buttonClass('ink', 'sm')}>
+            Open app <ArrowRight size={16} />
+          </Link>
+        ) : (
+          <span className="flex items-center gap-1">
+            <Link to="/login" className="hidden rounded-full px-3.5 py-2 font-extrabold text-ink-2 no-underline hover:bg-row hover:text-ink sm:block">
+              Log in
+            </Link>
+            <Link to="/signup" className={buttonClass('ink', 'sm')}>
+              Start free <ArrowRight size={16} />
+            </Link>
+          </span>
+        )}
       </header>
 
       {/* hero */}
@@ -224,34 +246,30 @@ export function LandingPage() {
 
       {/* pricing */}
       <section id="pricing" className="mx-auto max-w-[1180px] pt-24">
-        <SectionTitle eyebrow="Pricing" title="Simple plans that grow with your channel" />
-        <div className="mt-12 grid items-stretch gap-6 md:grid-cols-3">
-          {PLANS.map((p) => (
-            <div
-              key={p.name}
-              className={cn('relative flex flex-col gap-4 rounded-[28px] bg-surface p-8', p.featured ? 'shadow-[0_0_0_3px_var(--tangerine),var(--shadow-clay)] md:-translate-y-3' : 'shadow-clay')}
-            >
-              {p.featured && (
-                <Badge tone="butter" className="absolute -top-3.5 right-5.5">
-                  Most popular
-                </Badge>
+        <SectionTitle
+          eyebrow="Pricing"
+          title="Simple plans that grow with your channel"
+          sub={`Every clip costs ${pricing?.creditsPerClip ?? 5} credits. Edits and re-renders are free, and clips that don’t come out give their credits back.`}
+        />
+        <div className="mt-12">
+          {pricing ? (
+            <PlanCards
+              plans={pricing.plans}
+              action={(p) => (
+                <Link to={p.id === 'free' ? '/signup' : '/signup?next=%2Fapp%2Fbilling'} className={buttonClass(p.id === 'creator' ? 'primary' : 'secondary', 'md', 'w-full')}>
+                  {p.id === 'free' ? 'Start free' : `Start with ${p.name}`}
+                </Link>
               )}
-              <h3 className="text-2xl">{p.name}</h3>
-              <div>
-                <b className="font-display text-5xl">{p.price}</b> <span className="text-ink-3">{p.per}</span>
-              </div>
-              <ul className="flex flex-1 flex-col gap-2.5">
-                {p.points.map((pt) => (
-                  <li key={pt} className="flex items-center gap-2 font-bold">
-                    <Check size={16} className="text-mint-d" /> {pt}
-                  </li>
-                ))}
-              </ul>
-              <Link to="/app" className={buttonClass(p.featured ? 'primary' : 'secondary', 'md', 'w-full')}>
-                {p.cta}
-              </Link>
-            </div>
-          ))}
+            />
+          ) : (
+            <div className="h-96" />
+          )}
+          {pricing && (
+            <p className="mt-6 text-center text-ink-3">
+              Need more in a busy month? Add {pricing.topup.credits} credits ({Math.floor(pricing.topup.credits / pricing.creditsPerClip)} clips) for {money(pricing.topup.price, pricing.currency)} —
+              on any plan.
+            </p>
+          )}
         </div>
       </section>
 

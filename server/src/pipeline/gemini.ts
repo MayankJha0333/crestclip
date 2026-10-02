@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { GoogleGenAI, type Part, ThinkingLevel, MediaResolution } from '@google/genai';
-import { Storage } from '@google-cloud/storage';
 import { config } from '../config.js';
+import { gcs } from '../infra/cloudStore.js';
 import { sleep } from '../lib/proc.js';
 
 /**
@@ -23,17 +23,19 @@ export function ai(): GoogleGenAI {
   return client;
 }
 
-let storage: Storage | null = null;
 export async function uploadToGcs(localPath: string, dest: string, contentType: string): Promise<string> {
   if (!config.gcsBucket) throw new Error('GCS_BUCKET not set');
-  storage ??= new Storage({ projectId: config.gcpProject || undefined });
-  await storage.bucket(config.gcsBucket).upload(localPath, { destination: dest, contentType, resumable: true });
+  await gcs().bucket(config.gcsBucket).upload(localPath, { destination: dest, contentType, resumable: true });
   return `gs://${config.gcsBucket}/${dest}`;
 }
 
 export async function deleteFromGcs(dest: string) {
-  if (!config.gcsBucket || !storage) return;
-  await storage.bucket(config.gcsBucket).file(dest).delete({ ignoreNotFound: true }).catch(() => {});
+  if (!config.gcsBucket) return;
+  await gcs()
+    .bucket(config.gcsBucket)
+    .file(dest)
+    .delete({ ignoreNotFound: true })
+    .catch(() => {});
 }
 
 export const part = {
@@ -98,9 +100,18 @@ export async function generateJson<T>(c: JsonCall): Promise<T> {
       const msg = String((e as Error)?.message ?? e);
       const status = (e as { status?: number })?.status;
       if (status === 400 || /INVALID_ARGUMENT/.test(msg)) {
-        if (useThinking && /think/i.test(msg)) { useThinking = false; continue; }
-        if (schemaField === 'responseJsonSchema' && /schema/i.test(msg)) { schemaField = 'responseSchema'; continue; }
-        if (useMediaRes && /media_?resolution/i.test(msg)) { useMediaRes = false; continue; }
+        if (useThinking && /think/i.test(msg)) {
+          useThinking = false;
+          continue;
+        }
+        if (schemaField === 'responseJsonSchema' && /schema/i.test(msg)) {
+          schemaField = 'responseSchema';
+          continue;
+        }
+        if (useMediaRes && /media_?resolution/i.test(msg)) {
+          useMediaRes = false;
+          continue;
+        }
       }
       const retryable = status === 429 || (status && status >= 500) || /RESOURCE_EXHAUSTED|UNAVAILABLE|DEADLINE|ECONNRESET|fetch failed|Unexpected end of JSON|Unterminated|empty response/i.test(msg);
       if (!retryable || attempt >= 4) break;
@@ -118,10 +129,8 @@ function explain(e: unknown, model: string, label?: string): Error {
   const msg = String((e as Error)?.message ?? e);
   const where = label ? ` during "${label}"` : '';
   if (/API key not valid|API_KEY_INVALID/i.test(msg)) return new Error(`The VERTEX_API_KEY in .env was rejected${where}.`);
-  if (/Could not load the default credentials|invalid_grant|UNAUTHENTICATED/i.test(msg))
-    return new Error(`Google Cloud login is missing${where}. Run: gcloud auth application-default login`);
-  if (/PERMISSION_DENIED|403/i.test(msg))
-    return new Error(`Vertex AI said "permission denied"${where}. Enable aiplatform.googleapis.com and give your account the "Vertex AI User" role.`);
+  if (/Could not load the default credentials|invalid_grant|UNAUTHENTICATED/i.test(msg)) return new Error(`Google Cloud login is missing${where}. Run: gcloud auth application-default login`);
+  if (/PERMISSION_DENIED|403/i.test(msg)) return new Error(`Vertex AI said "permission denied"${where}. Enable aiplatform.googleapis.com and give your account the "Vertex AI User" role.`);
   if (/NOT_FOUND|404/i.test(msg) && /model/i.test(msg))
     return new Error(`Model "${model}" was not found in location "${config.gcpLocation}"${where}. Check GEMINI_MODEL / GOOGLE_CLOUD_LOCATION in .env.`);
   return new Error(`Gemini error${where}: ${msg.slice(0, 400)}`);

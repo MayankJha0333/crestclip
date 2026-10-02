@@ -10,6 +10,9 @@ import { AutopilotListPage } from '../features/autopilot/AutopilotListPage';
 import { AutopilotEditorPage } from '../features/autopilot/AutopilotEditorPage';
 import { AutopilotDetailPage } from '../features/autopilot/AutopilotDetailPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
+import { AuthPage } from '../features/auth/AuthPage';
+import { RequireAuth } from '../features/auth/auth';
+import { BillingPage } from '../features/billing/BillingPage';
 
 /** Old "Publishing" page: accounts moved to Settings (keep any ?connected= / ?error= from OAuth). */
 function LegacyAccounts() {
@@ -19,9 +22,15 @@ function LegacyAccounts() {
 
 export const router = createBrowserRouter([
   { path: '/', element: <LandingPage /> },
+  { path: '/login', element: <AuthPage mode="login" /> },
+  { path: '/signup', element: <AuthPage mode="signup" /> },
   {
     path: '/app',
-    element: <AppLayout />,
+    element: (
+      <RequireAuth>
+        <AppLayout />
+      </RequireAuth>
+    ),
     children: [
       { index: true, element: <NewClipsPage /> },
       { path: 'explore', element: <ExplorePage /> },
@@ -33,6 +42,7 @@ export const router = createBrowserRouter([
       { path: 'autopilot/:id', element: <AutopilotDetailPage /> },
       { path: 'autopilot/:id/edit', element: <AutopilotEditorPage /> },
       { path: 'settings', element: <SettingsPage /> },
+      { path: 'billing', element: <BillingPage /> },
       { path: 'accounts', element: <LegacyAccounts /> },
       { path: '*', element: <Navigate to="/app" replace /> },
     ],

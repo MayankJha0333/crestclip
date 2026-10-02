@@ -30,20 +30,15 @@ export const STEPS: { tint: Tint; title: string; text: string }[] = [
   { tint: 'clay-mint', title: 'Post the winners', text: 'Get vertical 1080×1920 clips with captions, a hook and a score — ranked, editable, and ready to post or schedule.' },
 ];
 
-export const PLANS = [
-  { name: 'Starter', price: '$0', per: 'forever', points: ['30 min of video / month', '720p exports with watermark', 'All caption styles', 'Crest score + reasons'], cta: 'Start free' },
-  {
-    name: 'Creator',
-    price: '$15',
-    per: '/ month',
-    points: ['300 min of video / month', '1080p, no watermark', '“Most replayed” + comment signals', 'Variants & split-screen'],
-    cta: 'Go Creator',
-    featured: true,
-  },
-  { name: 'Clipper Pro', price: '$39', per: '/ month', points: ['1,200 min of video / month', 'Priority rendering', 'Autopilot posting', 'Campaign-ready variants'], cta: 'Go Pro' },
-];
-
 export const FAQ = [
+  {
+    q: 'How do credits work?',
+    a: 'Every clip CrestClip makes costs 5 credits. Ask for 8 clips from a podcast and it uses 40 credits; if only 6 good moments come out, you pay for 6 and the rest comes back. Editing and re-rendering clips is free, and if a video fails, all its credits come back. Free gives you 60 credits (12 clips) a month; Creator 400 (80 clips); Pro 1,000 (200 clips). Paid plans carry unused credits over one month.',
+  },
+  {
+    q: 'How long are my clips kept?',
+    a: 'Every project — the video, its clips and edits — is kept for 7 days after you make it, safely stored in the cloud. After that it’s deleted automatically, so download your clips or post them before then. Each project shows how many days it has left. Clips that are still scheduled to post are kept until they go out.',
+  },
   {
     q: 'How do you know which part is the most watched?',
     a: 'For YouTube videos with enough views, YouTube publishes a “Most replayed” graph — 100 points showing where viewers rewind and rewatch. CrestClip reads it, adds timestamps viewers write in comments (“12:41 😂”), and mixes in audio energy (laughter, raised voices). New videos and uploads have no replay data, so CrestClip leans on Gemini and the audio instead — the chart tells you which one you’re looking at.',

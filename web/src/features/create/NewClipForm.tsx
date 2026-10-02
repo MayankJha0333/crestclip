@@ -11,7 +11,9 @@ import { ClipSettings } from '../clip-settings/ClipSettings';
 import { LENGTHS } from '../clip-settings/options';
 import { fmtBytes, previewInstructions, splitLinks } from './instructions';
 import { detectLink } from './links';
-import { LinkList, MAX_VIDEOS } from './LinkList';
+import { LinkList } from './LinkList';
+import { useAccount, useAuth } from '../auth/auth';
+import { UpgradeCallout } from '../billing/UpgradeCallout';
 import { LivePreview } from './LivePreview';
 
 const MAX_MB = 4096;
@@ -79,10 +81,20 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
   const abort = useRef<AbortController | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const fileDur = useFileDuration(file);
+  const account = useAccount();
+  const { refresh } = useAuth();
+  const plan = account.plan;
+  const MAX_VIDEOS = plan.maxVideosPerProject;
+  const balance = account.credits.balance;
+  // what this will cost: credits per clip × clips × videos (unused clips are given back)
+  const perClip = account.credits.perClip;
+  const tooLong = mode === 'upload' && fileDur != null && fileDur > plan.maxVideoMinutes * 60;
 
   // links in the list, plus one still being typed (counts too, so Enter isn't required)
   const links = [...new Set([...items, ...splitLinks(draft)])].slice(0, MAX_VIDEOS);
   const many = links.length > 1;
+  const videos = mode === 'upload' ? 1 : Math.max(1, links.length);
+  const cost = opts.clipCount * perClip * videos;
   const linkInfos = links.map((u) => ({ url: u, info: detectLink(u) }));
   const brief = previewInstructions(instructions);
   const newFromBrief = brief.links.filter((u) => !links.includes(u));
@@ -113,9 +125,11 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
         if (many) {
           const r = await api.createFromUrls(links, send);
           toast(`Clipping ${r.projects.length} videos into one project`);
+          void refresh();
           return nav(`/app/p/${r.project.id}`);
         }
         const p = await api.createFromUrl(links[0], send);
+        void refresh();
         return nav(`/app/p/${p.id}`);
       }
       if (!file) throw new Error('Choose a video file first');
@@ -123,6 +137,7 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
       abort.current = new AbortController();
       setUpload({ pct: 0, loaded: 0, total: file.size, speed: 0 });
       const p = await api.upload(file, send, (pct, loaded, total) => setUpload({ pct, loaded, total, speed: loaded / Math.max(0.5, (Date.now() - started) / 1000) }), abort.current.signal);
+      void refresh();
       nav(`/app/p/${p.id}`);
     } catch (err) {
       setError((err as Error).message);
@@ -177,7 +192,7 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
           title={mode === 'upload' ? 'Upload your video' : links.length > 1 ? `Your videos · ${links.length}` : 'Add your videos'}
           hint={
             <span className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-              {mode === 'upload' ? 'One file at a time — or drop it anywhere on this card.' : 'One link or many (up to 15) — they all go into one project.'}
+              {mode === 'upload' ? 'One file at a time — or drop it anywhere on this card.' : `One link or many (up to ${MAX_VIDEOS}) — they all go into one project.`}
               <Segmented
                 label="Source"
                 size="sm"
@@ -206,7 +221,16 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
           }
         >
           {mode === 'link' ? (
-            <LinkList items={items} onItems={setItems} draft={draft} onDraft={setDraft} onFile={pickFile} onSubmit={() => submit()} />
+            <LinkList
+              max={MAX_VIDEOS}
+              upgradeHint={plan.id === 'free' ? 'Creator and Pro hold up to 15.' : null}
+              items={items}
+              onItems={setItems}
+              draft={draft}
+              onDraft={setDraft}
+              onFile={pickFile}
+              onSubmit={() => submit()}
+            />
           ) : (
             <div
               role="button"
@@ -341,6 +365,9 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
                   <Plus size={14} />
                 </Button>
               </div>
+              <small className="mt-1 block text-xs text-ink-3">
+                {opts.clipCount * perClip} credits{videos > 1 ? ' per video' : ''}
+              </small>
             </div>
             <label className="flex flex-col">
               <FieldLabel>Length</FieldLabel>
@@ -372,13 +399,32 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
             <AlertTriangle size={16} className="mt-0.5 shrink-0" /> {error}
           </p>
         )}
-        <div>
-          <Button type="submit" variant="primary" size="lg" loading={busy} className="w-full">
-            {!busy && <Wand2 size={20} />}
-            {submitLabel}
-          </Button>
-          <p className="mt-2.5 text-center text-xs text-ink-3">{videoReady ? 'Usually ready in a few minutes' : 'Add a video to start'} · Gemini on your Google Cloud credits</p>
-        </div>
+        {tooLong && (
+          <UpgradeCallout title={`This video is ${Math.round(fileDur! / 60)} min long`} cta="Upgrade">
+            The {plan.name} plan clips videos up to {plan.maxVideoMinutes} min.
+          </UpgradeCallout>
+        )}
+        {balance < perClip ? (
+          <UpgradeCallout title="You’re out of credits" cta="Get credits">
+            Buy a top-up or upgrade to keep clipping
+            {account.cycleEnd ? ` — or wait for your free credits on ${new Date(account.cycleEnd).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}` : ''}.
+          </UpgradeCallout>
+        ) : (
+          <div>
+            <Button type="submit" variant="primary" size="lg" loading={busy} disabled={tooLong} className="w-full">
+              {!busy && <Wand2 size={20} />}
+              {submitLabel}
+            </Button>
+            <p className="mt-2.5 text-center text-xs text-ink-3">
+              Uses up to {cost.toLocaleString()} credits ({perClip} per clip) · you have {balance.toLocaleString()}
+              {cost > balance && (
+                <b className="mt-1 block text-warn-ink">
+                  Enough for {Math.floor(balance / perClip)} clip{Math.floor(balance / perClip) === 1 ? '' : 's'} — ask for fewer, or top up first.
+                </b>
+              )}
+            </p>
+          </div>
+        )}
       </aside>
     </form>
   );

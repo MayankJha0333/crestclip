@@ -1,5 +1,6 @@
 import fs from 'node:fs';
-import { clips, projects, type ClipRow, type ProjectRow } from '../../db/index.js';
+import { clips, projects, type ClipRow, type ProjectRow, type UserRow } from '../../db/index.js';
+import { ensureLocal } from '../../infra/cloudStore.js';
 import { enqueueRender } from '../../infra/queue.js';
 import { HttpError } from '../../lib/http.js';
 import type { ClipPatch } from './clips.schemas.js';
@@ -8,23 +9,17 @@ import type { ClipPatch } from './clips.schemas.js';
 const RENDER_KEYS = ['hook', 'start', 'end', 'layout', 'captionStyle', 'showHook', 'motion', 'music', 'pace', 'emoji', 'flashForward'] as const;
 const VARIANT_STYLES = ['pop', 'clay', 'neon', 'comic', 'minimal'];
 
-function getClip(id: string): ClipRow {
-  const c = clips.get(id);
-  if (!c) throw new HttpError(404, 'Clip not found');
-  return c;
-}
-
-/** The clip and the project it was cut from (404 if either is gone). */
-export function getClipWithProject(id: string): { clip: ClipRow; project: ProjectRow } {
+/** The clip and the project it was cut from — only for the person who owns them (404 otherwise). */
+export function getClipWithProject(id: string, user: UserRow): { clip: ClipRow; project: ProjectRow } {
   const clip = clips.get(id);
   const project = clip && projects.get(clip.projectId);
-  if (!clip || !project) throw new HttpError(404, 'Clip not found');
+  if (!clip || !project || project.userId !== user.id) throw new HttpError(404, 'Clip not found');
   return { clip, project };
 }
 
 /** Transcript lines around a clip (for the trim editor). */
-export function clipTranscript(id: string) {
-  const { clip: c, project: p } = getClipWithProject(id);
+export function clipTranscript(id: string, user: UserRow) {
+  const { clip: c, project: p } = getClipWithProject(id, user);
   const pad = 30;
   const segs = (p.transcript ?? []).filter((s) => s.e >= c.start - pad && s.s <= c.end + pad).map((s) => ({ s: s.s, e: s.e, text: s.text, speaker: s.speaker }));
   return { start: c.start, end: c.end, duration: p.duration, segments: segs };
@@ -60,16 +55,16 @@ export function updateClip(c: ClipRow, p: ProjectRow, edit: ClipPatch): ClipRow 
 }
 
 /** Render again from scratch (the framing is worked out again too). */
-export function rerenderClip(id: string): ClipRow {
-  const c = getClip(id);
+export function rerenderClip(id: string, user: UserRow): ClipRow {
+  const { clip: c } = getClipWithProject(id, user);
   clips.update(c.id, { status: 'pending', reframe: null });
   enqueueRender(c.id);
   return clips.get(c.id)!;
 }
 
 /** Same moment with the next caption style — posting variations avoids duplicate-content flags. */
-export function createVariant(id: string): ClipRow {
-  const c = getClip(id);
+export function createVariant(id: string, user: UserRow): ClipRow {
+  const { clip: c } = getClipWithProject(id, user);
   const nextStyle = VARIANT_STYLES[(VARIANT_STYLES.indexOf(c.captionStyle) + 1) % VARIANT_STYLES.length];
   const v = clips.duplicate(c.id, { captionStyle: nextStyle, titleSuffix: ' (variant)' });
   if (!v) throw new HttpError(500, 'Could not create variant');
@@ -78,13 +73,13 @@ export function createVariant(id: string): ClipRow {
 }
 
 /** The rendered file and a safe download name for it. */
-export function clipDownload(id: string): { file: string; name: string } {
-  const c = clips.get(id);
-  if (!c?.filePath || !fs.existsSync(c.filePath)) throw new HttpError(404, 'This clip is not rendered yet.');
+export async function clipDownload(id: string, user: UserRow): Promise<{ file: string; name: string }> {
+  const { clip: c } = getClipWithProject(id, user);
+  if (!(await ensureLocal(c.filePath))) throw new HttpError(404, 'This clip is not rendered yet.');
   const safe =
     (c.title || 'clip')
       .replace(/[^\p{L}\p{N} _-]+/gu, '')
       .trim()
       .slice(0, 60) || 'clip';
-  return { file: c.filePath, name: `${safe}.mp4` };
+  return { file: c.filePath!, name: `${safe}.mp4` };
 }

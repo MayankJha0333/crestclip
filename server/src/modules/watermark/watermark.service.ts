@@ -7,14 +7,17 @@ export { removeWatermarkLogo, updateWatermark } from '../../pipeline/watermark.j
 const IMAGE = /^image\/(png|jpe?g|webp)$/;
 
 /** Turn an uploaded image into the watermark logo. */
-export async function uploadLogo(file: { path: string; originalname: string; mimetype: string }) {
+export async function uploadLogo(userId: string, file: { path: string; originalname: string; mimetype: string }) {
   if (!IMAGE.test(file.mimetype)) {
     fs.rmSync(file.path, { force: true });
     throw new HttpError(400, 'Use a PNG, JPG or WebP image. A PNG with a see-through background looks best.');
   }
   try {
-    return await setWatermarkLogo(file.path, file.originalname);
+    return await setWatermarkLogo(userId, file.path, file.originalname);
   } catch {
     throw new HttpError(400, 'That image couldn’t be read. Try saving it again as a PNG.');
   }
 }
+
+/** An upload that won't be used. */
+export const discardUpload = (p: string) => fs.rmSync(p, { force: true });

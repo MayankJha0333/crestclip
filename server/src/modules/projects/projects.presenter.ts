@@ -15,6 +15,8 @@ export function publicProject(p: ProjectRow, withDetail = false) {
   return {
     id: p.id,
     createdAt: p.createdAt,
+    /** when it's deleted (with all its clips) — the storage time */
+    expiresAt: p.expiresAt,
     sourceType: p.sourceType,
     parentId: p.parentId,
     sourceUrl: p.sourceUrl,
@@ -29,6 +31,9 @@ export function publicProject(p: ProjectRow, withDetail = false) {
     stageDetail: p.stageDetail,
     progress: p.progress,
     error: p.error,
+    /** 'credits' | 'plan_limit' — the person can fix it by upgrading */
+    errorCode: p.errorCode,
+    creditsCharged: p.creditsCharged,
     options: p.options,
     thumbUrl: toMediaUrl(p.thumbPath),
     ...(withDetail
@@ -76,7 +81,9 @@ function groupSummary(g: ProjectRow) {
         : failed
           ? 'All videos failed'
           : `${kids.length} videos`,
-      error: failed ? kids[0]?.error ?? null : null,
+      error: failed ? (kids[0]?.error ?? null) : null,
+      errorCode: kids.find((k) => k.status === 'failed' && k.errorCode)?.errorCode ?? null,
+      creditsCharged: kids.reduce((a, k) => a + k.creditsCharged, 0),
       duration: kids.reduce((a, k) => a + (k.duration ?? 0), 0) || null,
       thumbUrl: first ? toMediaUrl(first.thumbPath) : null,
       videoCount: kids.length,

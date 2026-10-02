@@ -1,4 +1,4 @@
-import { clips, connections, type ConnectionRow, type PostRow } from '../../db/index.js';
+import { clips, connections, type ConnectionRow, type PostRow, type UserRow } from '../../db/index.js';
 import { toMediaUrl } from '../../lib/paths.js';
 import { isConfigured, redirectUri } from './providers/index.js';
 import { tokenExpiry } from './publishing.service.js';
@@ -8,9 +8,9 @@ function publicConnection(c: ConnectionRow) {
 }
 
 /** Connected accounts + whether each platform is set up (and the return link to register with it). */
-export function publicConnections() {
+export function publicConnections(user: UserRow) {
   return {
-    accounts: connections.list().map(publicConnection),
+    accounts: connections.list(user.id).map(publicConnection),
     platforms: {
       youtube: { configured: isConfigured('youtube'), redirectUri: redirectUri('youtube') },
       instagram: { configured: isConfigured('instagram'), redirectUri: redirectUri('instagram'), needsHttps: !redirectUri('instagram').startsWith('https://') },

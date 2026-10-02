@@ -41,3 +41,11 @@ export function timeAgo(ms: number) {
   if (d < 86400) return `${Math.floor(d / 3600)} h ago`;
   return `${Math.floor(d / 86400)} d ago`;
 }
+
+/** Storage time left: "Deletes in 5 days" (soon = today or tomorrow). */
+export function deletesIn(expiresAt: number | null | undefined): { text: string; until: string; soon: boolean } | null {
+  if (!expiresAt) return null;
+  const days = Math.ceil((expiresAt - Date.now()) / 86400_000);
+  const until = new Date(expiresAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  return { text: days <= 0 ? 'Deletes today' : days === 1 ? 'Deletes tomorrow' : `Deletes in ${days} days`, until, soon: days <= 1 };
+}

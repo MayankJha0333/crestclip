@@ -26,6 +26,8 @@ export interface Watermark {
   position: WatermarkPosition;
   size: WatermarkSize;
   opacity: number; // 20-100 (%)
+  /** the plan doesn't include your own logo (Free clips carry the CrestClip mark) */
+  locked: boolean;
 }
 export type WatermarkPatch = Partial<Pick<Watermark, 'enabled' | 'position' | 'size' | 'opacity'>>;
 
@@ -117,6 +119,8 @@ export interface Clip {
 export interface Project {
   id: string;
   createdAt: number;
+  /** when the project and its clips are deleted (storage time) */
+  expiresAt?: number | null;
   sourceType: 'url' | 'upload' | 'group';
   /** set on a video that belongs to a multi-video project */
   parentId?: string | null;
@@ -137,6 +141,10 @@ export interface Project {
   download?: { downloaded: number; full: number | null } | null;
   progress: number;
   error: string | null;
+  /** set when the person can fix the failure by upgrading or buying credits */
+  errorCode?: 'credits' | 'plan_limit' | null;
+  /** credits this video used */
+  creditsCharged?: number;
   options: ProjectOptions;
   thumbUrl: string | null;
   clipCount?: number;
@@ -347,3 +355,74 @@ export interface SchedulerStatus {
   running: boolean;
 }
 export type AutopilotInput = AutopilotConfig & { name: string };
+
+// ---------------- accounts, plans & credits ----------------
+export type PlanId = 'free' | 'creator' | 'pro';
+export interface Plan {
+  id: PlanId;
+  name: string;
+  tagline: string;
+  price: number;
+  currency: string;
+  /** credits added every month */
+  credits: number;
+  /** clips those credits make (credits ÷ credits per clip) */
+  clips: number;
+  rollover: boolean;
+  maxVideoMinutes: number;
+  maxVideosPerProject: number;
+  crestclipWatermark: boolean;
+  customLogo: boolean;
+  exportHeight: number;
+  scheduling: boolean;
+  autopilot: boolean;
+  points: string[];
+}
+export interface PlansInfo {
+  currency: string;
+  creditsPerClip: number;
+  plans: Plan[];
+  topup: { credits: number; price: number; validDays: number };
+}
+export interface BillingAccount {
+  plan: Plan;
+  cycleStart: number | null;
+  cycleEnd: number | null;
+  cancelAtPeriodEnd: boolean;
+  hasSubscription: boolean;
+  credits: { perClip: number; balance: number; monthly: number; usedThisMonth: number; grants: { source: 'plan' | 'topup' | 'bonus' | 'refund'; remaining: number; expiresAt: number }[] };
+  paymentsReady: boolean;
+}
+export interface Me {
+  user: { id: string; email: string; name: string | null; avatar: string | null; isAdmin: boolean; hasPassword: boolean; google: boolean };
+  account: BillingAccount;
+}
+export interface CreditEvent {
+  id: string;
+  delta: number;
+  kind: 'grant' | 'topup' | 'spend' | 'refund' | 'adjust';
+  note: string | null;
+  projectId: string | null;
+  refunded: boolean;
+  createdAt: number;
+}
+export interface Payment {
+  id: string;
+  kind: 'subscription' | 'topup';
+  plan: string | null;
+  amount: number | null;
+  currency: string | null;
+  createdAt: number;
+}
+export interface AdminUser {
+  id: string;
+  email: string;
+  name: string | null;
+  isAdmin: boolean;
+  plan: PlanId;
+  paying: boolean;
+  balance: number;
+  createdAt: number;
+}
+/** What the browser needs to open Razorpay Checkout. */
+export type CheckoutStart = { key: string; subscriptionId: string; plan: PlanId; description: string } | { key: string; orderId: string; amount: number; currency: string; description: string };

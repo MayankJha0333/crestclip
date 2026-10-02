@@ -23,12 +23,32 @@ export interface Mood {
 }
 
 const MOODS: Mood[] = [
-  { id: 'chill', label: 'Chill lo-fi', hint: 'Podcasts, stories, calm talks', prompt: 'Chill lo-fi hip hop instrumental, warm Rhodes piano chords, soft dusty drums, mellow bass, relaxed and cozy, 85 BPM' },
+  {
+    id: 'chill',
+    label: 'Chill lo-fi',
+    hint: 'Podcasts, stories, calm talks',
+    prompt: 'Chill lo-fi hip hop instrumental, warm Rhodes piano chords, soft dusty drums, mellow bass, relaxed and cozy, 85 BPM',
+  },
   { id: 'upbeat', label: 'Upbeat', hint: 'Relatable, feel-good moments', prompt: 'Upbeat feel-good pop instrumental, bright plucky synths, claps and punchy drums, positive and catchy, 118 BPM' },
-  { id: 'inspiring', label: 'Inspiring', hint: 'Insights, motivation, big ideas', prompt: 'Inspiring cinematic instrumental, hopeful piano motif with warm strings slowly building, motivational, modern documentary style' },
+  {
+    id: 'inspiring',
+    label: 'Inspiring',
+    hint: 'Insights, motivation, big ideas',
+    prompt: 'Inspiring cinematic instrumental, hopeful piano motif with warm strings slowly building, motivational, modern documentary style',
+  },
   { id: 'hype', label: 'Hype', hint: 'Sports, gaming, high energy', prompt: 'High-energy trap instrumental, hard hitting drums, deep 808 bass, bold synth lead, intense and confident, 140 BPM' },
-  { id: 'suspense', label: 'Suspense', hint: 'Surprising facts, hot takes', prompt: 'Suspenseful dark instrumental, ticking percussion, low pulsing synth bass, tense strings, mysterious documentary tension' },
-  { id: 'funny', label: 'Funny', hint: 'Comedy, awkward moments', prompt: 'Playful quirky comedic instrumental, pizzicato strings, bouncy tuba and bassoon, light percussion, cartoon-like and cheeky' },
+  {
+    id: 'suspense',
+    label: 'Suspense',
+    hint: 'Surprising facts, hot takes',
+    prompt: 'Suspenseful dark instrumental, ticking percussion, low pulsing synth bass, tense strings, mysterious documentary tension',
+  },
+  {
+    id: 'funny',
+    label: 'Funny',
+    hint: 'Comedy, awkward moments',
+    prompt: 'Playful quirky comedic instrumental, pizzicato strings, bouncy tuba and bassoon, light percussion, cartoon-like and cheeky',
+  },
   { id: 'emotional', label: 'Emotional', hint: 'Heartfelt, vulnerable moments', prompt: 'Emotional soft piano instrumental, gentle and heartfelt, slow tempo, reflective with light ambient pads' },
   { id: 'tech', label: 'Clean tech', hint: 'Business, tech, tutorials', prompt: 'Clean modern corporate tech instrumental, light electronic beat, airy synth pads, optimistic and focused, 110 BPM' },
 ];
@@ -59,7 +79,8 @@ const CATEGORY_MOOD: Record<string, string> = {
 
 const root = () => path.join(config.dataDir, 'music');
 const aiDir = () => path.join(root(), 'ai');
-const upDir = () => path.join(root(), 'uploads');
+/** Each person's own tracks live in <data>/music/uploads/<userId>; the AI mood tracks are shared. */
+const upDir = (userId: string) => path.join(root(), 'uploads', userId.replace(/[^\w-]/g, ''));
 const aiFile = (mood: string) => path.join(aiDir(), `${mood}.m4a`);
 
 export interface Upload {
@@ -68,47 +89,70 @@ export interface Upload {
   file: string;
   createdAt: number;
 }
-function readUploads(): Upload[] {
+function readUploads(userId: string): Upload[] {
   try {
-    return (JSON.parse(fs.readFileSync(path.join(upDir(), 'index.json'), 'utf8')) as Upload[]).filter((u) => fs.existsSync(u.file));
+    return (JSON.parse(fs.readFileSync(path.join(upDir(userId), 'index.json'), 'utf8')) as Upload[]).filter((u) => fs.existsSync(u.file));
   } catch {
     return [];
   }
 }
-function writeUploads(list: Upload[]) {
-  fs.mkdirSync(upDir(), { recursive: true });
-  fs.writeFileSync(path.join(upDir(), 'index.json'), JSON.stringify(list, null, 1));
+function writeUploads(userId: string, list: Upload[]) {
+  fs.mkdirSync(upDir(userId), { recursive: true });
+  fs.writeFileSync(path.join(upDir(userId), 'index.json'), JSON.stringify(list, null, 1));
 }
 
-export function musicLibrary() {
+/** Tracks uploaded before accounts existed (<data>/music/uploads/index.json) become the first account's. */
+export function adoptLegacyUploads(userId: string) {
+  const legacy = path.join(root(), 'uploads', 'index.json');
+  if (!fs.existsSync(legacy)) return;
+  try {
+    const list = (JSON.parse(fs.readFileSync(legacy, 'utf8')) as Upload[]).filter((u) => fs.existsSync(u.file));
+    fs.mkdirSync(upDir(userId), { recursive: true });
+    for (const u of list) {
+      const moved = path.join(upDir(userId), path.basename(u.file));
+      fs.renameSync(u.file, moved);
+      if (fs.existsSync(`${u.file}.ok`)) fs.renameSync(`${u.file}.ok`, `${moved}.ok`);
+      u.file = moved;
+    }
+    writeUploads(userId, list);
+    fs.rmSync(legacy, { force: true });
+  } catch (e) {
+    console.warn('[music] could not move old uploads:', (e as Error).message);
+  }
+}
+
+export function musicLibrary(userId: string) {
   return {
     moods: MOODS.map((m) => ({ id: m.id, label: m.label, hint: m.hint, ready: fs.existsSync(aiFile(m.id)), file: fs.existsSync(aiFile(m.id)) ? aiFile(m.id) : null })),
-    uploads: readUploads().map((u) => ({ id: u.id, name: u.name, file: u.file })),
+    uploads: readUploads(userId).map((u) => ({ id: u.id, name: u.name, file: u.file })),
     status: { ...lyriaStatus },
   };
 }
 
 /** Save an uploaded track (converted to AAC so every browser can preview it). */
-export async function addUpload(tmpPath: string, originalName: string): Promise<Upload> {
-  fs.mkdirSync(upDir(), { recursive: true });
+export async function addUpload(userId: string, tmpPath: string, originalName: string): Promise<Upload> {
+  fs.mkdirSync(upDir(userId), { recursive: true });
   const id = randomUUID().slice(0, 10);
-  const file = path.join(upDir(), `${id}.m4a`);
+  const file = path.join(upDir(userId), `${id}.m4a`);
   await run(config.ffmpeg, ['-y', '-v', 'error', '-i', tmpPath, '-vn', '-t', '600', '-af', LEVEL, '-ac', '2', '-ar', '48000', '-c:a', 'aac', '-b:a', '192k', file], { timeoutMs: 180_000 });
   fs.writeFileSync(`${file}.ok`, '');
   fs.rmSync(tmpPath, { force: true });
   const u: Upload = { id, name: originalName.replace(/\.[^.]+$/, '').slice(0, 80) || 'My track', file, createdAt: Date.now() };
-  writeUploads([u, ...readUploads()]);
+  writeUploads(userId, [u, ...readUploads(userId)]);
   return u;
 }
 
-export function removeUpload(id: string) {
-  const list = readUploads();
+export function removeUpload(userId: string, id: string) {
+  const list = readUploads(userId);
   const u = list.find((x) => x.id === id);
   if (u) {
     fs.rmSync(u.file, { force: true });
     fs.rmSync(`${u.file}.ok`, { force: true });
   }
-  writeUploads(list.filter((x) => x.id !== id));
+  writeUploads(
+    userId,
+    list.filter((x) => x.id !== id),
+  );
 }
 
 // ---------------- Lyria (Vertex AI) ----------------
@@ -154,8 +198,7 @@ async function lyriaGenerate(prompt: string, seed: number): Promise<Buffer> {
 async function synthPlaceholder(out: string, mood: string) {
   const roots: Record<string, number[]> = { chill: [220, 174.6, 196, 164.8], upbeat: [261.6, 196, 220, 174.6] };
   const r = roots[mood] ?? [196, 220, 174.6, 261.6];
-  const chord = (f: number, t0: number) =>
-    `(0.10*sin(2*PI*${f}*t)+0.07*sin(2*PI*${f * 1.26}*t)+0.06*sin(2*PI*${f * 1.5}*t))*between(mod(t,8),${t0},${t0 + 2})`;
+  const chord = (f: number, t0: number) => `(0.10*sin(2*PI*${f}*t)+0.07*sin(2*PI*${f * 1.26}*t)+0.06*sin(2*PI*${f * 1.5}*t))*between(mod(t,8),${t0},${t0 + 2})`;
   const expr = r.map((f, i) => chord(f, i * 2)).join('+');
   const beat = `0.25*sin(2*PI*55*t)*exp(-18*mod(t,0.5))`;
   await run(config.ffmpeg, ['-y', '-v', 'error', '-f', 'lavfi', '-i', `aevalsrc='${expr}+${beat}':s=48000:d=30`, '-ac', '2', '-c:a', 'aac', '-b:a', '160k', out], { timeoutMs: 60_000 });
@@ -165,7 +208,26 @@ async function synthPlaceholder(out: string, mood: string) {
 async function extendTrack(wav: string, out: string) {
   await run(
     config.ffmpeg,
-    ['-y', '-v', 'error', '-i', wav, '-i', wav, '-i', wav, '-filter_complex', `[0:a][1:a]acrossfade=d=3:c1=tri:c2=tri[a01];[a01][2:a]acrossfade=d=3:c1=tri:c2=tri,${LEVEL}[a]`, '-map', '[a]', '-c:a', 'aac', '-b:a', '192k', out],
+    [
+      '-y',
+      '-v',
+      'error',
+      '-i',
+      wav,
+      '-i',
+      wav,
+      '-i',
+      wav,
+      '-filter_complex',
+      `[0:a][1:a]acrossfade=d=3:c1=tri:c2=tri[a01];[a01][2:a]acrossfade=d=3:c1=tri:c2=tri,${LEVEL}[a]`,
+      '-map',
+      '[a]',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '192k',
+      out,
+    ],
     { timeoutMs: 120_000 },
   );
 }
@@ -208,10 +270,10 @@ export function generateMood(moodId: string, fresh = false): Promise<string> {
 }
 
 /** Resolve a clip's music setting to a local audio file (generating the mood track the first time). */
-export async function resolveMusic(track: string, category: string): Promise<{ file: string; label: string } | null> {
+export async function resolveMusic(track: string, category: string, userId: string | null): Promise<{ file: string; label: string } | null> {
   if (!track || track === 'none') return null;
   if (track.startsWith('upload:')) {
-    const u = readUploads().find((x) => x.id === track.slice(7));
+    const u = userId ? readUploads(userId).find((x) => x.id === track.slice(7)) : null;
     if (!u) throw new Error('The uploaded music track was deleted.');
     await ensureLevelled(u.file);
     return { file: u.file, label: u.name };

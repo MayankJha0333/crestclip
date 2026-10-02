@@ -71,6 +71,26 @@ export const config = {
     return (env('INSTAGRAM_REDIRECT_BASE') || (this.publicUrl.startsWith('https://') ? this.publicUrl : `https://localhost:${this.httpsPort}`)).replace(/\/$/, '');
   },
   secretKey: env('SECRET_KEY'),
+
+  // Accounts
+  /** emails that are admins (comma-separated). The very first account is always an admin. */
+  adminEmails: env('ADMIN_EMAILS')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean),
+  allowSignups: env('ALLOW_SIGNUPS', 'true') !== 'false',
+  /** "Continue with Google": its own OAuth client, or the YouTube one (add the extra redirect URL to it — see README) */
+  googleLoginClientId: env('GOOGLE_LOGIN_CLIENT_ID') || env('YOUTUBE_CLIENT_ID'),
+  googleLoginClientSecret: env('GOOGLE_LOGIN_CLIENT_ID') ? env('GOOGLE_LOGIN_CLIENT_SECRET') : env('YOUTUBE_CLIENT_SECRET'),
+
+  // Payments (Razorpay) — see README → "Plans, credits & payments"
+  razorpayKeyId: env('RAZORPAY_KEY_ID'),
+  razorpayKeySecret: env('RAZORPAY_KEY_SECRET'),
+  razorpayWebhookSecret: env('RAZORPAY_WEBHOOK_SECRET'),
+  razorpayPlanCreator: env('RAZORPAY_PLAN_CREATOR'),
+  razorpayPlanPro: env('RAZORPAY_PLAN_PRO'),
+  /** currency your Razorpay plans and top-ups are priced in (must match the plans you created) */
+  currency: env('BILLING_CURRENCY', 'USD').toUpperCase(),
   dataDir: path.resolve(REPO_ROOT, env('DATA_DIR', 'data')),
   fontsDir: path.join(SERVER_ROOT, 'assets', 'fonts'),
   webDist: path.join(REPO_ROOT, 'web', 'dist'),
@@ -83,6 +103,10 @@ export const config = {
   model: env('GEMINI_MODEL', 'gemini-3.8-flash'),
   fastModel: env('GEMINI_FAST_MODEL', 'gemini-3.5-flash-lite'),
   gcsBucket: env('GCS_BUCKET'),
+  /** keep a copy of every rendered clip in GCS_BUCKET (so clips survive a lost disk and can be served from the cloud) */
+  cloudClips: env('CLOUD_CLIPS', 'true') !== 'false',
+  /** projects (video, clips, files — here and in the bucket) are deleted this many days after they're made */
+  retentionDays: num('RETENTION_DAYS', 7),
   sendVideoToGemini: env('GEMINI_SEND_VIDEO', 'true') !== 'false',
   fakeAi: (env('CRESTCLIP_FAKE_AI') || env('PEAKCLIP_FAKE_AI')) === '1', // old name still works
 

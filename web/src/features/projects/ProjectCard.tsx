@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
-import { AlertTriangle, Clock, Film, Layers, Trash2 } from 'lucide-react';
+import { AlertTriangle, Clock, Film, Hourglass, Layers, Trash2 } from 'lucide-react';
 import type { Project } from '../../lib/api';
-import { fmtTime, timeAgo } from '../../lib/format';
+import { deletesIn, fmtTime, timeAgo } from '../../lib/format';
 import { Badge, Button, Progress } from '../../components/ui';
 import { ScoreRing } from '../../components/brand/ScoreRing';
 
@@ -15,11 +15,19 @@ function statusLine(p: Project) {
 
 export function ProjectCard({ p, onDelete }: { p: Project; onDelete: (p: Project) => void }) {
   const working = isWorking(p);
+  const left = deletesIn(p.expiresAt);
   return (
     <article className="group relative animate-pop-in rounded-[26px] bg-surface p-3 pb-4 shadow-clay transition-transform duration-300 ease-(--ease-squish) hover:-translate-y-1">
       <Link to={`/app/p/${p.id}`} className="block text-ink no-underline" aria-label={p.title ?? 'Project'}>
         <div className="relative grid aspect-video place-items-center overflow-hidden rounded-[18px] bg-media">
           {p.thumbUrl ? <img src={p.thumbUrl} alt="" loading="lazy" className="size-full object-cover" /> : <Film size={30} className="text-white/50" />}
+          {left && (
+            <span className="absolute top-2 left-2" title={`Kept until ${left.until} — download or post the clips before then`}>
+              <Badge tone={left.soon ? 'warn' : undefined}>
+                <Hourglass size={12} /> {left.text}
+              </Badge>
+            </span>
+          )}
           <div className="absolute bottom-2 left-2 flex gap-1.5">
             {p.videoCount ? (
               <Badge>

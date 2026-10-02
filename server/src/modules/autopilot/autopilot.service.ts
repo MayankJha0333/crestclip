@@ -1,4 +1,5 @@
-import { apClips, autopilots, connections, type AutopilotConfig, type AutopilotRow } from '../../db/index.js';
+import { apClips, autopilots, connections, type AutopilotConfig, type AutopilotRow, type UserRow } from '../../db/index.js';
+import { assertAutopilot } from '../billing/billing.service.js';
 import { HttpError, toHttpError } from '../../lib/http.js';
 import type { ProjectOptions } from '../../types.js';
 import { optionsSchema } from '../projects/projects.schemas.js';
@@ -8,13 +9,14 @@ import { timeRe } from './autopilot.schemas.js';
 import { channelVideos, resolveChannel, topicVideos } from './autopilot.sources.js';
 import { isValidZone, upcomingSlots } from './autopilot.time.js';
 
-export function getAutopilot(id: string): AutopilotRow {
+/** An Autopilot the person owns (404 otherwise). */
+export function getAutopilot(id: string, user: UserRow): AutopilotRow {
   const ap = autopilots.get(id);
-  if (!ap) throw new HttpError(404, 'Autopilot not found');
+  if (!ap || ap.userId !== user.id) throw new HttpError(404, 'Autopilot not found');
   return ap;
 }
 
-function toConfig(body: AutopilotForm): { name: string; config: AutopilotConfig } {
+function toConfig(user: UserRow, body: AutopilotForm): { name: string; config: AutopilotConfig } {
   const times = [...new Set(body.times)].sort();
   const options = optionsSchema.parse({ ...body.options, ranges: undefined }) as ProjectOptions;
   return {
@@ -26,7 +28,7 @@ function toConfig(body: AutopilotForm): { name: string; config: AutopilotConfig 
       clipsPerVideo: body.clipsPerVideo,
       times,
       timezone: body.timezone,
-      targets: body.targets.filter((t) => connections.get(t.connectionId)),
+      targets: body.targets.filter((t) => connections.get(t.connectionId)?.userId === user.id),
       mode: body.mode,
       caption: body.caption,
       rightsConfirmed: true,
@@ -44,16 +46,17 @@ async function resolveSources(cfg: AutopilotConfig) {
   }
 }
 
-export async function createAutopilot(form: AutopilotForm): Promise<AutopilotRow> {
-  const { name, config } = toConfig(form);
+export async function createAutopilot(user: UserRow, form: AutopilotForm): Promise<AutopilotRow> {
+  assertAutopilot(user);
+  const { name, config } = toConfig(user, form);
   await resolveSources(config).catch(toHttpError(400));
-  const ap = autopilots.create(name, config);
+  const ap = autopilots.create(user.id, name, config);
   await kick();
   return ap;
 }
 
-export async function updateAutopilot(ap: AutopilotRow, form: AutopilotForm): Promise<AutopilotRow> {
-  const { name, config } = toConfig(form);
+export async function updateAutopilot(user: UserRow, ap: AutopilotRow, form: AutopilotForm): Promise<AutopilotRow> {
+  const { name, config } = toConfig(user, form);
   // keep already-resolved channel ids
   for (const s of config.sources) {
     const old = ap.config.sources.find((o) => o.kind === s.kind && o.value === s.value);
@@ -72,40 +75,42 @@ export async function updateAutopilot(ap: AutopilotRow, form: AutopilotForm): Pr
   return autopilots.get(ap.id)!;
 }
 
-export async function pauseAutopilot(id: string): Promise<AutopilotRow> {
-  const ap = getAutopilot(id);
+export async function pauseAutopilot(id: string, user: UserRow): Promise<AutopilotRow> {
+  const ap = getAutopilot(id, user);
   autopilots.update(ap.id, { status: 'paused' });
   await releaseScheduled(ap.id);
   return autopilots.get(ap.id)!;
 }
 
-export async function resumeAutopilot(id: string): Promise<AutopilotRow> {
-  const ap = getAutopilot(id);
+export async function resumeAutopilot(id: string, user: UserRow): Promise<AutopilotRow> {
+  assertAutopilot(user);
+  const ap = getAutopilot(id, user);
   autopilots.update(ap.id, { status: 'active', lastError: null });
   await kick();
   return autopilots.get(ap.id)!;
 }
 
-export async function scanAutopilot(id: string) {
-  await scanNow(getAutopilot(id).id);
+export async function scanAutopilot(id: string, user: UserRow) {
+  await scanNow(getAutopilot(id, user).id);
 }
 
-export async function deleteAutopilot(id: string) {
-  const ap = getAutopilot(id);
+export async function deleteAutopilot(id: string, user: UserRow) {
+  const ap = getAutopilot(id, user);
   await releaseScheduled(ap.id);
   autopilots.remove(ap.id);
 }
 
-export async function skipAutopilotSlot(id: string, key: string) {
-  await skipSlot(getAutopilot(id).id, key);
+export async function skipAutopilotSlot(id: string, user: UserRow, key: string) {
+  await skipSlot(getAutopilot(id, user).id, key);
 }
 
-export async function restoreAutopilotSlot(id: string, key: string) {
-  await restoreSlot(getAutopilot(id).id, key);
+export async function restoreAutopilotSlot(id: string, user: UserRow, key: string) {
+  await restoreSlot(getAutopilot(id, user).id, key);
 }
 
 /** Approve or reject a clip waiting in an autopilot's queue. */
-export async function reviewClip(autopilotId: string, itemId: string, action: string) {
+export async function reviewClip(autopilotId: string, user: UserRow, itemId: string, action: string) {
+  getAutopilot(autopilotId, user);
   const item = apClips.get(itemId);
   if (!item || item.autopilotId !== autopilotId) throw new HttpError(404, 'Clip not found');
   if (action === 'approve') {
@@ -125,9 +130,8 @@ export function previewTimes(body: { times?: unknown; timezone?: unknown } | und
 /** What a source would find right now (read-only) — shown under each source in the editor. */
 export async function previewSource(body: { kind?: unknown; channelId?: unknown; value?: unknown; region?: unknown; maxAgeDays?: unknown } | undefined) {
   const kind = String(body?.kind);
-  const list = await (kind === 'youtube_channel'
-    ? channelVideos(String(body?.channelId ?? ''))
-    : topicVideos(String(body?.value ?? ''), body?.region ? String(body.region) : null, Number(body?.maxAgeDays) || 14)
+  const list = await (
+    kind === 'youtube_channel' ? channelVideos(String(body?.channelId ?? '')) : topicVideos(String(body?.value ?? ''), body?.region ? String(body.region) : null, Number(body?.maxAgeDays) || 14)
   ).catch(toHttpError(400));
   return { count: list.length, newest: list.reduce((m, v) => Math.max(m, v.publishedAt ?? 0), 0) || null, sample: list.slice(0, 3).map((v) => ({ title: v.title, views: v.views })) };
 }

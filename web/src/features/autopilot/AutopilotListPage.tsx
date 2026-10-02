@@ -7,6 +7,8 @@ import { toast } from '../../lib/toast';
 import { Badge, Button, buttonClass, Card, EmptyState, PageHeader, Skeleton } from '../../components/ui';
 import { prettyTime } from './helpers';
 import { BotIcon, SchedulerBanner, SourceChips, StatusPill, useScheduler } from './shared';
+import { useAccount } from '../auth/auth';
+import { UpgradeCallout } from '../billing/UpgradeCallout';
 
 const HOW = [
   { t: 'Pick sources', d: 'YouTube channels, or a topic like “podcast clips” in your country' },
@@ -17,6 +19,7 @@ const HOW = [
 export function AutopilotListPage() {
   const [list, setList] = useState<AutopilotSummary[] | null>(null);
   const sched = useScheduler();
+  const allowed = useAccount().plan.autopilot;
   const load = useCallback(
     () =>
       api
@@ -43,7 +46,7 @@ export function AutopilotListPage() {
         title="Autopilot"
         description="Pick channels or topics and when to post. CrestClip finds new videos, clips the best moments and posts them on time."
         actions={
-          list?.length ? (
+          list?.length && allowed ? (
             <Link to="/app/autopilot/new" className={buttonClass('primary')}>
               <Plus size={18} /> New autopilot
             </Link>
@@ -51,6 +54,11 @@ export function AutopilotListPage() {
         }
       />
       <SchedulerBanner status={sched} />
+      {!allowed && (
+        <UpgradeCallout className="mb-6" title="Autopilot is on the Pro plan" cta="See Pro">
+          Pro finds new videos on the channels and topics you pick, clips the best moments and posts them at your times — on its own.
+        </UpgradeCallout>
+      )}
 
       {list == null ? (
         <div className="grid gap-5 md:grid-cols-2">
@@ -63,9 +71,11 @@ export function AutopilotListPage() {
             icon={<Sparkles size={28} />}
             title="No autopilots yet"
             action={
-              <Link to="/app/autopilot/new" className={buttonClass('primary')}>
-                <Sparkles size={17} /> Create your first autopilot
-              </Link>
+              allowed ? (
+                <Link to="/app/autopilot/new" className={buttonClass('primary')}>
+                  <Sparkles size={17} /> Create your first autopilot
+                </Link>
+              ) : undefined
             }
           >
             Set one up in about two minutes. You stay in control — every clip waits for your OK unless you say otherwise.

@@ -65,8 +65,16 @@ export const posts = {
   forClip(clipId: string): PostRow[] {
     return (db.prepare('SELECT * FROM posts WHERE clip_id = ? ORDER BY created_at DESC').all(clipId) as Raw[]).map(toPost);
   },
-  list(limit = 200): PostRow[] {
-    return (db.prepare('SELECT * FROM posts ORDER BY COALESCE(scheduled_at, created_at) DESC LIMIT ?').all(limit) as Raw[]).map(toPost);
+  /** One person's posts (through the clip → project they own). */
+  list(userId: string, limit = 200): PostRow[] {
+    return (
+      db
+        .prepare(
+          `SELECT p.* FROM posts p JOIN clips c ON c.id = p.clip_id JOIN projects pr ON pr.id = c.project_id
+           WHERE pr.user_id = ? ORDER BY COALESCE(p.scheduled_at, p.created_at) DESC LIMIT ?`,
+        )
+        .all(userId, limit) as Raw[]
+    ).map(toPost);
   },
   /**
    * due = scheduled and its time has come (or "now" posts).

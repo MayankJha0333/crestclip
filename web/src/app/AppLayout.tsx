@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { AlertTriangle, Bot, CalendarClock, Compass, LayoutGrid, Plus, RefreshCw, Settings, X, type LucideIcon } from 'lucide-react';
+import { AlertTriangle, Bot, CalendarClock, Compass, LayoutGrid, LogOut, Plus, RefreshCw, Settings, X, type LucideIcon } from 'lucide-react';
 import { api } from '../lib/api';
 import { cn } from '../lib/cn';
 import { toast } from '../lib/toast';
 import { Button, Toaster } from '../components/ui';
 import { Logo } from '../components/brand/Logo';
 import { HealthProvider, useHealth, type HealthState } from '../features/settings/health';
+import { useAuth } from '../features/auth/auth';
+import { CreditMeter, CreditPill } from '../features/billing/CreditMeter';
 
 interface NavItem {
   to: string;
@@ -78,6 +80,7 @@ function Sidebar() {
       </nav>
       <div className="mt-auto flex flex-col gap-2">
         {health?.gemini.fake && <span className="rounded-full bg-good-bg px-3 py-1.5 text-center text-xs font-extrabold text-good-ink">Demo AI mode</span>}
+        <CreditMeter />
         <NavLink
           to="/app/settings"
           className={cn(
@@ -88,8 +91,32 @@ function Sidebar() {
           <Settings size={18} /> Settings
           <span className={cn('ml-auto size-2.5 rounded-full', DOT[state])} title={state === 'ok' ? 'All systems go' : 'See system status'} />
         </NavLink>
+        <AccountRow />
       </div>
     </aside>
+  );
+}
+
+/** Who's signed in, and the way out. */
+function AccountRow() {
+  const { me, logOut } = useAuth();
+  if (!me) return null;
+  const label = me.user.name || me.user.email;
+  return (
+    <div className="flex items-center gap-2.5 border-t border-line px-1.5 pt-3">
+      {me.user.avatar ? (
+        <img src={me.user.avatar} alt="" className="size-8 shrink-0 rounded-full" referrerPolicy="no-referrer" />
+      ) : (
+        <span className="grid size-8 shrink-0 place-items-center rounded-full bg-lilac font-display text-sm font-bold text-[#2a1d63]">{label[0]?.toUpperCase()}</span>
+      )}
+      <span className="min-w-0 flex-1 leading-tight">
+        <b className="block truncate text-sm">{label}</b>
+        {me.user.name && <span className="block truncate text-xs text-ink-3">{me.user.email}</span>}
+      </span>
+      <Button variant="ghost" size="icon-sm" aria-label="Log out" title="Log out" onClick={logOut}>
+        <LogOut size={16} />
+      </Button>
+    </div>
   );
 }
 
@@ -103,10 +130,13 @@ function MobileNav() {
         <Link to="/" aria-label="CrestClip home" className="no-underline">
           <Logo size={32} />
         </Link>
-        <Link to="/app/settings" aria-label="Settings" className="relative grid size-10 place-items-center rounded-full bg-surface text-ink shadow-clay-sm">
-          <Settings size={18} />
-          <span className={cn('absolute top-1.5 right-1.5 size-2 rounded-full', DOT[state])} />
-        </Link>
+        <span className="flex items-center gap-2">
+          <CreditPill />
+          <Link to="/app/settings" aria-label="Settings" className="relative grid size-10 place-items-center rounded-full bg-surface text-ink shadow-clay-sm">
+            <Settings size={18} />
+            <span className={cn('absolute top-1.5 right-1.5 size-2 rounded-full', DOT[state])} />
+          </Link>
+        </span>
       </header>
       <nav aria-label="Main" className="fixed inset-x-3 bottom-3 z-40 grid grid-cols-5 rounded-[22px] bg-glass p-1.5 shadow-float backdrop-blur-md lg:hidden">
         {ALL.map((it) => (

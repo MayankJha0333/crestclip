@@ -1,22 +1,11 @@
 import { Queue, Worker } from 'bullmq';
 import { Redis } from 'ioredis';
-import {
-  apClips,
-  apSkips,
-  apVideos,
-  autopilots,
-  clips,
-  connections,
-  posts,
-  projects,
-  type ApClipRow,
-  type AutopilotRow,
-  type ClipRow,
-  type PostRow,
-} from '../../db/index.js';
+import { apClips, apSkips, apVideos, autopilots, clips, connections, credits, posts, projects, users, type ApClipRow, type AutopilotRow, type ClipRow, type PostRow } from '../../db/index.js';
 import { enqueueProject } from '../../infra/queue.js';
 import { ensureRedis, redisStatus } from '../../infra/redis.js';
 import { runPost } from '../publishing/publishing.service.js';
+import { refreshAccount } from '../billing/billing.service.js';
+import { creditsForClips, planOf } from '../billing/plans.js';
 import type { ProjectOptions } from '../../types.js';
 import { channelVideos, topicVideos, uploadDateMs, videoDetails, type FoundVideo } from './autopilot.sources.js';
 import { upcomingSlots, type Slot } from './autopilot.time.js';
@@ -167,10 +156,20 @@ async function startClipping(ap: AutopilotRow) {
       apVideos.update(v.id, { reason: `${(views ?? 0).toLocaleString('en-US')} views so far — waiting for ${f.minViews.toLocaleString('en-US')}` });
       continue;
     }
+    // the owner pays for it in credits: wait (don't fail) until they have enough
+    const owner = ap.userId ? await refreshAccount(users.get(ap.userId)!) : null;
+    const clipCount = Math.min(10, ap.config.clipsPerVideo + 1);
+    const need = creditsForClips(clipCount);
+    if (!owner || credits.balance(owner.id) < need) {
+      autopilots.update(ap.id, { lastError: `Out of credits: “${d.title || v.title}” needs ${need}. Clipping continues when credits are added (top-up or next month).` });
+      return;
+    }
+    if (ap.lastError?.startsWith('Out of credits')) autopilots.update(ap.id, { lastError: null });
     // good to go → a normal CrestClip project with this autopilot's style
-    const options: ProjectOptions = { ...ap.config.options, clipCount: Math.min(10, ap.config.clipsPerVideo + 1), useAudienceData: true };
+    const options: ProjectOptions = { ...ap.config.options, clipCount, useAudienceData: true };
     delete options.ranges;
-    const p = projects.create({ sourceType: 'url', sourceUrl: v.url, title: d.title || v.title || undefined, options });
+    if (!ap.userId) return;
+    const p = projects.create({ userId: ap.userId, sourceType: 'url', sourceUrl: v.url, title: d.title || v.title || undefined, options });
     apVideos.update(v.id, { status: 'clipping', projectId: p.id, reason: d.heatmap?.length ? 'Clipping (rewatch graph found)' : 'Clipping (no rewatch graph yet — AI picks)' });
     enqueueProject(p.id);
     log(`${ap.name}: clipping “${d.title}”`);
@@ -251,6 +250,13 @@ async function tickAll() {
   try {
     for (const ap of autopilots.active()) {
       try {
+        // Autopilot is a Pro feature: if the owner's plan changed, stop it (nothing is lost — it can be turned back on)
+        const owner = ap.userId ? users.get(ap.userId) : null;
+        if (!owner || !planOf(owner.plan).autopilot) {
+          autopilots.update(ap.id, { status: 'paused', lastError: 'Paused: Autopilot is on the Pro plan. Upgrade to turn it back on.' });
+          await releaseScheduled(ap.id);
+          continue;
+        }
         tidy(ap);
         harvest(ap);
         if (!ap.lastScanAt || ap.lastScanAt < Date.now() - SCAN_EVERY) await scan(ap);
