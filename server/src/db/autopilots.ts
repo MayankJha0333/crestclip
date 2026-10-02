@@ -1,4 +1,4 @@
-import { db, newId, now, parse, type Raw } from './connection.js';
+import { collection, COLLECTIONS, fromDoc, isDuplicate, newId, setFields, stamp, type Doc } from './connection.js';
 import type { ProjectOptions } from '../types.js';
 
 export interface AutopilotSource {
@@ -35,61 +35,33 @@ export interface AutopilotRow {
   createdAt: number;
   updatedAt: number;
 }
-const toAutopilot = (r: Raw): AutopilotRow => ({
-  id: r.id as string,
-  userId: (r.user_id as string) ?? null,
-  name: r.name as string,
-  status: r.status as AutopilotRow['status'],
-  config: parse<AutopilotConfig>(r.config_json, {} as AutopilotConfig),
-  lastScanAt: (r.last_scan_at as number) ?? null,
-  lastError: (r.last_error as string) ?? null,
-  createdAt: r.created_at as number,
-  updatedAt: r.updated_at as number,
-});
+const apCol = () => collection<Doc<AutopilotRow>>(COLLECTIONS.autopilots);
+const toAutopilot = (d: Doc<AutopilotRow>) => fromDoc<AutopilotRow>(d);
+
 export const autopilots = {
-  create(userId: string, name: string, cfg: AutopilotConfig): AutopilotRow {
-    const id = newId();
-    db.prepare('INSERT INTO autopilots (id, user_id, name, status, config_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
-      id,
-      userId,
-      name,
-      'active',
-      JSON.stringify(cfg),
-      now(),
-      now(),
-    );
-    return this.get(id)!;
+  async create(userId: string, name: string, cfg: AutopilotConfig): Promise<AutopilotRow> {
+    const at = stamp();
+    const row: Doc<AutopilotRow> = { _id: newId(), userId, name, status: 'active', config: cfg, lastScanAt: null, lastError: null, createdAt: at, updatedAt: at };
+    await apCol().insertOne(row);
+    return toAutopilot(row);
   },
-  get(id: string): AutopilotRow | null {
-    const r = db.prepare('SELECT * FROM autopilots WHERE id = ?').get(id) as Raw | undefined;
-    return r ? toAutopilot(r) : null;
+  async get(id: string): Promise<AutopilotRow | null> {
+    const d = await apCol().findOne({ _id: id });
+    return d ? toAutopilot(d) : null;
   },
-  list(userId: string): AutopilotRow[] {
-    return (db.prepare('SELECT * FROM autopilots WHERE user_id = ? ORDER BY created_at DESC').all(userId) as Raw[]).map(toAutopilot);
+  async list(userId: string): Promise<AutopilotRow[]> {
+    return (await apCol().find({ userId }).sort({ createdAt: -1 }).toArray()).map(toAutopilot);
   },
-  active(): AutopilotRow[] {
-    return (db.prepare(`SELECT * FROM autopilots WHERE status = 'active'`).all() as Raw[]).map(toAutopilot);
+  async active(): Promise<AutopilotRow[]> {
+    return (await apCol().find({ status: 'active' }).toArray()).map(toAutopilot);
   },
-  update(id: string, patch: { name?: string; status?: AutopilotRow['status']; config?: AutopilotConfig; lastScanAt?: number | null; lastError?: string | null }) {
-    const map: Record<string, [string, (v: unknown) => unknown]> = {
-      name: ['name', (v) => v],
-      status: ['status', (v) => v],
-      config: ['config_json', (v) => JSON.stringify(v)],
-      lastScanAt: ['last_scan_at', (v) => v],
-      lastError: ['last_error', (v) => v],
-    };
-    const sets = ['updated_at = ?'];
-    const vals: unknown[] = [now()];
-    for (const [k, v] of Object.entries(patch)) {
-      if (!map[k] || v === undefined) continue;
-      sets.push(`${map[k][0]} = ?`);
-      vals.push(map[k][1](v) ?? null);
-    }
-    vals.push(id);
-    db.prepare(`UPDATE autopilots SET ${sets.join(', ')} WHERE id = ?`).run(...(vals as never[]));
+  async update(id: string, patch: { name?: string; status?: AutopilotRow['status']; config?: AutopilotConfig; lastScanAt?: number | null; lastError?: string | null }) {
+    await apCol().updateOne({ _id: id }, { $set: setFields(patch, ['name', 'status', 'config', 'lastScanAt', 'lastError'], { skipUndefined: true }) });
   },
-  remove(id: string) {
-    db.prepare('DELETE FROM autopilots WHERE id = ?').run(id);
+  /** Delete an Autopilot with its found videos, clips and skipped times. */
+  async remove(id: string) {
+    await Promise.all([vidCol().deleteMany({ autopilotId: id }), clipCol().deleteMany({ autopilotId: id }), skipCol().deleteMany({ autopilotId: id })]);
+    await apCol().deleteOne({ _id: id });
   },
 };
 
@@ -111,26 +83,12 @@ interface ApVideoRow {
   foundAt: number;
   updatedAt: number;
 }
-const toApVideo = (r: Raw): ApVideoRow => ({
-  id: r.id as string,
-  autopilotId: r.autopilot_id as string,
-  videoId: r.video_id as string,
-  url: r.url as string,
-  title: (r.title as string) ?? null,
-  channel: (r.channel as string) ?? null,
-  thumbnail: (r.thumbnail as string) ?? null,
-  views: (r.views as number) ?? null,
-  duration: (r.duration as number) ?? null,
-  publishedAt: (r.published_at as number) ?? null,
-  status: r.status as ApVideoStatus,
-  reason: (r.reason as string) ?? null,
-  projectId: (r.project_id as string) ?? null,
-  foundAt: r.found_at as number,
-  updatedAt: r.updated_at as number,
-});
+const vidCol = () => collection<Doc<ApVideoRow>>(COLLECTIONS.autopilotVideos);
+const toApVideo = (d: Doc<ApVideoRow>) => fromDoc<ApVideoRow>(d);
+
 export const apVideos = {
   /** insert if new; returns null when this autopilot already knows the video */
-  add(v: {
+  async add(v: {
     autopilotId: string;
     videoId: string;
     url: string;
@@ -142,44 +100,37 @@ export const apVideos = {
     publishedAt: number | null;
     status: ApVideoStatus;
     reason?: string | null;
-  }): ApVideoRow | null {
-    const id = newId();
-    const r = db
-      .prepare(
-        `INSERT OR IGNORE INTO autopilot_videos (id, autopilot_id, video_id, url, title, channel, thumbnail, views, duration, published_at, status, reason, found_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(id, v.autopilotId, v.videoId, v.url, v.title, v.channel, v.thumbnail, v.views, v.duration, v.publishedAt, v.status, v.reason ?? null, now(), now());
-    return r.changes ? this.get(id) : null;
+  }): Promise<ApVideoRow | null> {
+    const at = stamp();
+    const row: Doc<ApVideoRow> = { _id: newId(), ...v, reason: v.reason ?? null, projectId: null, foundAt: at, updatedAt: at };
+    try {
+      await vidCol().insertOne(row);
+      return toApVideo(row);
+    } catch (e) {
+      if (isDuplicate(e)) return null;
+      throw e;
+    }
   },
-  get(id: string): ApVideoRow | null {
-    const r = db.prepare('SELECT * FROM autopilot_videos WHERE id = ?').get(id) as Raw | undefined;
-    return r ? toApVideo(r) : null;
+  async get(id: string): Promise<ApVideoRow | null> {
+    const d = await vidCol().findOne({ _id: id });
+    return d ? toApVideo(d) : null;
   },
-  has(autopilotId: string, videoId: string) {
-    return Boolean(db.prepare('SELECT 1 FROM autopilot_videos WHERE autopilot_id = ? AND video_id = ?').get(autopilotId, videoId));
+  async has(autopilotId: string, videoId: string): Promise<boolean> {
+    return Boolean(await vidCol().findOne({ autopilotId, videoId }, { projection: { _id: 1 } }));
   },
-  list(autopilotId: string, limit = 200): ApVideoRow[] {
-    return (db.prepare('SELECT * FROM autopilot_videos WHERE autopilot_id = ? ORDER BY found_at DESC LIMIT ?').all(autopilotId, limit) as Raw[]).map(toApVideo);
+  async list(autopilotId: string, limit = 200): Promise<ApVideoRow[]> {
+    return (await vidCol().find({ autopilotId }).sort({ foundAt: -1 }).limit(limit).toArray()).map(toApVideo);
   },
-  withStatus(autopilotId: string, status: ApVideoStatus): ApVideoRow[] {
-    return (db.prepare('SELECT * FROM autopilot_videos WHERE autopilot_id = ? AND status = ? ORDER BY COALESCE(views, 0) DESC').all(autopilotId, status) as Raw[]).map(toApVideo);
+  /** most-viewed first */
+  async withStatus(autopilotId: string, status: ApVideoStatus): Promise<ApVideoRow[]> {
+    return (await vidCol().find({ autopilotId, status }).sort({ views: -1 }).toArray()).map(toApVideo);
   },
   /** how many videos this autopilot started clipping since `since` */
-  startedSince(autopilotId: string, since: number): number {
-    return (db.prepare(`SELECT COUNT(*) AS n FROM autopilot_videos WHERE autopilot_id = ? AND project_id IS NOT NULL AND updated_at >= ?`).get(autopilotId, since) as Raw).n as number;
+  startedSince(autopilotId: string, since: number): Promise<number> {
+    return vidCol().countDocuments({ autopilotId, projectId: { $ne: null }, updatedAt: { $gte: since } });
   },
-  update(id: string, patch: Partial<Pick<ApVideoRow, 'status' | 'reason' | 'projectId' | 'views' | 'duration' | 'title'>>) {
-    const map: Record<string, string> = { status: 'status', reason: 'reason', projectId: 'project_id', views: 'views', duration: 'duration', title: 'title' };
-    const sets = ['updated_at = ?'];
-    const vals: unknown[] = [now()];
-    for (const [k, v] of Object.entries(patch)) {
-      if (!map[k]) continue;
-      sets.push(`${map[k]} = ?`);
-      vals.push(v ?? null);
-    }
-    vals.push(id);
-    db.prepare(`UPDATE autopilot_videos SET ${sets.join(', ')} WHERE id = ?`).run(...(vals as never[]));
+  async update(id: string, patch: Partial<Pick<ApVideoRow, 'status' | 'reason' | 'projectId' | 'views' | 'duration' | 'title'>>) {
+    await vidCol().updateOne({ _id: id }, { $set: setFields(patch, ['status', 'reason', 'projectId', 'views', 'duration', 'title']) });
   },
 };
 
@@ -195,54 +146,58 @@ export interface ApClipRow {
   createdAt: number;
   updatedAt: number;
 }
-const toApClip = (r: Raw): ApClipRow => ({
-  id: r.id as string,
-  autopilotId: r.autopilot_id as string,
-  clipId: r.clip_id as string,
-  videoRowId: (r.video_row_id as string) ?? null,
-  status: r.status as ApClipStatus,
-  score: (r.score as number) ?? null,
-  slotKey: (r.slot_key as string) ?? null,
-  createdAt: r.created_at as number,
-  updatedAt: r.updated_at as number,
-});
+const clipCol = () => collection<Doc<ApClipRow>>(COLLECTIONS.autopilotClips);
+const toApClip = (d: Doc<ApClipRow>) => fromDoc<ApClipRow>(d);
+
 export const apClips = {
-  add(c: { autopilotId: string; clipId: string; videoRowId: string | null; status: ApClipStatus; score: number | null }): ApClipRow | null {
-    const id = newId();
-    const r = db
-      .prepare('INSERT OR IGNORE INTO autopilot_clips (id, autopilot_id, clip_id, video_row_id, status, score, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, c.autopilotId, c.clipId, c.videoRowId, c.status, c.score, now(), now());
-    return r.changes ? this.get(id) : null;
+  /** insert if new; returns null when this clip is already on the autopilot */
+  async add(c: { autopilotId: string; clipId: string; videoRowId: string | null; status: ApClipStatus; score: number | null }): Promise<ApClipRow | null> {
+    const at = stamp();
+    const row: Doc<ApClipRow> = { _id: newId(), ...c, slotKey: null, createdAt: at, updatedAt: at };
+    try {
+      await clipCol().insertOne(row);
+      return toApClip(row);
+    } catch (e) {
+      if (isDuplicate(e)) return null;
+      throw e;
+    }
   },
-  get(id: string): ApClipRow | null {
-    const r = db.prepare('SELECT * FROM autopilot_clips WHERE id = ?').get(id) as Raw | undefined;
-    return r ? toApClip(r) : null;
+  async get(id: string): Promise<ApClipRow | null> {
+    const d = await clipCol().findOne({ _id: id });
+    return d ? toApClip(d) : null;
   },
-  list(autopilotId: string): ApClipRow[] {
-    return (db.prepare('SELECT * FROM autopilot_clips WHERE autopilot_id = ? ORDER BY created_at DESC').all(autopilotId) as Raw[]).map(toApClip);
+  async list(autopilotId: string): Promise<ApClipRow[]> {
+    return (await clipCol().find({ autopilotId }).sort({ createdAt: -1 }).toArray()).map(toApClip);
   },
-  withStatus(autopilotId: string, status: ApClipStatus): ApClipRow[] {
-    // best first, then oldest first
-    return (db.prepare('SELECT * FROM autopilot_clips WHERE autopilot_id = ? AND status = ? ORDER BY COALESCE(score, 0) DESC, created_at').all(autopilotId, status) as Raw[]).map(toApClip);
+  /** best first, then oldest first */
+  async withStatus(autopilotId: string, status: ApClipStatus): Promise<ApClipRow[]> {
+    return (await clipCol().find({ autopilotId, status }).sort({ score: -1, createdAt: 1 }).toArray()).map(toApClip);
   },
-  bySlot(autopilotId: string, slotKey: string): ApClipRow | null {
-    const r = db.prepare('SELECT * FROM autopilot_clips WHERE autopilot_id = ? AND slot_key = ?').get(autopilotId, slotKey) as Raw | undefined;
-    return r ? toApClip(r) : null;
+  async bySlot(autopilotId: string, slotKey: string): Promise<ApClipRow | null> {
+    const d = await clipCol().findOne({ autopilotId, slotKey });
+    return d ? toApClip(d) : null;
   },
-  update(id: string, patch: { status?: ApClipStatus; slotKey?: string | null }) {
-    if (patch.status !== undefined) db.prepare('UPDATE autopilot_clips SET status = ?, updated_at = ? WHERE id = ?').run(patch.status, now(), id);
-    if (patch.slotKey !== undefined) db.prepare('UPDATE autopilot_clips SET slot_key = ?, updated_at = ? WHERE id = ?').run(patch.slotKey, now(), id);
+  async update(id: string, patch: { status?: ApClipStatus; slotKey?: string | null }) {
+    await clipCol().updateOne({ _id: id }, { $set: setFields(patch, ['status', 'slotKey'], { skipUndefined: true }) });
   },
 };
 
+/** Posting times the person chose to skip. */
+interface ApSkipDoc {
+  _id: string;
+  autopilotId: string;
+  slotKey: string;
+}
+const skipCol = () => collection<ApSkipDoc>(COLLECTIONS.autopilotSkips);
+
 export const apSkips = {
-  list(autopilotId: string): Set<string> {
-    return new Set((db.prepare('SELECT slot_key FROM autopilot_skips WHERE autopilot_id = ?').all(autopilotId) as Raw[]).map((r) => r.slot_key as string));
+  async list(autopilotId: string): Promise<Set<string>> {
+    return new Set((await skipCol().find({ autopilotId }).toArray()).map((s) => s.slotKey));
   },
-  add(autopilotId: string, slotKey: string) {
-    db.prepare('INSERT OR IGNORE INTO autopilot_skips (autopilot_id, slot_key) VALUES (?, ?)').run(autopilotId, slotKey);
+  async add(autopilotId: string, slotKey: string) {
+    await skipCol().updateOne({ _id: `${autopilotId}|${slotKey}` }, { $setOnInsert: { autopilotId, slotKey } }, { upsert: true });
   },
-  remove(autopilotId: string, slotKey: string) {
-    db.prepare('DELETE FROM autopilot_skips WHERE autopilot_id = ? AND slot_key = ?').run(autopilotId, slotKey);
+  async remove(autopilotId: string, slotKey: string) {
+    await skipCol().deleteOne({ _id: `${autopilotId}|${slotKey}` });
   },
 };

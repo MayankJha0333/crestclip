@@ -48,6 +48,11 @@ const num = (k: string, d: number) => {
   const v = Number(env(k));
   return Number.isFinite(v) && env(k) !== '' ? v : d;
 };
+/** The MongoDB connection string, with the user and password added when it has none. */
+function mongoUri(uri: string, user: string, password: string) {
+  if (!uri || !user || /^mongodb(\+srv)?:\/\/[^/]*@/.test(uri)) return uri;
+  return uri.replace(/^(mongodb(?:\+srv)?:\/\/)/, `$1${encodeURIComponent(user)}:${encodeURIComponent(password)}@`);
+}
 
 export const config = {
   port: num('PORT', 8787),
@@ -89,6 +94,10 @@ export const config = {
   razorpayWebhookSecret: env('RAZORPAY_WEBHOOK_SECRET'),
   razorpayPlanCreator: env('RAZORPAY_PLAN_CREATOR'),
   razorpayPlanPro: env('RAZORPAY_PLAN_PRO'),
+  // Database (MongoDB) — e.g. an Atlas connection string. MONGODB_USERNAME / MONGODB_PASSWORD fill it in when the
+  // string has no user in it.
+  mongoUri: mongoUri(env('MONGODB_URI'), env('MONGODB_USERNAME'), env('MONGODB_PASSWORD')),
+  mongoDb: env('MONGODB_DB', 'crestclip'),
   dataDir: path.resolve(REPO_ROOT, env('DATA_DIR', 'data')),
   fontsDir: path.join(SERVER_ROOT, 'assets', 'fonts'),
   webDist: path.join(REPO_ROOT, 'web', 'dist'),

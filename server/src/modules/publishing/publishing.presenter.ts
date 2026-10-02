@@ -8,9 +8,9 @@ function publicConnection(c: ConnectionRow) {
 }
 
 /** Connected accounts + whether each platform is set up (and the return link to register with it). */
-export function publicConnections(user: UserRow) {
+export async function publicConnections(user: UserRow) {
   return {
-    accounts: connections.list(user.id).map(publicConnection),
+    accounts: (await connections.list(user.id)).map(publicConnection),
     platforms: {
       youtube: { configured: isConfigured('youtube'), redirectUri: redirectUri('youtube') },
       instagram: { configured: isConfigured('instagram'), redirectUri: redirectUri('instagram'), needsHttps: !redirectUri('instagram').startsWith('https://') },
@@ -18,12 +18,20 @@ export function publicConnections(user: UserRow) {
   };
 }
 
-export function publicPost(p: PostRow) {
-  const c = connections.get(p.connectionId);
-  const clip = clips.get(p.clipId);
-  return {
-    ...p,
-    account: c ? { name: c.name, handle: c.handle, avatar: c.avatar } : null,
-    clip: clip ? { id: clip.id, title: clip.title, projectId: clip.projectId, thumbUrl: toMediaUrl(clip.thumbPath) } : null,
-  };
+/** Posts as the app shows them, with their account and clip (each looked up once for the whole list). */
+export async function publicPosts(list: PostRow[]) {
+  const [accounts, clipRows] = await Promise.all([connections.getMany(list.map((p) => p.connectionId)), clips.getMany(list.map((p) => p.clipId))]);
+  const account = new Map(accounts.map((c) => [c.id, c]));
+  const clip = new Map(clipRows.map((c) => [c.id, c]));
+  return list.map(({ userId: _u, projectId: _p, ...p }) => {
+    const c = account.get(p.connectionId);
+    const k = clip.get(p.clipId);
+    return {
+      ...p,
+      account: c ? { name: c.name, handle: c.handle, avatar: c.avatar } : null,
+      clip: k ? { id: k.id, title: k.title, projectId: k.projectId, thumbUrl: toMediaUrl(k.thumbPath) } : null,
+    };
+  });
 }
+
+export const publicPost = async (p: PostRow) => (await publicPosts([p]))[0];

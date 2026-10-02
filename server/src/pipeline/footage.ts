@@ -109,7 +109,7 @@ export function prefetchFootage(p: ProjectRow, dir: string, ranges: { start: num
       console.warn(`[project ${p.id}] part download failed (${(e as Error).message.slice(0, 200)}) — downloading the whole video instead`);
       const full = await download(idx.url, dir, (pct, d) => onProgress(pct / 100, 1, `whole video · ${d}`), infoJsonPath(dir));
       const pr = await probe(full);
-      projects.update(p.id, { mediaPath: full, width: pr.width, height: pr.height });
+      await projects.update(p.id, { mediaPath: full, width: pr.width, height: pr.height });
       endSectionMode(dir);
       return;
     }
@@ -138,7 +138,7 @@ export async function footageFor(p: ProjectRow, dir: string, start: number, end:
   if (!sec) {
     await prefetchFootage(p, dir, [{ start, end }]);
     const after = readFootage(dir);
-    if (!after) return footageFor(projects.get(p.id) ?? p, dir, start, end); // switched to the whole video
+    if (!after) return footageFor((await projects.get(p.id)) ?? p, dir, start, end); // switched to the whole video
     sec = after.sections.find((s) => covers(s, start, end));
   }
   if (!sec) throw new Error('Could not download this part of the video.');

@@ -95,7 +95,7 @@ function ytAsset(): string | null {
 
 const managedYt = path.join(binDir, `yt-dlp${exe}`);
 const stampFile = path.join(binDir, 'yt-dlp.checked');
-const customYt = () => process.env.YTDLP_PATH?.trim() && process.env.YTDLP_PATH.trim() !== 'yt-dlp' ? process.env.YTDLP_PATH.trim() : null;
+const customYt = () => (process.env.YTDLP_PATH?.trim() && process.env.YTDLP_PATH.trim() !== 'yt-dlp' ? process.env.YTDLP_PATH.trim() : null);
 
 type YtState = 'ready' | 'installing' | 'updating' | 'missing' | 'error';
 export const ytStatus: { state: YtState; version: string | null; source: 'managed' | 'custom' | 'system' | null; detail: string; checkedAt: number | null } = {

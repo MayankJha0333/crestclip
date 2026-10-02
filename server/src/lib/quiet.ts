@@ -1,4 +1,4 @@
-// Silence the one-time "SQLite is an experimental feature" warning from node:sqlite.
+// Silence noisy one-time warnings: node:sqlite (only used to import an old SQLite file) and `punycode`.
 const original = process.emitWarning.bind(process);
 process.emitWarning = ((warning: string | Error, ...rest: unknown[]) => {
   const msg = typeof warning === 'string' ? warning : warning?.message;

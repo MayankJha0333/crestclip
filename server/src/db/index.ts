@@ -1,3 +1,4 @@
+export { closeDb, connectDb } from './connection.js';
 export * from './projects.js';
 export * from './clips.js';
 export * from './connections.js';

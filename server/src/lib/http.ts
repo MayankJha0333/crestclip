@@ -27,6 +27,13 @@ export const asyncHandler =
       .then(() => fn(req, res))
       .catch(next);
 
+/** The same for middleware (handlers that call `next`). */
+export const asyncMiddleware =
+  (fn: (req: Request, res: Response, next: NextFunction) => Promise<unknown>): RequestHandler =>
+  (req, res, next) => {
+    fn(req, res, next).catch(next);
+  };
+
 /**
  * Parse `data` with `schema`. On failure throw a 400 with `message`
  * (or, when `message` is a function, with whatever it builds from the first problem zod found).

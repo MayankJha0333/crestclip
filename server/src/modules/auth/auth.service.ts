@@ -38,20 +38,20 @@ export function rateLimit(key: string, max: number, windowMs: number, message: s
 
 /** New account. The first one ever is the owner: an admin on Pro. */
 async function createUser(u: { email: string; name: string | null; passwordHash?: string | null; googleSub?: string | null; avatar?: string | null }): Promise<UserRow> {
-  const first = users.count() === 0;
+  const first = (await users.count()) === 0;
   if (!first && !config.allowSignups) throw new HttpError(403, 'Sign-ups are closed right now.');
   const email = u.email.toLowerCase();
-  const user = users.create({ ...u, email, isAdmin: first || config.adminEmails.includes(email), plan: first ? 'pro' : 'free' });
+  const user = await users.create({ ...u, email, isAdmin: first || config.adminEmails.includes(email), plan: first ? 'pro' : 'free' });
   return refreshAccount(user); // adds the first month's credits
 }
 
 export async function signUp(r: { email: string; password: string; name?: string }) {
-  if (users.byEmail(r.email)) throw new HttpError(409, 'An account with this email already exists. Log in instead.');
+  if (await users.byEmail(r.email)) throw new HttpError(409, 'An account with this email already exists. Log in instead.');
   return createUser({ email: r.email, name: r.name?.trim() || r.email.split('@')[0], passwordHash: await hashPassword(r.password) });
 }
 
 export async function logIn(r: { email: string; password: string }) {
-  const user = users.byEmail(r.email);
+  const user = await users.byEmail(r.email);
   // same message and similar time whether the email exists or not
   const ok = await checkPassword(r.password, user?.passwordHash ?? 'scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAA');
   if (!user || !ok) throw new HttpError(401, user && !user.passwordHash ? 'This account uses “Continue with Google”.' : 'Wrong email or password.');
@@ -60,11 +60,11 @@ export async function logIn(r: { email: string; password: string }) {
 
 export async function changePassword(user: UserRow, current: string, next: string) {
   if (user.passwordHash && !(await checkPassword(current, user.passwordHash))) throw new HttpError(400, 'Your current password is wrong.');
-  users.update(user.id, { passwordHash: await hashPassword(next) });
+  await users.update(user.id, { passwordHash: await hashPassword(next) });
 }
 
-export const startSession = (userId: string) => sessions.create(userId);
-export const endSession = (token: string) => sessions.remove(token);
+export const startSession = async (userId: string) => await sessions.create(userId);
+export const endSession = async (token: string) => await sessions.remove(token);
 
 // ---------------- Continue with Google (OpenID Connect) ----------------
 
@@ -116,12 +116,12 @@ export async function googleFinish(q: Record<string, unknown>): Promise<{ user: 
     picture?: string;
   };
   if (!info.sub || !info.email || !info.email_verified) throw new HttpError(400, 'Google didn’t share a verified email for this account.');
-  let user = users.byGoogle(info.sub);
+  let user = await users.byGoogle(info.sub);
   if (!user) {
-    const byEmail = users.byEmail(info.email);
+    const byEmail = await users.byEmail(info.email);
     if (byEmail) {
-      users.update(byEmail.id, { googleSub: info.sub, avatar: byEmail.avatar ?? info.picture ?? null });
-      user = users.get(byEmail.id)!;
+      await users.update(byEmail.id, { googleSub: info.sub, avatar: byEmail.avatar ?? info.picture ?? null });
+      user = (await users.get(byEmail.id))!;
     } else {
       user = await createUser({ email: info.email, name: info.name ?? null, googleSub: info.sub, avatar: info.picture ?? null });
     }

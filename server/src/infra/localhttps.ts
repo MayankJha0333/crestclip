@@ -40,8 +40,6 @@ export function startLocalHttps(app: Express) {
   }
   https
     .createServer(creds, app)
-    .on('error', (e: NodeJS.ErrnoException) =>
-      console.log(`  [https] couldn’t open port ${config.httpsPort} (${e.code ?? e.message}) — set HTTPS_PORT in .env to another port.`),
-    )
+    .on('error', (e: NodeJS.ErrnoException) => console.log(`  [https] couldn’t open port ${config.httpsPort} (${e.code ?? e.message}) — set HTTPS_PORT in .env to another port.`))
     .listen(config.httpsPort, () => console.log(`  Local https (Instagram sign-in) → https://localhost:${config.httpsPort}`));
 }

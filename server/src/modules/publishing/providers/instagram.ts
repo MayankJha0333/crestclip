@@ -26,7 +26,13 @@ export const instagram = {
     const short = await jsonFetch<{ access_token: string; user_id: number | string }>('https://api.instagram.com/oauth/access_token', {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ client_id: config.instagramAppId, client_secret: config.instagramAppSecret, grant_type: 'authorization_code', redirect_uri: redirectUri('instagram'), code: code.replace(/#_$/, '') }),
+      body: new URLSearchParams({
+        client_id: config.instagramAppId,
+        client_secret: config.instagramAppSecret,
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri('instagram'),
+        code: code.replace(/#_$/, ''),
+      }),
     });
     // swap the 1-hour token for a 60-day one
     const long = await jsonFetch<{ access_token: string; expires_in: number }>(

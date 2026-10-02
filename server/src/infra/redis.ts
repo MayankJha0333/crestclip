@@ -15,7 +15,7 @@ import { run, sleep } from '../lib/proc.js';
  *   3. CrestClip's own private copy: Valkey (the open-source Redis), built once from source into data/bin
  *      and started on 127.0.0.1:6390 — no brew, no terminal. Needs Apple's command line tools on a Mac.
  *
- * SQLite stays the record of truth; Redis only times the jobs, so it is fine if Redis restarts empty —
+ * MongoDB stays the record of truth; Redis only times the jobs, so it is fine if Redis restarts empty —
  * CrestClip puts every job back on start-up.
  */
 
@@ -98,11 +98,7 @@ async function startManaged(): Promise<string> {
   // still running from before a restart? reuse it
   if (await ping('127.0.0.1', MANAGED_PORT)) return url;
   const bin =
-    (process.env.REDIS_SERVER_BIN || '').trim() ||
-    (fs.existsSync(managedBin) ? managedBin : null) ||
-    (await onPath('valkey-server')) ||
-    (await onPath('redis-server')) ||
-    (await buildValkey());
+    (process.env.REDIS_SERVER_BIN || '').trim() || (fs.existsSync(managedBin) ? managedBin : null) || (await onPath('valkey-server')) || (await onPath('redis-server')) || (await buildValkey());
   const dir = path.join(config.dataDir, 'redis');
   fs.mkdirSync(dir, { recursive: true });
   const child = spawn(

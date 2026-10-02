@@ -79,10 +79,8 @@ async function ytdlp(args: string[], opts: Parameters<typeof run>[2] = {}, heale
 
 function friendlyYtdlpError(e: ProcError): Error {
   const s = `${e.message}\n${e.stderr}`;
-  if (/Could not start/.test(s))
-    return new Error(ytStatus.detail || 'The video downloader isn’t ready yet — CrestClip is setting it up. Try again in a minute, or upload the file instead.');
-  if (/Sign in to confirm|not a bot/i.test(s))
-    return new Error('YouTube asked for a sign-in check. Add a cookies file (YTDLP_COOKIES in .env) or upload the video file instead.');
+  if (/Could not start/.test(s)) return new Error(ytStatus.detail || 'The video downloader isn’t ready yet — CrestClip is setting it up. Try again in a minute, or upload the file instead.');
+  if (/Sign in to confirm|not a bot/i.test(s)) return new Error('YouTube asked for a sign-in check. Add a cookies file (YTDLP_COOKIES in .env) or upload the video file instead.');
   if (/Private video|members-only|This video is private/i.test(s)) return new Error('This video is private or members-only.');
   if (/Unsupported URL/i.test(s)) return new Error('That link is not supported. Try a YouTube, TikTok, Twitch, Vimeo, X or direct video link.');
   if (/age/i.test(s) && /restrict/i.test(s)) return new Error('This video is age-restricted. Add a cookies file (YTDLP_COOKIES) to download it.');
@@ -104,7 +102,7 @@ function estimateFullSize(j: Record<string, unknown>): number | null {
   const v = best(vids);
   const a = auds.sort((x, y) => size(y) - size(x))[0];
   const total = (v ? size(v) : 0) + (v && v.acodec && v.acodec !== 'none' ? 0 : a ? size(a) : 0);
-  return total || (Number(j.filesize_approx) || null);
+  return total || Number(j.filesize_approx) || null;
 }
 
 /** Read a link without downloading. `saveTo` keeps the raw JSON so later downloads can skip re-reading the page. */
@@ -146,10 +144,7 @@ export async function fetchInfo(url: string, saveTo?: string): Promise<SourceInf
 /** Top comments (only used to find timestamps people mention, e.g. "12:34 was insane"). Best effort. */
 export async function fetchComments(url: string, max = 400): Promise<Comment[]> {
   try {
-    const { stdout } = await ytdlp(
-      ['-J', '--skip-download', '--write-comments', '--extractor-args', `youtube:comment_sort=top;max_comments=${max},all,0`, url],
-      { timeoutMs: 150_000 },
-    );
+    const { stdout } = await ytdlp(['-J', '--skip-download', '--write-comments', '--extractor-args', `youtube:comment_sort=top;max_comments=${max},all,0`, url], { timeoutMs: 150_000 });
     const j = JSON.parse(stdout);
     return Array.isArray(j.comments) ? j.comments.map((c: Comment) => ({ text: String(c.text ?? ''), like_count: c.like_count ?? 0 })) : [];
   } catch {
@@ -166,19 +161,9 @@ const VIDEO_FORMAT = 'bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=10
  * Download with fallbacks: first reuse the saved page info (skips re-reading YouTube — much faster),
  * then read the link fresh, then try other YouTube player clients if YouTube blocks one.
  */
-async function downloadWithFallbacks(opts: {
-  url: string;
-  infoJson?: string | null;
-  args: string[];
-  timeoutMs: number;
-  onLine?: (line: string) => void;
-  cleanup: () => void;
-}) {
+async function downloadWithFallbacks(opts: { url: string; infoJson?: string | null; args: string[]; timeoutMs: number; onLine?: (line: string) => void; cleanup: () => void }) {
   const fresh = opts.infoJson && fs.existsSync(opts.infoJson) && Date.now() - fs.statSync(opts.infoJson).mtimeMs < 4 * 3600_000;
-  const attempts: (string[] | null)[] = [
-    ...(fresh ? [['--load-info-json', opts.infoJson as string]] : []),
-    ...YT_CLIENT_FALLBACKS.map((c) => [...(c ? ['--extractor-args', c] : []), opts.url]),
-  ];
+  const attempts: (string[] | null)[] = [...(fresh ? [['--load-info-json', opts.infoJson as string]] : []), ...YT_CLIENT_FALLBACKS.map((c) => [...(c ? ['--extractor-args', c] : []), opts.url])];
   let lastErr: unknown = null;
   for (const [i, src] of attempts.entries()) {
     try {
@@ -203,8 +188,7 @@ const removePartials = (dir: string, prefix: string) => () => {
   if (!fs.existsSync(dir)) return;
   for (const f of fs.readdirSync(dir)) if (f.startsWith(prefix) && /\.(part|ytdl|temp)$|\.f\d+\.|\.part-/.test(f)) fs.rmSync(path.join(dir, f), { force: true });
 };
-const findOut = (dir: string, prefix: string) =>
-  fs.readdirSync(dir).find((f) => f.startsWith(prefix) && !/\.(part|ytdl|temp|json)$/.test(f) && !/\.f\d+\./.test(f));
+const findOut = (dir: string, prefix: string) => fs.readdirSync(dir).find((f) => f.startsWith(prefix) && !/\.(part|ytdl|temp|json)$/.test(f) && !/\.f\d+\./.test(f));
 
 /** Full video download (used for short videos, or when downloading parts isn't possible). */
 export async function download(url: string, dir: string, onProgress: (pct: number, detail: string) => void, infoJson?: string | null): Promise<string> {

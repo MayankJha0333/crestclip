@@ -43,36 +43,36 @@ export async function refreshAccount(user: UserRow): Promise<UserRow> {
         console.warn(`[billing] couldn't check subscription for ${user.email}:`, (e as Error).message);
       }
     }
-    const after = users.get(user.id)!;
+    const after = (await users.get(user.id))!;
     return after.plan === 'free' ? refreshAccount(after) : after; // the subscription ended → start the Free month
   }
   if (plan.id !== 'free' && user.cancelAtPeriodEnd) {
-    downgrade(user, 'The plan ended');
-    return refreshAccount(users.get(user.id)!);
+    await downgrade(user, 'The plan ended');
+    return refreshAccount((await users.get(user.id))!);
   }
   // free plan, or a plan an admin gave (no subscription): roll the month forward and add its credits
   let start = user.cycleEnd && user.cycleEnd > Date.now() - 62 * DAY ? user.cycleEnd : Date.now();
   while (nextMonth(start) <= Date.now()) start = nextMonth(start);
   const end = nextMonth(start);
-  users.update(user.id, { cycleStart: start, cycleEnd: end });
-  credits.grant(user.id, {
+  await users.update(user.id, { cycleStart: start, cycleEnd: end });
+  await credits.grant(user.id, {
     amount: plan.credits,
     source: 'plan',
     expiresAt: plan.rollover ? nextMonth(end) : end,
     ref: `${plan.id}_${user.id}_${start}`,
     note: `${plan.name} plan · monthly credits`,
   });
-  return users.get(user.id)!;
+  return (await users.get(user.id))!;
 }
 
 /** Apply what Razorpay says about a subscription: a paid month (add credits) or the end of the plan. */
-function syncSubscription(user: UserRow, sub: RzSubscription, planHint?: PlanId) {
+async function syncSubscription(user: UserRow, sub: RzSubscription, planHint?: PlanId) {
   const plan = planFromSubscription(sub) ?? planHint ?? user.plan;
   const end = sub.current_end ? sub.current_end * 1000 : null;
   if ((sub.status === 'active' || sub.status === 'authenticated') && sub.paid_count > 0 && end && end > Date.now()) {
     const p = planOf(plan);
-    users.update(user.id, { plan: p.id, rzSubscriptionId: sub.id, cycleStart: (sub.current_start ?? Date.now() / 1000) * 1000, cycleEnd: end });
-    credits.grant(user.id, {
+    await users.update(user.id, { plan: p.id, rzSubscriptionId: sub.id, cycleStart: (sub.current_start ?? Date.now() / 1000) * 1000, cycleEnd: end });
+    await credits.grant(user.id, {
       amount: p.credits,
       source: 'plan',
       expiresAt: nextMonth(end), // unused paid credits roll over one month
@@ -82,10 +82,10 @@ function syncSubscription(user: UserRow, sub: RzSubscription, planHint?: PlanId)
     return;
   }
   if (sub.status === 'cancelled' && end && end > Date.now()) {
-    users.update(user.id, { cancelAtPeriodEnd: true }); // paid until the end of this month
+    await users.update(user.id, { cancelAtPeriodEnd: true }); // paid until the end of this month
     return;
   }
-  if (['cancelled', 'completed', 'expired', 'halted'].includes(sub.status)) downgrade(user, sub.status === 'halted' ? 'Payments failed' : 'The plan ended');
+  if (['cancelled', 'completed', 'expired', 'halted'].includes(sub.status)) await downgrade(user, sub.status === 'halted' ? 'Payments failed' : 'The plan ended');
   // 'pending' = Razorpay is retrying a failed renewal: keep the plan, add credits once it's paid
 }
 
@@ -95,9 +95,9 @@ function planFromSubscription(sub: RzSubscription): PlanId | null {
 }
 
 /** Back to Free (credits already paid for stay until they expire). */
-function downgrade(user: UserRow, why: string) {
+async function downgrade(user: UserRow, why: string) {
   console.log(`[billing] ${user.email}: ${planOf(user.plan).name} → Free (${why})`);
-  users.update(user.id, { plan: 'free', rzSubscriptionId: null, cancelAtPeriodEnd: false, cycleEnd: Date.now() });
+  await users.update(user.id, { plan: 'free', rzSubscriptionId: null, cancelAtPeriodEnd: false, cycleEnd: Date.now() });
 }
 
 // ---------------- what the app shows ----------------
@@ -105,7 +105,7 @@ function downgrade(user: UserRow, why: string) {
 /** A plan as the app shows it (price in US dollars, and how many clips its credits make). */
 export const publicPlan = (p: Plan) => ({ ...p, currency: CURRENCY, clips: Math.floor(p.credits / CREDITS_PER_CLIP) });
 
-export function accountSummary(user: UserRow) {
+export async function accountSummary(user: UserRow) {
   const plan = planOf(user.plan);
   return {
     plan: publicPlan(plan),
@@ -115,17 +115,17 @@ export function accountSummary(user: UserRow) {
     hasSubscription: Boolean(user.rzSubscriptionId),
     credits: {
       perClip: CREDITS_PER_CLIP,
-      balance: credits.balance(user.id),
+      balance: await credits.balance(user.id),
       monthly: plan.credits,
-      usedThisMonth: user.cycleStart ? credits.spentSince(user.id, user.cycleStart) : 0,
-      grants: credits.liveGrants(user.id).map((g) => ({ source: g.source, remaining: g.remaining, expiresAt: g.expiresAt })),
+      usedThisMonth: user.cycleStart ? await credits.spentSince(user.id, user.cycleStart) : 0,
+      grants: (await credits.liveGrants(user.id)).map((g) => ({ source: g.source, remaining: g.remaining, expiresAt: g.expiresAt })),
     },
     paymentsReady: razorpayReady(),
   };
 }
 
-export const creditHistory = (user: UserRow) => credits.history(user.id);
-export const paymentHistory = (user: UserRow) => payments.forUser(user.id);
+export const creditHistory = async (user: UserRow) => await credits.history(user.id);
+export const paymentHistory = async (user: UserRow) => await payments.forUser(user.id);
 
 // ---------------- limits ----------------
 
@@ -154,7 +154,7 @@ export function assertCustomLogo(user: UserRow) {
 export async function assertHasCredits(user: UserRow, clips = 1) {
   const fresh = await refreshAccount(user);
   const need = creditsForClips(Math.max(1, clips));
-  const have = credits.balance(fresh.id);
+  const have = await credits.balance(fresh.id);
   if (have >= need) return;
   if (have < CREDITS_PER_CLIP) throw new HttpError(402, 'You’ve used all your credits. Buy a top-up or upgrade your plan to keep clipping.');
   throw new HttpError(
@@ -164,8 +164,8 @@ export async function assertHasCredits(user: UserRow, clips = 1) {
 }
 
 /** How the owner's plan changes rendering. */
-export function renderRules(userId: string | null) {
-  const plan = planOf(userId ? users.get(userId)?.plan : 'free');
+export async function renderRules(userId: string | null) {
+  const plan = planOf(userId ? (await users.get(userId))?.plan : 'free');
   return { crestclipWatermark: plan.crestclipWatermark, customLogo: plan.customLogo, exportHeight: plan.exportHeight };
 }
 
@@ -180,9 +180,9 @@ const clipWord = (n: number) => `${n} clip${n === 1 ? '' : 's'}`;
  * needs to upgrade or top up.
  */
 export async function chargeProject(projectId: string, seconds: number, what: string, clips?: number) {
-  const p = projects.get(projectId);
+  const p = await projects.get(projectId);
   if (!p?.userId || p.creditsCharged > 0) return;
-  const owner = users.get(p.userId);
+  const owner = await users.get(p.userId);
   if (!owner) return;
   const user = await refreshAccount(owner);
   const plan = planOf(user.plan);
@@ -196,42 +196,42 @@ export async function chargeProject(projectId: string, seconds: number, what: st
   const n = Math.max(1, clips ?? p.options.clipCount ?? 1);
   const need = creditsForClips(n);
   try {
-    credits.spend(user.id, need, `${what} · ${clipWord(n)}`, p.id);
+    await credits.spend(user.id, need, `${what} · ${clipWord(n)}`, p.id);
   } catch (e) {
     if (e instanceof NotEnoughCredits)
       throw new BillingError('credits', `Not enough credits: ${clipWord(n)} need ${e.needed} (${CREDITS_PER_CLIP} per clip) and you have ${e.have}. Buy a top-up or upgrade, then press Retry.`);
     throw e;
   }
-  projects.update(p.id, { creditsCharged: need });
+  await projects.update(p.id, { creditsCharged: need });
 }
 
 /** The clips are made: keep 5 credits per clip that came out, give back the rest. */
-export function settleProject(projectId: string, made: number, what: string) {
-  const p = projects.get(projectId);
+export async function settleProject(projectId: string, made: number, what: string) {
+  const p = await projects.get(projectId);
   if (!p || p.creditsCharged <= 0) return;
   const keep = creditsForClips(made);
   if (keep >= p.creditsCharged) return;
-  const ev = credits.lastSpendFor(p.id);
-  if (ev) credits.reduceSpend(ev, keep, `${what} · ${clipWord(made)}`);
-  projects.update(p.id, { creditsCharged: keep });
+  const ev = await credits.lastSpendFor(p.id);
+  if (ev) await credits.reduceSpend(ev, keep, `${what} · ${clipWord(made)}`);
+  await projects.update(p.id, { creditsCharged: keep });
 }
 
 /** A project failed: give its credits back (so Retry can charge again). */
-export function refundProject(projectId: string) {
-  const p = projects.get(projectId);
+export async function refundProject(projectId: string) {
+  const p = await projects.get(projectId);
   if (!p || p.creditsCharged <= 0) return;
-  const ev = credits.lastSpendFor(p.id);
-  if (ev) credits.refund(ev, `Refund · ${p.title ?? 'video'} didn’t finish`);
-  projects.update(p.id, { creditsCharged: 0 });
+  const ev = await credits.lastSpendFor(p.id);
+  if (ev) await credits.refund(ev, `Refund · ${p.title ?? 'video'} didn’t finish`);
+  await projects.update(p.id, { creditsCharged: 0 });
 }
 
 /** Clips added by hand from the rewatch graph: 5 credits each. Returns the spend (to refund or settle). */
 export async function chargeClips(userId: string, projectId: string, clips: number, what: string) {
-  const owner = users.get(userId);
+  const owner = await users.get(userId);
   if (!owner) return null;
   const user = await refreshAccount(owner);
   try {
-    return credits.spend(user.id, creditsForClips(clips), `${what} · ${clipWord(clips)}`, projectId);
+    return await credits.spend(user.id, creditsForClips(clips), `${what} · ${clipWord(clips)}`, projectId);
   } catch (e) {
     if (e instanceof NotEnoughCredits) throw new HttpError(402, `Not enough credits: ${clipWord(clips)} need ${e.needed} (${CREDITS_PER_CLIP} per clip) and you have ${e.have}.`);
     throw e;
@@ -292,7 +292,7 @@ export async function startSubscription(user: UserRow, planId: PlanId) {
     throw new HttpError(409, `You’re on ${planOf(user.plan).name}, which already includes everything in ${plan.name}.`);
   await assertDollarPlan(plan, rzPlan);
   const sub = await razorpay.createSubscription(rzPlan, { user_id: user.id, plan: plan.id, email: user.email }).catch(explainRazorpayError);
-  users.update(user.id, { pendingSubscriptionId: sub.id }); // found again later even if Checkout never reports back
+  await users.update(user.id, { pendingSubscriptionId: sub.id }); // found again later even if Checkout never reports back
   return { key: config.razorpayKeyId, subscriptionId: sub.id, plan: plan.id, description: `${plan.name} plan · ${Math.floor(plan.credits / CREDITS_PER_CLIP)} clips a month` };
 }
 
@@ -309,7 +309,7 @@ async function adoptSubscription(user: UserRow, sub: RzSubscription, paymentId: 
     await razorpay.cancelSubscription(user.rzSubscriptionId, false).catch((e) => console.warn('[billing] old subscription cancel:', (e as Error).message));
     console.log(`[billing] ${user.email}: ${planOf(user.plan).name} → ${PLANS[plan].name}`);
   }
-  users.update(user.id, {
+  await users.update(user.id, {
     plan,
     rzSubscriptionId: sub.id,
     cancelAtPeriodEnd: false,
@@ -317,8 +317,8 @@ async function adoptSubscription(user: UserRow, sub: RzSubscription, paymentId: 
   });
   const pay = paymentId ? { payment_id: paymentId, amount: toCents(PLANS[plan].price), currency: CURRENCY } : await razorpay.lastPaymentOf(sub.id).catch(() => null);
   if (pay?.payment_id)
-    payments.record({ id: pay.payment_id, userId: user.id, kind: 'subscription', plan, amount: pay.amount ?? toCents(PLANS[plan].price), currency: pay.currency ?? CURRENCY, ref: sub.id });
-  syncSubscription(users.get(user.id)!, sub, plan);
+    await payments.record({ id: pay.payment_id, userId: user.id, kind: 'subscription', plan, amount: pay.amount ?? toCents(PLANS[plan].price), currency: pay.currency ?? CURRENCY, ref: sub.id });
+  await syncSubscription((await users.get(user.id))!, sub, plan);
 }
 
 /** Checkout said "paid": check the signature, switch the plan, add the month's credits. */
@@ -329,11 +329,11 @@ export async function confirmSubscription(user: UserRow, r: { paymentId: string;
   if (sub.notes?.user_id && sub.notes.user_id !== user.id) throw new HttpError(403, 'That subscription belongs to another account.');
   if (!isPaid(sub)) {
     // e.g. UPI Autopay: approved, but Razorpay hasn't marked the first charge yet — picked up on the next check
-    users.update(user.id, { pendingSubscriptionId: sub.id });
-    return { user: users.get(user.id)!, pending: true };
+    await users.update(user.id, { pendingSubscriptionId: sub.id });
+    return { user: (await users.get(user.id))!, pending: true };
   }
   await adoptSubscription(user, sub, r.paymentId);
-  return { user: users.get(user.id)!, pending: false };
+  return { user: (await users.get(user.id))!, pending: false };
 }
 
 /** When the person's newest paid subscription isn't their plan yet, it is the one they just paid for. */
@@ -353,8 +353,8 @@ export async function reconcileSubscriptions(user: UserRow, opts: { scan?: boole
       const sub = await razorpay.subscription(user.pendingSubscriptionId);
       const abandoned = sub.status === 'created' && Date.now() / 1000 - (sub.created_at ?? Date.now() / 1000) > 2 * 3600; // window closed without paying
       if (isPaid(sub) && (!sub.notes?.user_id || sub.notes.user_id === user.id) && sub.id !== user.rzSubscriptionId) await adoptSubscription(user, sub, null);
-      else if (abandoned || ['cancelled', 'expired', 'completed', 'halted'].includes(sub.status) || sub.id === user.rzSubscriptionId) users.update(user.id, { pendingSubscriptionId: null });
-      user = users.get(user.id)!;
+      else if (abandoned || ['cancelled', 'expired', 'completed', 'halted'].includes(sub.status) || sub.id === user.rzSubscriptionId) await users.update(user.id, { pendingSubscriptionId: null });
+      user = (await users.get(user.id))!;
     }
     if (opts.scan && Date.now() - (lastScan.get(user.id) ?? 0) > 5 * 60_000) {
       lastScan.set(user.id, Date.now());
@@ -362,7 +362,7 @@ export async function reconcileSubscriptions(user: UserRow, opts: { scan?: boole
       const current = mine.find((s) => s.id === user.rzSubscriptionId);
       const newer = mine.filter((s) => s.id !== user.rzSubscriptionId && (!current || (s.created_at ?? 0) > (current.created_at ?? 0))).sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))[0];
       if (newer) await adoptSubscription(user, newer, null);
-      user = users.get(user.id)!;
+      user = (await users.get(user.id))!;
     }
   } catch (e) {
     console.warn(`[billing] couldn't check Razorpay for ${user.email}:`, (e as Error).message);
@@ -383,13 +383,13 @@ export async function confirmTopup(user: UserRow, r: { orderId: string; paymentI
   const pay = await razorpay.payment(r.paymentId);
   if (pay.order_id !== r.orderId) throw new HttpError(400, 'That payment doesn’t match the order.');
   if (pay.notes?.user_id && pay.notes.user_id !== user.id) throw new HttpError(403, 'That payment belongs to another account.');
-  addTopup(user.id, pay);
-  return users.get(user.id)!;
+  await addTopup(user.id, pay);
+  return (await users.get(user.id))!;
 }
 
-function addTopup(userId: string, pay: RzPayment) {
-  payments.record({ id: pay.id, userId, kind: 'topup', amount: pay.amount, currency: pay.currency, ref: pay.order_id ?? null });
-  credits.grant(userId, { amount: TOPUP.credits, source: 'topup', expiresAt: Date.now() + TOPUP.validDays * DAY, ref: `topup_${pay.id}`, note: `Top-up · ${TOPUP.credits} credits` });
+async function addTopup(userId: string, pay: RzPayment) {
+  await payments.record({ id: pay.id, userId, kind: 'topup', amount: pay.amount, currency: pay.currency, ref: pay.order_id ?? null });
+  await credits.grant(userId, { amount: TOPUP.credits, source: 'topup', expiresAt: Date.now() + TOPUP.validDays * DAY, ref: `topup_${pay.id}`, note: `Top-up · ${TOPUP.credits} credits` });
 }
 
 /** Stop renewing: the plan stays until the paid month ends, then it's Free. */
@@ -399,8 +399,8 @@ export async function cancelPlan(user: UserRow) {
     needPayments();
     await razorpay.cancelSubscription(user.rzSubscriptionId, true);
   }
-  users.update(user.id, { cancelAtPeriodEnd: true });
-  return users.get(user.id)!;
+  await users.update(user.id, { cancelAtPeriodEnd: true });
+  return (await users.get(user.id))!;
 }
 
 // ---------------- Razorpay webhooks (renewals, payments made while the tab was closed) ----------------
@@ -414,36 +414,36 @@ export async function handleWebhook(rawBody: Buffer | undefined, signature: stri
   const sub = ev.payload.subscription?.entity;
   const pay = ev.payload.payment?.entity;
   if (sub) {
-    const user = users.bySubscription(sub.id) ?? (sub.notes?.user_id ? users.get(sub.notes.user_id) : null);
+    const user = (await users.bySubscription(sub.id)) ?? (sub.notes?.user_id ? await users.get(sub.notes.user_id) : null);
     if (!user) return;
     // a subscription paid for in a window that closed before it reported back (a first plan, or a switch to another)
     if (sub.id !== user.rzSubscriptionId && isPaid(sub) && (ev.event === 'subscription.activated' || ev.event === 'subscription.charged')) {
       const switching = !user.rzSubscriptionId || sub.id === user.pendingSubscriptionId;
       if (switching) await adoptSubscription(user, sub, pay?.id ?? null);
     }
-    const fresh = users.get(user.id)!;
+    const fresh = (await users.get(user.id))!;
     if (fresh.rzSubscriptionId !== sub.id) return; // an old subscription
     if (pay && ev.event === 'subscription.charged')
-      payments.record({ id: pay.id, userId: user.id, kind: 'subscription', plan: planFromSubscription(sub), amount: pay.amount, currency: pay.currency, ref: sub.id });
-    syncSubscription(fresh, sub);
+      await payments.record({ id: pay.id, userId: user.id, kind: 'subscription', plan: planFromSubscription(sub), amount: pay.amount, currency: pay.currency, ref: sub.id });
+    await syncSubscription(fresh, sub);
     return;
   }
-  if (pay && ev.event === 'payment.captured' && pay.notes?.kind === 'topup' && pay.notes.user_id && users.get(pay.notes.user_id)) addTopup(pay.notes.user_id, pay);
+  if (pay && ev.event === 'payment.captured' && pay.notes?.kind === 'topup' && pay.notes.user_id && (await users.get(pay.notes.user_id))) await addTopup(pay.notes.user_id, pay);
 }
 
 // ---------------- admin ----------------
 
-export function adminSetPlan(userId: string, planId: PlanId) {
-  const user = users.get(userId);
+export async function adminSetPlan(userId: string, planId: PlanId) {
+  const user = await users.get(userId);
   if (!user) throw new HttpError(404, 'User not found');
   if (!(planId in PLANS)) throw new HttpError(400, 'Unknown plan');
   if (user.rzSubscriptionId) throw new HttpError(409, 'This person pays through Razorpay — change or cancel their subscription in the Razorpay Dashboard.');
   // an admin-given plan has no subscription; it renews itself each month until changed
-  users.update(userId, { plan: planId, cancelAtPeriodEnd: false, cycleEnd: Date.now() });
-  return refreshAccount(users.get(userId)!);
+  await users.update(userId, { plan: planId, cancelAtPeriodEnd: false, cycleEnd: Date.now() });
+  return refreshAccount((await users.get(userId))!);
 }
 
-export function adminAdjustCredits(userId: string, delta: number, note: string) {
-  if (!users.get(userId)) throw new HttpError(404, 'User not found');
-  credits.adjust(userId, Math.trunc(delta), note || (delta > 0 ? 'Added by admin' : 'Removed by admin'));
+export async function adminAdjustCredits(userId: string, delta: number, note: string) {
+  if (!(await users.get(userId))) throw new HttpError(404, 'User not found');
+  await credits.adjust(userId, Math.trunc(delta), note || (delta > 0 ? 'Added by admin' : 'Removed by admin'));
 }

@@ -52,10 +52,7 @@ export async function resolveChannel(input: string): Promise<{ channelId: string
     html.match(/"channelId":"(UC[\w-]{22})"/)?.[1] ??
     direct;
   if (!channelId) throw new Error('Couldn’t find that channel on YouTube.');
-  const label =
-    decode(html.match(/<meta property="og:title" content="([^"]+)"/)?.[1] ?? '') ||
-    decode(html.match(/"channelMetadataRenderer":\{"title":"([^"]+)"/)?.[1] ?? '') ||
-    raw;
+  const label = decode(html.match(/<meta property="og:title" content="([^"]+)"/)?.[1] ?? '') || decode(html.match(/"channelMetadataRenderer":\{"title":"([^"]+)"/)?.[1] ?? '') || raw;
   return { channelId, label, url: `https://www.youtube.com/channel/${channelId}` };
 }
 

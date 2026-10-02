@@ -53,11 +53,11 @@ export const enqueueRender = (clipId: string) => renderQueue.push(clipId, () => 
 export const enqueueJob = (key: string, job: () => Promise<void>) => projectQueue.push(key, job);
 
 /** After a restart, pick up anything that was mid-flight. */
-export function resumeUnfinished() {
+export async function resumeUnfinished() {
   const busy = new Set<string>();
-  for (const p of projects.unfinished()) {
+  for (const p of await projects.unfinished()) {
     busy.add(p.id);
     enqueueProject(p.id);
   }
-  for (const c of clips.unfinished()) if (!busy.has(c.projectId)) enqueueRender(c.id);
+  for (const c of await clips.unfinished()) if (!busy.has(c.projectId)) enqueueRender(c.id);
 }

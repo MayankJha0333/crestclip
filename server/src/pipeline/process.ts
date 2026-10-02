@@ -33,29 +33,39 @@ const STAGE_RANGE: Record<Stage, [number, number]> = {
   render: [64, 100],
 };
 
+const progressWrites = new Map<string, Promise<void>>();
+
+/** Show progress. Writes go out one after another per project, and never hold up (or break) the work itself. */
 function stage(id: string, s: Stage, frac = 0, detail = '') {
   const [a, b] = STAGE_RANGE[s];
-  projects.update(id, { stage: s, progress: +(a + (b - a) * Math.max(0, Math.min(1, frac))).toFixed(1), stageDetail: detail });
+  const patch = { stage: s, progress: +(a + (b - a) * Math.max(0, Math.min(1, frac))).toFixed(1), stageDetail: detail };
+  const write = (progressWrites.get(id) ?? Promise.resolve()).then(() => projects.update(id, patch)).catch((e) => console.warn(`[project ${id}] progress:`, (e as Error).message));
+  progressWrites.set(id, write);
+  void write.then(() => progressWrites.get(id) === write && progressWrites.delete(id));
 }
 
+/** Wait for queued progress writes, so the final status isn't overwritten by a late one. */
+const progressSaved = (id: string) => progressWrites.get(id) ?? Promise.resolve();
+
 export async function processProject(id: string) {
-  const p = projects.get(id);
+  const p = await projects.get(id);
   if (!p) return;
   const dir = projectDir(id);
   const work = path.join(dir, 'work');
   fs.mkdirSync(work, { recursive: true });
   fs.mkdirSync(path.join(dir, 'clips'), { recursive: true });
-  projects.update(id, { status: 'processing', error: null, errorCode: null });
+  await projects.update(id, { status: 'processing', error: null, errorCode: null });
   const startedUsage = { ...usage };
 
   try {
     // Resume: moments already found → only (re)render what's missing.
-    const existing = clipDb.forProject(id);
+    const existing = await clipDb.forProject(id);
     if (p.transcript && p.signals && existing.length && p.mediaPath && fs.existsSync(p.mediaPath)) {
       const todo = existing.filter((c) => c.status !== 'ready');
       await fetchClipFootage(id, todo);
       await renderAll(id, todo);
-      projects.update(id, { status: 'done', stage: 'done', progress: 100, stageDetail: '' });
+      await progressSaved(id);
+      await projects.update(id, { status: 'done', stage: 'done', progress: 100, stageDetail: '' });
       return;
     }
 
@@ -81,7 +91,7 @@ export async function processProject(id: string) {
         .replace(/[_-]+/g, ' ')
         .trim()
         .slice(0, 120);
-      projects.update(id, { mediaPath: src, ...(title && title !== 'video' ? { title } : {}) });
+      await projects.update(id, { mediaPath: src, ...(title && title !== 'video' ? { title } : {}) });
     }
     let info: SourceInfo | null = null;
     let commentsP: Promise<Comment[]> = Promise.resolve([]);
@@ -91,7 +101,7 @@ export async function processProject(id: string) {
         throw new Error(`This video is ${Math.round(info.duration / 60)} min long. The limit is ${config.maxSourceMinutes} min (MAX_SOURCE_MINUTES).`);
       // pay before downloading anything big (5 credits per clip asked for; checks the plan's length limit too)
       if (info.duration) await chargeProject(id, info.duration, `Clipping “${info.title}”`);
-      projects.update(id, {
+      await projects.update(id, {
         title: info.title,
         channel: info.channel,
         description: info.description,
@@ -121,11 +131,11 @@ export async function processProject(id: string) {
     if (pr.width && readFootage(dir)) endSectionMode(dir); // the "audio" download turned out to be a full video — use it as is
     const duration = pr.duration || info?.duration || 0;
     if (!duration) throw new Error('Could not read the video length.');
-    await chargeProject(id, duration, `Clipping “${projects.get(id)?.title ?? 'your video'}”`); // uploads / file links (links were charged above)
+    await chargeProject(id, duration, `Clipping “${(await projects.get(id))?.title ?? 'your video'}”`); // uploads / file links (links were charged above)
     const thumb = path.join(dir, 'thumb.jpg');
     if (pr.width) await thumbnail(src, Math.min(duration * 0.15, 60), thumb).catch(() => {});
     else if (info?.thumbnail) await remoteThumbnail(info.thumbnail, thumb, work).catch(() => {});
-    projects.update(id, {
+    await projects.update(id, {
       mediaPath: src,
       duration,
       width: pr.width || info?.width || null,
@@ -161,7 +171,7 @@ export async function processProject(id: string) {
       const tr = await transcribe(audio, duration, work, (d, t) => stage(id, 'transcribe', d / t, `Transcribing · part ${d} of ${t}`), sil);
       if (!tr.segments.length) throw new Error('No speech was found in this video.');
       segments = tr.segments;
-      projects.update(id, { transcript: segments });
+      await projects.update(id, { transcript: segments });
     }
     const tr = { segments };
 
@@ -176,7 +186,7 @@ export async function processProject(id: string) {
       rmsPerSecond: rms,
       useAudience: p.options.useAudienceData,
     });
-    projects.update(id, { signals });
+    await projects.update(id, { signals });
 
     let videoPart = null;
     let gcsObject: string | null = null;
@@ -212,16 +222,17 @@ export async function processProject(id: string) {
     const { clips: cands, notes } = found;
     const final = finalizeClips(cands, tr.segments, sil, duration, signals, p.options).map((c) => ({ ...c, hashtags: withRequiredTags(c.hashtags, p.options) }));
     if (!final.length) throw new Error('Gemini did not find any clip-worthy moments in this video.');
-    const saved = clipDb.replaceForProject(id, final, clipDefaults(p.options));
-    projects.update(id, { aiNotes: notes });
-    settleProject(id, saved.length, `Clipping “${projects.get(id)?.title ?? 'your video'}”`); // fewer clips than asked → credits back
+    const saved = await clipDb.replaceForProject(id, final, clipDefaults(p.options));
+    await projects.update(id, { aiNotes: notes });
+    await settleProject(id, saved.length, `Clipping “${(await projects.get(id))?.title ?? 'your video'}”`); // fewer clips than asked → credits back
     stage(id, 'moments', 1, `Found ${saved.length} moments`);
 
     // ---------- 5. fetch only the clip parts (section mode), then reframe + render ----------
     await fetchClipFootage(id, saved);
     await renderAll(id, saved);
     const used = { calls: usage.calls - startedUsage.calls, input: usage.input - startedUsage.input, output: usage.output - startedUsage.output };
-    projects.update(id, {
+    await progressSaved(id);
+    await projects.update(id, {
       status: 'done',
       stage: 'done',
       progress: 100,
@@ -233,8 +244,9 @@ export async function processProject(id: string) {
     for (const f of fs.readdirSync(work)) if (f.startsWith('chunk_')) fs.rmSync(path.join(work, f), { force: true });
   } catch (e) {
     console.error(`[project ${id}]`, e instanceof BillingError ? e.message : e);
-    refundProject(id); // nothing usable came out of it, so the credits go back
-    projects.update(id, { status: 'failed', error: (e as Error).message || String(e), errorCode: e instanceof BillingError ? e.code : null });
+    await refundProject(id); // nothing usable came out of it, so the credits go back
+    await progressSaved(id);
+    await projects.update(id, { status: 'failed', error: (e as Error).message || String(e), errorCode: e instanceof BillingError ? e.code : null });
   }
 }
 
@@ -247,7 +259,7 @@ function savingsText(dir: string) {
 
 /** Section mode: download the video only for the clips, all in one go (no-op for full downloads). */
 async function fetchClipFootage(projectId: string, list: ClipRow[]) {
-  const p = projects.get(projectId);
+  const p = await projects.get(projectId);
   const dir = projectDir(projectId);
   if (!p || !list.length || !readFootage(dir)) return;
   stage(projectId, 'render', 0, 'Downloading only the clip parts…');
@@ -322,11 +334,11 @@ function shiftPlan(plan: ReframePlan, by: number): ReframePlan {
 export const clipParts = (c: Pick<ClipRow, 'start' | 'end' | 'segments'>): TimeRange[] => (c.segments?.length ? c.segments : [{ start: c.start, end: c.end }]);
 
 async function renderOnce(clipId: string) {
-  const c = clipDb.get(clipId);
+  const c = await clipDb.get(clipId);
   if (!c) return;
-  const p = projects.get(c.projectId);
+  const p = await projects.get(c.projectId);
   if (!p?.mediaPath && !readFootage(projectDir(c.projectId))) return;
-  clipDb.update(clipId, { status: 'rendering', error: null });
+  await clipDb.update(clipId, { status: 'rendering', error: null });
   const dir = projectDir(p!.id);
   const work = path.join(dir, 'work', `clip_${c.id}_${Date.now()}`);
   fs.mkdirSync(work, { recursive: true });
@@ -343,7 +355,7 @@ async function renderOnce(clipId: string) {
     const plans: ReframePlan[] = [];
     const files: string[] = [];
     // the owner's plan decides the watermark (Free: the CrestClip mark; paid: their own logo, if set) and the export size
-    const rules = renderRules(p!.userId);
+    const rules = await renderRules(p!.userId);
     const watermark = rules.crestclipWatermark ? crestclipMark() : rules.customLogo && p!.userId ? watermarkForRender(p!.userId) : null;
     const silences = c.pace !== 'off' ? silencesFor(p!.id) : [];
     const gentle = c.category === 'story' || c.category === 'emotional'; // let these breathe
@@ -351,7 +363,7 @@ async function renderOnce(clipId: string) {
     let total = 0;
     for (const [i, seg] of parts.entries()) {
       // where the pixels come from: the full video, or just the downloaded part around this piece
-      const foot = await footageFor(projects.get(p!.id) ?? p!, dir, seg.start, seg.end);
+      const foot = await footageFor((await projects.get(p!.id)) ?? p!, dir, seg.start, seg.end);
       const ls = seg.start - foot.offset;
       const le = seg.end - foot.offset;
       let plan = oldPlans.find((pl) => near(pl.start, seg.start) && near(pl.end, seg.end)) ?? null;
@@ -469,7 +481,7 @@ async function renderOnce(clipId: string) {
         void removeFromCloud(old);
       }
     const aud = partsScore(p!, parts);
-    clipDb.update(clipId, {
+    await clipDb.update(clipId, {
       status: 'ready',
       error: notes.join(' ') || null,
       filePath: out,
@@ -481,7 +493,7 @@ async function renderOnce(clipId: string) {
     });
   } catch (e) {
     console.error(`[clip ${clipId}]`, e);
-    clipDb.update(clipId, { status: 'failed', error: (e as Error).message || String(e) });
+    await clipDb.update(clipId, { status: 'failed', error: (e as Error).message || String(e) });
   } finally {
     fs.rmSync(work, { recursive: true, force: true });
   }
@@ -526,7 +538,7 @@ function readCovered(dir: string): TimeRange[] | null {
 
 /** Make sure these ranges have a transcript (projects built from picked parts only transcribe what they need). */
 async function ensureTranscript(projectId: string, ranges: TimeRange[], onProgress?: (done: number, total: number) => void): Promise<Segment[]> {
-  const p = projects.get(projectId)!;
+  const p = (await projects.get(projectId))!;
   const dir = projectDir(projectId);
   const covered = readCovered(dir);
   let segs = p.transcript ?? [];
@@ -536,7 +548,7 @@ async function ensureTranscript(projectId: string, ranges: TimeRange[], onProgre
   for (const [i, r] of missing.entries()) {
     const s0 = Math.max(0, r.start - 1.5);
     const e0 = Math.min(p.duration || r.end + 1.5, r.end + 1.5);
-    const foot = await footageFor(projects.get(projectId) ?? p, dir, s0, e0);
+    const foot = await footageFor((await projects.get(projectId)) ?? p, dir, s0, e0);
     const sub = path.join(dir, 'work', `tr_${Math.round(s0)}_${Math.round(e0)}`);
     fs.mkdirSync(sub, { recursive: true });
     try {
@@ -550,7 +562,7 @@ async function ensureTranscript(projectId: string, ranges: TimeRange[], onProgre
       fs.rmSync(sub, { recursive: true, force: true });
     }
   }
-  projects.update(projectId, { transcript: segs });
+  await projects.update(projectId, { transcript: segs });
   fs.writeFileSync(coveredPath(dir), JSON.stringify(cov));
   return segs;
 }
@@ -617,17 +629,17 @@ function groupRanges(ranges: TimeRange[], join: boolean): TimeRange[][] {
 
 /** Explore → "Clip the parts I picked": fetch only those parts, transcribe them, package + render. */
 async function processPickedParts(id: string) {
-  const p0 = projects.get(id)!;
+  const p0 = (await projects.get(id))!;
   const dir = projectDir(id);
   const work = path.join(dir, 'work');
   stage(id, 'fetch', 0, 'Reading the link…');
   const info = await fetchInfo(p0.sourceUrl!, infoJsonPath(dir));
   const duration = info.duration || 0;
-  projects.update(id, { title: info.title, channel: info.channel, description: info.description, duration, viewCount: info.viewCount });
+  await projects.update(id, { title: info.title, channel: info.channel, description: info.description, duration, viewCount: info.viewCount });
   const thumb = path.join(dir, 'thumb.jpg');
   if (info.thumbnail && !fs.existsSync(thumb)) await remoteThumbnail(info.thumbnail, thumb, work).catch(() => {});
   if (fs.existsSync(thumb)) {
-    projects.update(id, { thumbPath: thumb });
+    await projects.update(id, { thumbPath: thumb });
     void saveToCloud(thumb);
   }
 
@@ -645,9 +657,9 @@ async function processPickedParts(id: string) {
   // only the picked parts of the video are downloaded
   if (!readFootage(dir) && !(p0.mediaPath && fs.existsSync(p0.mediaPath))) startSectionMode(dir, info.webpageUrl, info.fullSizeEstimate);
   stage(id, 'fetch', 0.2, 'Downloading only the parts you picked…');
-  await prefetchFootage(projects.get(id)!, dir, picked, (done, total, detail) => stage(id, 'fetch', 0.2 + (done / total) * 0.75, `Downloading only the parts you picked · ${detail}`));
-  const first = await footageFor(projects.get(id)!, dir, picked[0].start, picked[0].end);
-  projects.update(id, { mediaPath: first.src, width: first.width, height: first.height });
+  await prefetchFootage((await projects.get(id))!, dir, picked, (done, total, detail) => stage(id, 'fetch', 0.2 + (done / total) * 0.75, `Downloading only the parts you picked · ${detail}`));
+  const first = await footageFor((await projects.get(id))!, dir, picked[0].start, picked[0].end);
+  await projects.update(id, { mediaPath: first.src, width: first.width, height: first.height });
   stage(id, 'fetch', 1, 'Parts ready');
 
   stage(id, 'transcribe', 0, 'Transcribing your parts…');
@@ -655,21 +667,22 @@ async function processPickedParts(id: string) {
 
   stage(id, 'moments', 0.2, 'Writing titles and hooks…');
   const signals: Signals = buildSignals({ duration, heatmap: info.heatmap, chapters: info.chapters, comments: [], rmsPerSecond: null, useAudience: true });
-  projects.update(id, { signals });
-  const p = projects.get(id)!;
+  await projects.update(id, { signals });
+  const p = (await projects.get(id))!;
   const ranges = tidyRanges(picked, segs, [], duration);
   const list = await packagePicked(p, groupRanges(ranges, Boolean(p.options.joinRanges)), segs);
-  const saved = clipDb.replaceForProject(id, list, clipDefaults(p.options), 'manual');
-  settleProject(id, saved.length, `Picked parts of “${info.title}”`);
+  const saved = await clipDb.replaceForProject(id, list, clipDefaults(p.options), 'manual');
+  await settleProject(id, saved.length, `Picked parts of “${info.title}”`);
   stage(id, 'moments', 1, `${saved.length} clip${saved.length > 1 ? 's' : ''} ready to render`);
 
   await renderAll(id, saved);
-  projects.update(id, { status: 'done', stage: 'done', progress: 100, stageDetail: savingsText(dir) });
+  await progressSaved(id);
+  await projects.update(id, { status: 'done', stage: 'done', progress: 100, stageDetail: savingsText(dir) });
 }
 
 /** Project page → "clip the parts I selected on the graph". Creates the clips now; `prepare` fills them in. */
-export function createPickedClips(projectId: string, ranges: TimeRange[], join: boolean): ClipRow[] {
-  const p = projects.get(projectId);
+export async function createPickedClips(projectId: string, ranges: TimeRange[], join: boolean): Promise<ClipRow[]> {
+  const p = await projects.get(projectId);
   if (!p) throw new Error('Project not found');
   const dur = p.duration || Infinity;
   const clean = ranges
@@ -693,25 +706,26 @@ export function createPickedClips(projectId: string, ranges: TimeRange[], join: 
     audienceScore: partsScore(p, g),
     peakScore: 50,
   }));
-  return clipDb.insert(projectId, rows, clipDefaults(p.options), undefined, 'manual');
+  return await clipDb.insert(projectId, rows, clipDefaults(p.options), undefined, 'manual');
 }
 
 /** Fill in picked clips: transcript for any new part, snap edges, Gemini titles/hooks/scores. Then they're ready to render. */
 export async function preparePickedClips(projectId: string, clipIds: string[]) {
   const dir = projectDir(projectId);
-  const list = clipIds.map((id) => clipDb.get(id)).filter((c): c is ClipRow => Boolean(c));
+  const found = new Map((await clipDb.getMany(clipIds)).map((c) => [c.id, c]));
+  const list = clipIds.map((id) => found.get(id)).filter((c): c is ClipRow => Boolean(c));
   if (!list.length) return;
   try {
     const all = list.flatMap((c) => clipParts(c));
-    if (readFootage(dir)) await prefetchFootage(projects.get(projectId)!, dir, all);
+    if (readFootage(dir)) await prefetchFootage((await projects.get(projectId))!, dir, all);
     const segs = await ensureTranscript(projectId, all);
-    const p = projects.get(projectId)!;
+    const p = (await projects.get(projectId))!;
     const sil = silencesFor(projectId);
     const groups = list.map((c) => tidyRanges(clipParts(c), segs, sil, p.duration ?? 0));
     const packaged = await packagePicked(p, groups, segs);
-    list.forEach((c, i) => {
+    for (const [i, c] of list.entries()) {
       const k = packaged[i];
-      clipDb.update(c.id, {
+      await clipDb.update(c.id, {
         start: k.start,
         end: k.end,
         segments: k.segments,
@@ -728,9 +742,9 @@ export async function preparePickedClips(projectId: string, clipIds: string[]) {
         peakScore: k.peakScore,
         ...(k.audienceScore != null ? { audienceScore: k.audienceScore } : {}),
       });
-    });
+    }
   } catch (e) {
-    for (const c of list) clipDb.update(c.id, { status: 'failed', error: `Couldn’t prepare this clip: ${(e as Error).message}` });
+    for (const c of list) await clipDb.update(c.id, { status: 'failed', error: `Couldn’t prepare this clip: ${(e as Error).message}` });
     throw e;
   }
 }

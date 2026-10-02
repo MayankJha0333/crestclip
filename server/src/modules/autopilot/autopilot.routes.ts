@@ -28,42 +28,48 @@ autopilotRouter.post(
   }),
 );
 
-autopilotRouter.get('/autopilots', (req, res) => {
-  res.json(autopilots.list(me(req).id).map(autopilotSummary));
-});
+autopilotRouter.get(
+  '/autopilots',
+  asyncHandler(async (req, res) => {
+    res.json(await Promise.all((await autopilots.list(me(req).id)).map(autopilotSummary)));
+  }),
+);
 
 autopilotRouter.post(
   '/autopilots',
   asyncHandler(async (req, res) => {
     const form = validate(autopilotSchema, req.body, formError);
-    res.status(201).json(autopilotSummary(await service.createAutopilot(me(req), form)));
+    res.status(201).json(await autopilotSummary(await service.createAutopilot(me(req), form)));
   }),
 );
 
-autopilotRouter.get('/autopilots/:id', (req, res) => {
-  res.json(autopilotDetail(service.getAutopilot(req.params.id, me(req))));
-});
+autopilotRouter.get(
+  '/autopilots/:id',
+  asyncHandler(async (req, res) => {
+    res.json(await autopilotDetail(await service.getAutopilot(req.params.id, me(req))));
+  }),
+);
 
 autopilotRouter.put(
   '/autopilots/:id',
   asyncHandler(async (req, res) => {
-    const ap = service.getAutopilot(req.params.id, me(req));
+    const ap = await service.getAutopilot(req.params.id, me(req));
     const form = validate(autopilotSchema, req.body, formError);
-    res.json(autopilotSummary(await service.updateAutopilot(me(req), ap, form)));
+    res.json(await autopilotSummary(await service.updateAutopilot(me(req), ap, form)));
   }),
 );
 
 autopilotRouter.post(
   '/autopilots/:id/pause',
   asyncHandler(async (req, res) => {
-    res.json(autopilotSummary(await service.pauseAutopilot(req.params.id, me(req))));
+    res.json(await autopilotSummary(await service.pauseAutopilot(req.params.id, me(req))));
   }),
 );
 
 autopilotRouter.post(
   '/autopilots/:id/resume',
   asyncHandler(async (req, res) => {
-    res.json(autopilotSummary(await service.resumeAutopilot(req.params.id, me(req))));
+    res.json(await autopilotSummary(await service.resumeAutopilot(req.params.id, me(req))));
   }),
 );
 

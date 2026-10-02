@@ -1,14 +1,18 @@
-import { db, newId, now, type Raw } from './connection.js';
+import { collection, COLLECTIONS, fromDoc, newId, now, setFields, stamp, type Doc } from './connection.js';
 
 export type PostStatus = 'scheduled' | 'uploading' | 'processing' | 'published' | 'failed' | 'canceled';
 export interface PostRow {
   id: string;
   clipId: string;
+  /** the clip's project and its owner (kept here so a person's posts can be found directly) */
+  projectId: string | null;
+  userId: string | null;
   connectionId: string;
   platform: 'youtube' | 'instagram';
   title: string | null;
   caption: string | null;
   privacy: string | null;
+  /** null = post now */
   scheduledAt: number | null;
   status: PostStatus;
   remoteId: string | null;
@@ -17,30 +21,26 @@ export interface PostRow {
   attempts: number;
   createdAt: number;
   updatedAt: number;
+  /** set when an Autopilot made this post */
   autopilotId: string | null;
+  /** the Autopilot time slot it fills, e.g. "2026-10-02T13:00" */
   slotKey: string | null;
 }
-const toPost = (r: Raw): PostRow => ({
-  id: r.id as string,
-  clipId: r.clip_id as string,
-  connectionId: r.connection_id as string,
-  platform: r.platform as PostRow['platform'],
-  title: (r.title as string) ?? null,
-  caption: (r.caption as string) ?? null,
-  privacy: (r.privacy as string) ?? null,
-  scheduledAt: (r.scheduled_at as number) ?? null,
-  status: r.status as PostStatus,
-  remoteId: (r.remote_id as string) ?? null,
-  remoteUrl: (r.remote_url as string) ?? null,
-  error: (r.error as string) ?? null,
-  attempts: (r.attempts as number) ?? 0,
-  createdAt: r.created_at as number,
-  updatedAt: r.updated_at as number,
-  autopilotId: (r.autopilot_id as string) ?? null,
-  slotKey: (r.slot_key as string) ?? null,
-});
+
+const col = () => collection<Doc<PostRow>>(COLLECTIONS.posts);
+const toPost = (d: Doc<PostRow>) => fromDoc<PostRow>(d);
+const list = async (filter: object, sort: Record<string, 1 | -1> = {}) => (await col().find(filter).sort(sort).toArray()).map(toPost);
+
+/** Newest first by when it posts (or was made, for "post now"). */
+async function newestFirst(filter: object, limit: number): Promise<PostRow[]> {
+  const docs = await col()
+    .aggregate<Doc<PostRow>>([{ $match: filter }, { $addFields: { _when: { $ifNull: ['$scheduledAt', '$createdAt'] } } }, { $sort: { _when: -1 } }, { $limit: limit }, { $project: { _when: 0 } }])
+    .toArray();
+  return docs.map(toPost);
+}
+
 export const posts = {
-  create(p: {
+  async create(p: {
     clipId: string;
     connectionId: string;
     platform: string;
@@ -50,72 +50,63 @@ export const posts = {
     scheduledAt: number | null;
     autopilotId?: string | null;
     slotKey?: string | null;
-  }): PostRow {
-    const id = newId();
-    db.prepare(
-      `INSERT INTO posts (id, clip_id, connection_id, platform, title, caption, privacy, scheduled_at, status, created_at, updated_at, autopilot_id, slot_key)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?, ?, ?)`,
-    ).run(id, p.clipId, p.connectionId, p.platform, p.title, p.caption, p.privacy, p.scheduledAt, now(), now(), p.autopilotId ?? null, p.slotKey ?? null);
-    return this.get(id)!;
+  }): Promise<PostRow> {
+    const clip = await collection<{ _id: string; projectId: string }>(COLLECTIONS.clips).findOne({ _id: p.clipId }, { projection: { projectId: 1 } });
+    const project = clip ? await collection<{ _id: string; userId: string | null }>(COLLECTIONS.projects).findOne({ _id: clip.projectId }, { projection: { userId: 1 } }) : null;
+    const at = stamp();
+    const row: Doc<PostRow> = {
+      _id: newId(),
+      clipId: p.clipId,
+      projectId: clip?.projectId ?? null,
+      userId: project?.userId ?? null,
+      connectionId: p.connectionId,
+      platform: p.platform as PostRow['platform'],
+      title: p.title,
+      caption: p.caption,
+      privacy: p.privacy,
+      scheduledAt: p.scheduledAt,
+      status: 'scheduled',
+      remoteId: null,
+      remoteUrl: null,
+      error: null,
+      attempts: 0,
+      createdAt: at,
+      updatedAt: at,
+      autopilotId: p.autopilotId ?? null,
+      slotKey: p.slotKey ?? null,
+    };
+    await col().insertOne(row);
+    return toPost(row);
   },
-  get(id: string): PostRow | null {
-    const r = db.prepare('SELECT * FROM posts WHERE id = ?').get(id) as Raw | undefined;
-    return r ? toPost(r) : null;
+  async get(id: string): Promise<PostRow | null> {
+    const d = await col().findOne({ _id: id });
+    return d ? toPost(d) : null;
   },
-  forClip(clipId: string): PostRow[] {
-    return (db.prepare('SELECT * FROM posts WHERE clip_id = ? ORDER BY created_at DESC').all(clipId) as Raw[]).map(toPost);
-  },
-  /** One person's posts (through the clip → project they own). */
-  list(userId: string, limit = 200): PostRow[] {
-    return (
-      db
-        .prepare(
-          `SELECT p.* FROM posts p JOIN clips c ON c.id = p.clip_id JOIN projects pr ON pr.id = c.project_id
-           WHERE pr.user_id = ? ORDER BY COALESCE(p.scheduled_at, p.created_at) DESC LIMIT ?`,
-        )
-        .all(userId, limit) as Raw[]
-    ).map(toPost);
-  },
+  forClip: (clipId: string) => list({ clipId }, { createdAt: -1 }),
+  forClips: (clipIds: string[]) => (clipIds.length ? list({ clipId: { $in: clipIds } }, { createdAt: -1 }) : Promise.resolve([])),
+  /** One person's posts. */
+  list: (userId: string, limit = 200) => newestFirst({ userId }, limit),
   /**
    * due = scheduled and its time has come (or "now" posts).
    * Autopilot posts are fired on time by their Redis job; this is only their safety net (10 min late).
    */
-  due(): PostRow[] {
-    return (
-      db
-        .prepare(
-          `SELECT * FROM posts WHERE status = 'scheduled' AND (
-             (autopilot_id IS NULL AND (scheduled_at IS NULL OR scheduled_at <= ?)) OR (autopilot_id IS NOT NULL AND scheduled_at <= ?)
-           ) ORDER BY scheduled_at`,
-        )
-        .all(now(), now() - 10 * 60_000) as Raw[]
-    ).map(toPost);
-  },
-  forAutopilot(autopilotId: string, limit = 300): PostRow[] {
-    return (db.prepare('SELECT * FROM posts WHERE autopilot_id = ? ORDER BY COALESCE(scheduled_at, created_at) DESC LIMIT ?').all(autopilotId, limit) as Raw[]).map(toPost);
-  },
-  forSlot(autopilotId: string, slotKey: string): PostRow[] {
-    return (db.prepare('SELECT * FROM posts WHERE autopilot_id = ? AND slot_key = ?').all(autopilotId, slotKey) as Raw[]).map(toPost);
-  },
-  scheduledForAutopilot(autopilotId: string): PostRow[] {
-    return (db.prepare(`SELECT * FROM posts WHERE autopilot_id = ? AND status = 'scheduled'`).all(autopilotId) as Raw[]).map(toPost);
-  },
-  allScheduledAutopilot(): PostRow[] {
-    return (db.prepare(`SELECT * FROM posts WHERE autopilot_id IS NOT NULL AND status = 'scheduled'`).all() as Raw[]).map(toPost);
-  },
-  stuck(): PostRow[] {
-    return (db.prepare(`SELECT * FROM posts WHERE status IN ('uploading', 'processing')`).all() as Raw[]).map(toPost);
-  },
-  update(id: string, patch: Partial<Pick<PostRow, 'status' | 'remoteId' | 'remoteUrl' | 'error' | 'attempts' | 'scheduledAt'>>) {
-    const map: Record<string, string> = { status: 'status', remoteId: 'remote_id', remoteUrl: 'remote_url', error: 'error', attempts: 'attempts', scheduledAt: 'scheduled_at' };
-    const sets = ['updated_at = ?'];
-    const vals: unknown[] = [now()];
-    for (const [k, v] of Object.entries(patch)) {
-      if (!map[k]) continue;
-      sets.push(`${map[k]} = ?`);
-      vals.push(v ?? null);
-    }
-    vals.push(id);
-    db.prepare(`UPDATE posts SET ${sets.join(', ')} WHERE id = ?`).run(...(vals as never[]));
+  due: () =>
+    list(
+      {
+        status: 'scheduled',
+        $or: [
+          { autopilotId: null, $or: [{ scheduledAt: null }, { scheduledAt: { $lte: now() } }] },
+          { autopilotId: { $ne: null }, scheduledAt: { $lte: now() - 10 * 60_000 } },
+        ],
+      },
+      { scheduledAt: 1 },
+    ),
+  forAutopilot: (autopilotId: string, limit = 300) => newestFirst({ autopilotId }, limit),
+  forSlot: (autopilotId: string, slotKey: string) => list({ autopilotId, slotKey }),
+  scheduledForAutopilot: (autopilotId: string) => list({ autopilotId, status: 'scheduled' }),
+  allScheduledAutopilot: () => list({ autopilotId: { $ne: null }, status: 'scheduled' }),
+  stuck: () => list({ status: { $in: ['uploading', 'processing'] } }),
+  async update(id: string, patch: Partial<Pick<PostRow, 'status' | 'remoteId' | 'remoteUrl' | 'error' | 'attempts' | 'scheduledAt'>>) {
+    await col().updateOne({ _id: id }, { $set: setFields(patch, ['status', 'remoteId', 'remoteUrl', 'error', 'attempts', 'scheduledAt']) });
   },
 };

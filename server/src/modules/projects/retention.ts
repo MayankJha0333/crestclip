@@ -12,9 +12,9 @@ import { projectDir } from '../../lib/paths.js';
 
 /** Delete a project (and the videos inside it) everywhere: database, data folder, cloud bucket. */
 export async function purgeProject(p: ProjectRow) {
-  const kids = p.sourceType === 'group' ? projects.children(p.id) : [];
+  const kids = p.sourceType === 'group' ? await projects.children(p.id) : [];
   for (const k of [...kids, p]) {
-    projects.remove(k.id); // its clips and their posts go with it
+    await projects.remove(k.id); // its clips and their posts go with it
     fs.rmSync(projectDir(k.id), { recursive: true, force: true });
     await removeCloudFolder(projectDir(k.id), k.id);
   }
@@ -25,9 +25,9 @@ const busy = (p: ProjectRow) => p.status === 'processing' || p.status === 'queue
 /** Delete every project whose storage time is over. Returns how many were deleted. */
 async function sweepExpired(at = Date.now()): Promise<number> {
   let n = 0;
-  for (const p of projects.expired(at)) {
-    const kids = p.sourceType === 'group' ? projects.children(p.id) : [];
-    if (busy(p) || kids.some(busy) || projects.hasPendingPosts(p.id)) continue; // try again next hour
+  for (const p of await projects.expired(at)) {
+    const kids = p.sourceType === 'group' ? await projects.children(p.id) : [];
+    if (busy(p) || kids.some(busy) || (await projects.hasPendingPosts(p.id))) continue; // try again next hour
     try {
       await purgeProject(p);
       n++;
@@ -43,7 +43,7 @@ async function sweepExpired(at = Date.now()): Promise<number> {
 async function backfillCloud() {
   if (!cloudOn()) return;
   let n = 0;
-  for (const c of clips.allReady()) {
+  for (const c of await clips.allReady()) {
     for (const f of [c.filePath, c.thumbPath]) {
       if (f && fs.existsSync(f) && !(await inCloud(f)) && (await saveToCloud(f))) n++;
     }

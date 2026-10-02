@@ -8,13 +8,19 @@ import type { AutopilotForm } from './autopilot.schemas.js';
 import { channelVideos, resolveChannel, topicVideos } from './autopilot.sources.js';
 
 /** An Autopilot the person owns (404 otherwise). */
-export function getAutopilot(id: string, user: UserRow): AutopilotRow {
-  const ap = autopilots.get(id);
+export async function getAutopilot(id: string, user: UserRow): Promise<AutopilotRow> {
+  const ap = await autopilots.get(id);
   if (!ap || ap.userId !== user.id) throw new HttpError(404, 'Autopilot not found');
   return ap;
 }
 
-function toConfig(user: UserRow, body: AutopilotForm): { name: string; config: AutopilotConfig } {
+/** Only accounts this person connected. */
+async function ownTargets(user: UserRow, targets: AutopilotForm['targets']) {
+  const mine = new Set((await connections.list(user.id)).map((c) => c.id));
+  return targets.filter((t) => mine.has(t.connectionId));
+}
+
+async function toConfig(user: UserRow, body: AutopilotForm): Promise<{ name: string; config: AutopilotConfig }> {
   const times = [...new Set(body.times)].sort();
   const options = optionsSchema.parse({ ...body.options, ranges: undefined }) as ProjectOptions;
   return {
@@ -26,7 +32,7 @@ function toConfig(user: UserRow, body: AutopilotForm): { name: string; config: A
       clipsPerVideo: body.clipsPerVideo,
       times,
       timezone: body.timezone,
-      targets: body.targets.filter((t) => connections.get(t.connectionId)?.userId === user.id),
+      targets: await ownTargets(user, body.targets),
       mode: body.mode,
       caption: body.caption,
       rightsConfirmed: true,
@@ -46,15 +52,15 @@ async function resolveSources(cfg: AutopilotConfig) {
 
 export async function createAutopilot(user: UserRow, form: AutopilotForm): Promise<AutopilotRow> {
   assertAutopilot(user);
-  const { name, config } = toConfig(user, form);
+  const { name, config } = await toConfig(user, form);
   await resolveSources(config).catch(toHttpError(400));
-  const ap = autopilots.create(user.id, name, config);
+  const ap = await autopilots.create(user.id, name, config);
   await kick();
   return ap;
 }
 
 export async function updateAutopilot(user: UserRow, ap: AutopilotRow, form: AutopilotForm): Promise<AutopilotRow> {
-  const { name, config } = toConfig(user, form);
+  const { name, config } = await toConfig(user, form);
   // keep already-resolved channel ids
   for (const s of config.sources) {
     const old = ap.config.sources.find((o) => o.kind === s.kind && o.value === s.value);
@@ -66,53 +72,53 @@ export async function updateAutopilot(user: UserRow, ap: AutopilotRow, form: Aut
     config.timezone !== ap.config.timezone ||
     JSON.stringify(config.targets) !== JSON.stringify(ap.config.targets) ||
     config.caption !== ap.config.caption;
-  autopilots.update(ap.id, { name, config });
+  await autopilots.update(ap.id, { name, config });
   if (timesChanged) await releaseScheduled(ap.id); // re-book everything at the new times
-  if (ap.config.mode === 'review' && config.mode === 'auto') for (const c of apClips.withStatus(ap.id, 'review')) apClips.update(c.id, { status: 'ready' });
+  if (ap.config.mode === 'review' && config.mode === 'auto') for (const c of await apClips.withStatus(ap.id, 'review')) await apClips.update(c.id, { status: 'ready' });
   await kick();
-  return autopilots.get(ap.id)!;
+  return (await autopilots.get(ap.id))!;
 }
 
 export async function pauseAutopilot(id: string, user: UserRow): Promise<AutopilotRow> {
-  const ap = getAutopilot(id, user);
-  autopilots.update(ap.id, { status: 'paused' });
+  const ap = await getAutopilot(id, user);
+  await autopilots.update(ap.id, { status: 'paused' });
   await releaseScheduled(ap.id);
-  return autopilots.get(ap.id)!;
+  return (await autopilots.get(ap.id))!;
 }
 
 export async function resumeAutopilot(id: string, user: UserRow): Promise<AutopilotRow> {
   assertAutopilot(user);
-  const ap = getAutopilot(id, user);
-  autopilots.update(ap.id, { status: 'active', lastError: null });
+  const ap = await getAutopilot(id, user);
+  await autopilots.update(ap.id, { status: 'active', lastError: null });
   await kick();
-  return autopilots.get(ap.id)!;
+  return (await autopilots.get(ap.id))!;
 }
 
 export async function scanAutopilot(id: string, user: UserRow) {
-  await scanNow(getAutopilot(id, user).id);
+  await scanNow((await getAutopilot(id, user)).id);
 }
 
 export async function deleteAutopilot(id: string, user: UserRow) {
-  const ap = getAutopilot(id, user);
+  const ap = await getAutopilot(id, user);
   await releaseScheduled(ap.id);
-  autopilots.remove(ap.id);
+  await autopilots.remove(ap.id);
 }
 
 export async function skipAutopilotSlot(id: string, user: UserRow, key: string) {
-  await skipSlot(getAutopilot(id, user).id, key);
+  await skipSlot((await getAutopilot(id, user)).id, key);
 }
 
 export async function restoreAutopilotSlot(id: string, user: UserRow, key: string) {
-  await restoreSlot(getAutopilot(id, user).id, key);
+  await restoreSlot((await getAutopilot(id, user)).id, key);
 }
 
 /** Approve or reject a clip waiting in an autopilot's queue. */
 export async function reviewClip(autopilotId: string, user: UserRow, itemId: string, action: string) {
-  getAutopilot(autopilotId, user);
-  const item = apClips.get(itemId);
+  await getAutopilot(autopilotId, user);
+  const item = await apClips.get(itemId);
   if (!item || item.autopilotId !== autopilotId) throw new HttpError(404, 'Clip not found');
   if (action === 'approve') {
-    if (item.status === 'review' || item.status === 'rejected') apClips.update(item.id, { status: 'ready' });
+    if (item.status === 'review' || item.status === 'rejected') await apClips.update(item.id, { status: 'ready' });
     await kick();
   } else if (action === 'reject') await rejectClip(item);
   else throw new HttpError(400, 'Unknown action');

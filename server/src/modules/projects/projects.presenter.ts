@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { clips, projects, type ProjectRow } from '../../db/index.js';
 import { projectDir, toMediaUrl } from '../../lib/paths.js';
 import { footageSavings, readFootage } from '../../pipeline/footage.js';
-import { publicClip } from '../clips/clips.presenter.js';
+import { publicClips } from '../clips/clips.presenter.js';
 
 /** The original video, if a full copy is on disk (uploads, short links). Long links only keep the clip parts. */
 function sourceVideoUrl(p: ProjectRow): string | null {
@@ -58,11 +58,11 @@ export function publicProject(p: ProjectRow, withDetail = false) {
 }
 
 /** A multi-video project: its status, progress and numbers come from the videos inside it. */
-function groupSummary(g: ProjectRow) {
-  const kids = projects.children(g.id);
+async function groupSummary(g: ProjectRow) {
+  const kids = await projects.children(g.id);
   const busy = kids.some((k) => k.status === 'queued' || k.status === 'processing');
   const failed = kids.length > 0 && kids.every((k) => k.status === 'failed');
-  const all = kids.flatMap((k) => clips.forProject(k.id));
+  const all = (await Promise.all(kids.map((k) => clips.forProject(k.id)))).flat();
   const first = kids.find((k) => k.thumbPath) ?? kids[0];
   const named = kids.filter((k) => k.title);
   const title = g.title || (named.length ? `${named[0].title}${kids.length > 1 ? ` + ${kids.length - 1} more` : ''}` : `${kids.length} videos`);
@@ -94,10 +94,10 @@ function groupSummary(g: ProjectRow) {
   };
 }
 
-export const publicGroupSummary = (g: ProjectRow) => groupSummary(g).view;
+export const publicGroupSummary = async (g: ProjectRow) => (await groupSummary(g)).view;
 
-function publicGroup(g: ProjectRow) {
-  const { kids, all, view } = groupSummary(g);
+async function publicGroup(g: ProjectRow) {
+  const { kids, all, view } = await groupSummary(g);
   const index = new Map(kids.map((k, i) => [k.id, i]));
   return {
     ...view,
@@ -107,17 +107,17 @@ function publicGroup(g: ProjectRow) {
       clipCount: all.filter((c) => c.projectId === k.id).length,
       readyCount: all.filter((c) => c.projectId === k.id && c.status === 'ready').length,
     })),
-    clips: all.map((c) => ({ ...publicClip(c), part: (index.get(c.projectId) ?? 0) + 1 })),
+    clips: (await publicClips(all)).map((c) => ({ ...c, part: (index.get(c.projectId) ?? 0) + 1 })),
   };
 }
 
 /** One row of the projects list. */
-export function publicProjectListItem(p: ReturnType<typeof projects.list>[number]) {
-  return p.sourceType === 'group' ? publicGroupSummary(p) : { ...publicProject(p), clipCount: p.clipCount, readyCount: p.readyCount, bestScore: p.bestScore };
+export async function publicProjectListItem(p: Awaited<ReturnType<typeof projects.list>>[number]) {
+  return p.sourceType === 'group' ? await publicGroupSummary(p) : { ...publicProject(p), clipCount: p.clipCount, readyCount: p.readyCount, bestScore: p.bestScore };
 }
 
 /** The project page: a group with its videos + clips, or one video with its details + clips. */
-export function publicProjectDetail(p: ProjectRow) {
-  if (p.sourceType === 'group') return publicGroup(p);
-  return { ...publicProject(p, true), clips: clips.forProject(p.id).map(publicClip) };
+export async function publicProjectDetail(p: ProjectRow) {
+  if (p.sourceType === 'group') return await publicGroup(p);
+  return { ...publicProject(p, true), clips: await publicClips(await clips.forProject(p.id)) };
 }

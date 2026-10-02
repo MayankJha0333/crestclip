@@ -1,4 +1,4 @@
-import { db, newId, now, parse, type Raw } from './connection.js';
+import { collection, COLLECTIONS, fromDoc, newId, setFields, stamp, type Doc } from './connection.js';
 import type { ClipCandidate, Keyword, Motion, MusicSettings, Pace, ReframePlan, Rubric, TimeRange } from '../types.js';
 
 export interface ClipRow {
@@ -45,47 +45,47 @@ export interface ClipRow {
 
 const DEFAULT_MUSIC: MusicSettings = { track: 'none', volume: 15, duck: true };
 
-function toClip(r: Raw): ClipRow {
-  return {
-    id: r.id as string,
-    projectId: r.project_id as string,
-    idx: r.idx as number,
-    createdAt: r.created_at as number,
-    updatedAt: r.updated_at as number,
-    start: r.start as number,
-    end: r.end as number,
-    title: (r.title as string) ?? '',
-    hook: (r.hook as string) ?? '',
-    description: (r.description as string) ?? '',
-    hashtags: parse(r.hashtags_json, [] as string[]),
-    reason: (r.reason as string) ?? '',
-    category: (r.category as string) ?? '',
-    rubric: parse(r.rubric_json, null),
-    aiScore: (r.ai_score as number) ?? 0,
-    audienceScore: (r.audience_score as number) ?? null,
-    peakScore: (r.peak_score as number) ?? 0,
-    layout: (r.layout as string) ?? 'auto',
-    captionStyle: (r.caption_style as string) ?? 'pop',
-    showHook: Boolean(r.show_hook),
-    status: r.status as ClipRow['status'],
-    error: (r.error as string) ?? null,
-    filePath: (r.file_path as string) ?? null,
-    thumbPath: (r.thumb_path as string) ?? null,
-    reframe: parse(r.reframe_json, null),
-    version: (r.version as number) ?? 0,
-    segments: parse(r.segments_json, null),
-    motion: ((r.motion as string) || 'subtle') as Motion,
-    music: { ...DEFAULT_MUSIC, ...parse(r.music_json, {} as Partial<MusicSettings>) },
-    source: ((r.source as string) || 'ai') as 'ai' | 'manual',
-    pace: ((r.pace as string) || 'off') as Pace,
-    hooks: parse(r.hooks_json, [] as string[]),
-    keywords: parse(r.keywords_json, [] as Keyword[]),
-    teaser: parse(r.teaser_json, null),
-    emoji: Boolean(r.emoji),
-    flashForward: Boolean(r.flash),
-    outDuration: (r.out_duration as number) ?? null,
-  };
-}
+const col = () => collection<Doc<ClipRow>>(COLLECTIONS.clips);
+const toClip = (d: Doc<ClipRow>): ClipRow => {
+  const c = fromDoc<ClipRow>(d);
+  return { ...c, music: { ...DEFAULT_MUSIC, ...(c.music ?? {}) }, hooks: c.hooks ?? [], keywords: c.keywords ?? [], hashtags: c.hashtags ?? [] };
+};
+
+const UPDATABLE = [
+  'start',
+  'end',
+  'title',
+  'hook',
+  'description',
+  'hashtags',
+  'layout',
+  'captionStyle',
+  'showHook',
+  'status',
+  'error',
+  'filePath',
+  'thumbPath',
+  'reframe',
+  'version',
+  'audienceScore',
+  'peakScore',
+  'aiScore',
+  'category',
+  'reason',
+  'rubric',
+  'segments',
+  'motion',
+  'music',
+  'pace',
+  'hooks',
+  'keywords',
+  'teaser',
+  'emoji',
+  'flashForward',
+  'outDuration',
+] as const;
+
+type NewClip = ClipCandidate & { aiScore: number; audienceScore: number | null; peakScore: number; segments?: TimeRange[] | null };
 
 export interface ClipDefaults {
   layout: string;
@@ -97,141 +97,142 @@ export interface ClipDefaults {
   emoji: boolean;
   flashForward: boolean;
 }
+/** Highest clip number in a project (-1 when it has none). */
+async function lastIdx(projectId: string): Promise<number> {
+  const top = await col()
+    .find({ projectId }, { projection: { idx: 1 } })
+    .sort({ idx: -1 })
+    .limit(1)
+    .next();
+  return top?.idx ?? -1;
+}
+
+/** Remove clips and everything that points at them (their posts and Autopilot entries). */
+async function removeClips(filter: { projectId: string }) {
+  const ids = (
+    await col()
+      .find(filter, { projection: { _id: 1 } })
+      .toArray()
+  ).map((c) => c._id);
+  if (!ids.length) return;
+  await Promise.all([
+    collection(COLLECTIONS.posts).deleteMany({ clipId: { $in: ids } }),
+    collection(COLLECTIONS.autopilotClips).deleteMany({ clipId: { $in: ids } }),
+    col().deleteMany({ _id: { $in: ids } }),
+  ]);
+}
+
 export const clips = {
-  replaceForProject(projectId: string, list: (ClipCandidate & { aiScore: number; audienceScore: number | null; peakScore: number })[], defaults: ClipDefaults, source: 'ai' | 'manual' = 'ai') {
-    db.prepare('DELETE FROM clips WHERE project_id = ?').run(projectId);
-    this.insert(projectId, list, defaults, 0, source);
+  async replaceForProject(projectId: string, list: NewClip[], defaults: ClipDefaults, source: 'ai' | 'manual' = 'ai'): Promise<ClipRow[]> {
+    await removeClips({ projectId });
+    await this.insert(projectId, list, defaults, 0, source);
     return this.forProject(projectId);
   },
   /** Add clips (keeps existing ones). Returns the new rows. */
-  insert(
-    projectId: string,
-    list: (ClipCandidate & { aiScore: number; audienceScore: number | null; peakScore: number; segments?: TimeRange[] | null })[],
-    defaults: ClipDefaults,
-    startIdx?: number,
-    source: 'ai' | 'manual' = 'ai',
-  ): ClipRow[] {
-    const maxIdx = (db.prepare('SELECT MAX(idx) AS m FROM clips WHERE project_id = ?').get(projectId) as Raw).m as number | null;
-    const base = startIdx ?? (maxIdx ?? -1) + 1;
-    const stmt = db.prepare(
-      `INSERT INTO clips (id, project_id, idx, created_at, updated_at, start, end, title, hook, description, hashtags_json,
-        reason, category, rubric_json, ai_score, audience_score, peak_score, layout, caption_style, show_hook, status,
-        segments_json, motion, music_json, source, pace, hooks_json, keywords_json, teaser_json, emoji, flash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    );
-    const ids: string[] = [];
-    list.forEach((c, j) => {
-      const i = base + j;
-      const id = newId();
-      ids.push(id);
-      stmt.run(
-        id,
+  async insert(projectId: string, list: NewClip[], defaults: ClipDefaults, startIdx?: number, source: 'ai' | 'manual' = 'ai'): Promise<ClipRow[]> {
+    if (!list.length) return [];
+    const base = startIdx ?? (await lastIdx(projectId)) + 1;
+    const docs: Doc<ClipRow>[] = list.map((c, j) => {
+      const at = stamp();
+      return {
+        _id: newId(),
         projectId,
-        i,
-        now(),
-        now(),
-        c.start,
-        c.end,
-        c.title,
-        c.hook,
-        c.description,
-        JSON.stringify(c.hashtags),
-        c.reason,
-        c.category,
-        JSON.stringify(c.rubric),
-        c.aiScore,
-        c.audienceScore,
-        c.peakScore,
-        defaults.layout,
-        defaults.captionStyle,
-        defaults.showHook ? 1 : 0,
-        c.segments && c.segments.length > 1 ? JSON.stringify(c.segments) : null,
-        defaults.motion,
-        JSON.stringify(defaults.music),
+        idx: base + j,
+        createdAt: at,
+        updatedAt: at,
+        start: c.start,
+        end: c.end,
+        title: c.title,
+        hook: c.hook,
+        description: c.description,
+        hashtags: c.hashtags ?? [],
+        reason: c.reason,
+        category: c.category,
+        rubric: c.rubric ?? null,
+        aiScore: c.aiScore,
+        audienceScore: c.audienceScore,
+        peakScore: c.peakScore,
+        layout: defaults.layout,
+        captionStyle: defaults.captionStyle,
+        showHook: defaults.showHook,
+        status: 'pending',
+        error: null,
+        filePath: null,
+        thumbPath: null,
+        reframe: null,
+        version: 0,
+        segments: c.segments && c.segments.length > 1 ? c.segments : null,
+        motion: defaults.motion,
+        music: defaults.music,
         source,
-        defaults.pace,
-        JSON.stringify(c.hooks?.length ? c.hooks : c.hook ? [c.hook] : []),
-        JSON.stringify(c.keywords ?? []),
-        c.teaser ? JSON.stringify(c.teaser) : null,
-        defaults.emoji ? 1 : 0,
-        defaults.flashForward && c.teaser ? 1 : 0,
-      );
+        pace: defaults.pace,
+        hooks: c.hooks?.length ? c.hooks : c.hook ? [c.hook] : [],
+        keywords: c.keywords ?? [],
+        teaser: c.teaser ?? null,
+        emoji: defaults.emoji,
+        flashForward: Boolean(defaults.flashForward && c.teaser),
+        outDuration: null,
+      };
     });
-    return ids.map((id) => this.get(id)!).filter(Boolean);
+    await col().insertMany(docs);
+    return docs.map(toClip);
   },
   /** every rendered clip (for copying older clips to the cloud) */
-  allReady(): ClipRow[] {
-    return (db.prepare("SELECT * FROM clips WHERE status = 'ready' AND file_path IS NOT NULL").all() as Raw[]).map(toClip);
+  async allReady(): Promise<ClipRow[]> {
+    return (
+      await col()
+        .find({ status: 'ready', filePath: { $ne: null } })
+        .toArray()
+    ).map(toClip);
   },
-  forProject(projectId: string): ClipRow[] {
-    return (db.prepare('SELECT * FROM clips WHERE project_id = ? ORDER BY peak_score DESC, idx').all(projectId) as Raw[]).map(toClip);
+  async forProject(projectId: string): Promise<ClipRow[]> {
+    return (await col().find({ projectId }).sort({ peakScore: -1, idx: 1 }).toArray()).map(toClip);
   },
-  get(id: string): ClipRow | null {
-    const r = db.prepare('SELECT * FROM clips WHERE id = ?').get(id) as Raw | undefined;
-    return r ? toClip(r) : null;
+  async getMany(ids: string[]): Promise<ClipRow[]> {
+    return ids.length
+      ? (
+          await col()
+            .find({ _id: { $in: [...new Set(ids)] } })
+            .toArray()
+        ).map(toClip)
+      : [];
   },
-  update(id: string, patch: Partial<Omit<ClipRow, 'id' | 'projectId' | 'createdAt'>>) {
-    const map: Record<string, [string, (v: unknown) => unknown]> = {
-      start: ['start', (v) => v],
-      end: ['end', (v) => v],
-      title: ['title', (v) => v],
-      hook: ['hook', (v) => v],
-      description: ['description', (v) => v],
-      hashtags: ['hashtags_json', (v) => JSON.stringify(v)],
-      layout: ['layout', (v) => v],
-      captionStyle: ['caption_style', (v) => v],
-      showHook: ['show_hook', (v) => (v ? 1 : 0)],
-      status: ['status', (v) => v],
-      error: ['error', (v) => v],
-      filePath: ['file_path', (v) => v],
-      thumbPath: ['thumb_path', (v) => v],
-      reframe: ['reframe_json', (v) => JSON.stringify(v)],
-      version: ['version', (v) => v],
-      audienceScore: ['audience_score', (v) => v],
-      peakScore: ['peak_score', (v) => v],
-      aiScore: ['ai_score', (v) => v],
-      category: ['category', (v) => v],
-      reason: ['reason', (v) => v],
-      rubric: ['rubric_json', (v) => JSON.stringify(v)],
-      segments: ['segments_json', (v) => JSON.stringify(v)],
-      motion: ['motion', (v) => v],
-      music: ['music_json', (v) => JSON.stringify(v)],
-      pace: ['pace', (v) => v],
-      hooks: ['hooks_json', (v) => JSON.stringify(v)],
-      keywords: ['keywords_json', (v) => JSON.stringify(v)],
-      teaser: ['teaser_json', (v) => JSON.stringify(v)],
-      emoji: ['emoji', (v) => (v ? 1 : 0)],
-      flashForward: ['flash', (v) => (v ? 1 : 0)],
-      outDuration: ['out_duration', (v) => v],
-    };
-    const sets: string[] = ['updated_at = ?'];
-    const vals: unknown[] = [now()];
-    for (const [k, v] of Object.entries(patch)) {
-      const m = map[k];
-      if (!m) continue;
-      sets.push(`${m[0]} = ?`);
-      vals.push(v === undefined || v === null ? null : m[1](v));
-    }
-    vals.push(id);
-    db.prepare(`UPDATE clips SET ${sets.join(', ')} WHERE id = ?`).run(...(vals as never[]));
+  async get(id: string): Promise<ClipRow | null> {
+    const d = await col().findOne({ _id: id });
+    return d ? toClip(d) : null;
   },
-  unfinished(): ClipRow[] {
-    return (db.prepare(`SELECT * FROM clips WHERE status IN ('pending','rendering')`).all() as Raw[]).map(toClip);
+  async update(id: string, patch: Partial<Omit<ClipRow, 'id' | 'projectId' | 'createdAt'>>) {
+    await col().updateOne({ _id: id }, { $set: setFields(patch, UPDATABLE) });
+  },
+  async unfinished(): Promise<ClipRow[]> {
+    return (
+      await col()
+        .find({ status: { $in: ['pending', 'rendering'] } })
+        .toArray()
+    ).map(toClip);
   },
   /** Copy a clip (same moment) with a different look — posting variations avoids duplicate-content flags. */
-  duplicate(id: string, o: { captionStyle: string; titleSuffix: string }): ClipRow | null {
-    const c = this.get(id);
+  async duplicate(id: string, o: { captionStyle: string; titleSuffix: string }): Promise<ClipRow | null> {
+    const c = await col().findOne({ _id: id });
     if (!c) return null;
-    const nid = newId();
-    const maxIdx = (db.prepare('SELECT MAX(idx) AS m FROM clips WHERE project_id = ?').get(c.projectId) as Raw).m as number;
-    db.prepare(
-      `INSERT INTO clips (id, project_id, idx, created_at, updated_at, start, end, title, hook, description, hashtags_json, reason, category,
-        rubric_json, ai_score, audience_score, peak_score, layout, caption_style, show_hook, status, reframe_json, segments_json, motion, music_json, source,
-        pace, hooks_json, keywords_json, teaser_json, emoji, flash)
-       SELECT ?, project_id, ?, ?, ?, start, end, title || ?, hook, description, hashtags_json, reason, category, rubric_json, ai_score,
-        audience_score, peak_score - 0.01, layout, ?, show_hook, 'pending', reframe_json, segments_json, motion, music_json, source,
-        pace, hooks_json, keywords_json, teaser_json, emoji, flash FROM clips WHERE id = ?`,
-    ).run(nid, (maxIdx ?? 0) + 1, now(), now(), o.titleSuffix, o.captionStyle, id);
-    return this.get(nid);
+    const at = stamp();
+    const copy: Doc<ClipRow> = {
+      ...c,
+      _id: newId(),
+      idx: (await lastIdx(c.projectId)) + 1,
+      createdAt: at,
+      updatedAt: at,
+      title: `${c.title ?? ''}${o.titleSuffix}`,
+      peakScore: (c.peakScore ?? 0) - 0.01,
+      captionStyle: o.captionStyle,
+      status: 'pending',
+      error: null,
+      filePath: null,
+      thumbPath: null,
+      version: 0,
+      outDuration: null,
+    };
+    await col().insertOne(copy);
+    return toClip(copy);
   },
 };

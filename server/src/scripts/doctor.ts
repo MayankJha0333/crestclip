@@ -1,5 +1,6 @@
 import '../lib/quiet.js';
 import { config } from '../config.js';
+import { closeDb, connectDb } from '../db/index.js';
 import { checkGemini } from '../pipeline/gemini.js';
 import { ffmpegVersion, hasLibass } from '../pipeline/media.js';
 import { ensureFfmpeg, ensureYtdlp, ytStatus } from '../infra/tools.js';
@@ -13,6 +14,18 @@ console.log('\nCrestClip doctor\n');
 const [major, minor] = process.versions.node.split('.').map(Number);
 if (major > 22 || (major === 22 && minor >= 13)) ok(`Node ${process.versions.node}`);
 else bad(`Node ${process.versions.node}`, 'Install Node 22.13 or newer');
+
+if (!config.mongoUri) bad('No database', 'Set MONGODB_URI in .env (see README → "Create the database")');
+else {
+  try {
+    const db = await connectDb();
+    ok(`MongoDB · database "${db.databaseName}" · ${await db.collection('users').estimatedDocumentCount()} accounts`);
+  } catch (e) {
+    bad(`MongoDB: ${(e as Error).message}`, 'Check MONGODB_URI in .env, and allow this computer’s IP in MongoDB Atlas → Network Access');
+  } finally {
+    await closeDb();
+  }
+}
 
 await ensureFfmpeg();
 const ff = await ffmpegVersion();

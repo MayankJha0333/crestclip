@@ -4,7 +4,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { config } from './config.js';
 import { projects } from './db/index.js';
 import { fetchFromCloud } from './infra/cloudStore.js';
-import { errorHandler, HttpError } from './lib/http.js';
+import { asyncMiddleware, errorHandler, HttpError } from './lib/http.js';
 import { adminRouter } from './modules/admin/admin.routes.js';
 import { attachUser, requireUser } from './modules/auth/auth.middleware.js';
 import { authRouter } from './modules/auth/auth.routes.js';
@@ -19,25 +19,25 @@ import { systemRouter } from './modules/system/system.routes.js';
 import { watermarkRouter } from './modules/watermark/watermark.routes.js';
 
 /** API routes anyone can call (everything else needs a signed-in person). */
-const PUBLIC_API = [/^\/auth\//, /^\/billing\/(plans|webhook)$/, /^\/connect\/[a-z]+\/callback$/, /^\/meta$/, /^\/site$/];
+const PUBLIC_API = [/^\/auth\//, /^\/billing\/(plans|webhook)$/, /^\/connect\/[a-z]+\/callback$/, /^\/site$/];
 
 /**
  * Files under /media: only the owner's projects, watermark and music (plus shared mood tracks, emoji and the
  * CrestClip mark). Nothing else in the data folder (database, keys, logs) is ever served.
  */
-function mediaAccess(req: Request, _res: Response, next: NextFunction) {
+const mediaAccess = asyncMiddleware(async (req, _res, next) => {
   const user = req.user;
   if (!user) return next(new HttpError(401, 'Please log in.'));
   const parts = decodeURIComponent(req.path).split('/').filter(Boolean);
   if (parts.some((p) => p === '..' || p.startsWith('.'))) return next(new HttpError(404, 'Not found'));
   const [top, a, b] = parts;
   const ok =
-    (top === 'projects' && projects.get(a ?? '')?.userId === user.id) ||
+    (top === 'projects' && (await projects.get(a ?? ''))?.userId === user.id) ||
     (top === 'brand' && (a === user.id || a === 'crestclip-mark.png')) ||
     (top === 'music' && (a === 'ai' || (a === 'uploads' && b === user.id))) ||
     top === 'emoji';
   next(ok ? undefined : new HttpError(404, 'Not found'));
-}
+});
 
 /** A project file that isn't on this disk (new server, cleaned disk): bring it back from the cloud bucket first. */
 function fromCloud(req: Request, _res: Response, next: NextFunction) {

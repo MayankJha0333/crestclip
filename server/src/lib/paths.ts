@@ -8,5 +8,4 @@ export const projectDir = (id: string) => path.join(config.dataDir, 'projects', 
 export const uploadTmpDir = path.join(config.dataDir, 'uploads');
 
 /** A file inside the data folder → its URL under /media (null stays null). */
-export const toMediaUrl = (abs: string | null) =>
-  abs ? '/media/' + path.relative(config.dataDir, abs).split(path.sep).map(encodeURIComponent).join('/') : null;
+export const toMediaUrl = (abs: string | null) => (abs ? '/media/' + path.relative(config.dataDir, abs).split(path.sep).map(encodeURIComponent).join('/') : null);

@@ -23,27 +23,27 @@ function requireAi() {
 }
 
 /** A project the person owns (404 otherwise — never reveal that someone else's exists). */
-export function getProject(id: string, user: UserRow): ProjectRow {
-  const p = projects.get(id);
+export async function getProject(id: string, user: UserRow): Promise<ProjectRow> {
+  const p = await projects.get(id);
   if (!p || p.userId !== user.id) throw new HttpError(404, 'Project not found');
   return p;
 }
 
 /** One project from one link. Drive / Dropbox / OneDrive / direct .mp4 are downloaded as plain files (like uploads). */
-function projectFromLink(userId: string, url: string, options: ProjectOptions, parentId: string | null = null) {
+async function projectFromLink(userId: string, url: string, options: ProjectOptions, parentId: string | null = null) {
   const file = classifyFileLink(url);
   if (file && 'error' in file) throw new HttpError(400, file.error);
   const opts = { ...options };
   delete opts.ranges;
   return file
-    ? projects.create({ userId, sourceType: 'upload', sourceUrl: url, title: `Video from ${fileLinkLabel[file.kind]}`, options: opts, parentId })
-    : projects.create({ userId, sourceType: 'url', sourceUrl: url, options: opts, parentId });
+    ? await projects.create({ userId, sourceType: 'upload', sourceUrl: url, title: `Video from ${fileLinkLabel[file.kind]}`, options: opts, parentId })
+    : await projects.create({ userId, sourceType: 'url', sourceUrl: url, options: opts, parentId });
 }
 
 export async function createFromLink(user: UserRow, url: string, options: ProjectOptions) {
   requireAi();
   await assertHasCredits(user, clipsAsked(options));
-  const p = projectFromLink(user.id, url, await applyInstructions(options));
+  const p = await projectFromLink(user.id, url, await applyInstructions(options));
   enqueueProject(p.id);
   return p;
 }
@@ -60,10 +60,11 @@ export async function createFromLinks(user: UserRow, links: string[], options: P
   }
   const understood = await applyInstructions(options); // read the instructions once for all links
   // each video in a group is still clipped on its own
-  const group = urls.length > 1 ? projects.create({ userId: user.id, sourceType: 'group', options: understood }) : null;
-  const made = urls.map((u) => projectFromLink(user.id, u, understood, group?.id ?? null));
+  const group = urls.length > 1 ? await projects.create({ userId: user.id, sourceType: 'group', options: understood }) : null;
+  const made: ProjectRow[] = [];
+  for (const u of urls) made.push(await projectFromLink(user.id, u, understood, group?.id ?? null)); // in the order given
   for (const p of made) enqueueProject(p.id);
-  return { group: group ? projects.get(group.id)! : null, made, options: understood };
+  return { group: group ? (await projects.get(group.id))! : null, made, options: understood };
 }
 
 /** An uploaded file (already saved to a temp path by multer). Bad options fall back to the defaults. */
@@ -87,30 +88,30 @@ export async function createFromUpload(user: UserRow, file: { path: string; orig
     .replace(/\.[^.]+$/, '')
     .replace(/[_-]+/g, ' ')
     .slice(0, 120);
-  const p = projects.create({ userId: user.id, sourceType: 'upload', title, options });
+  const p = await projects.create({ userId: user.id, sourceType: 'upload', title, options });
   const dir = projectDir(p.id);
   fs.mkdirSync(dir, { recursive: true });
   const ext = (path.extname(file.originalname) || '.mp4').toLowerCase();
   const dest = path.join(dir, `source${ext}`);
   fs.renameSync(file.path, dest);
-  projects.update(p.id, { mediaPath: dest });
+  await projects.update(p.id, { mediaPath: dest });
   enqueueProject(p.id);
-  return projects.get(p.id)!;
+  return (await projects.get(p.id))!;
 }
 
 /** Run a failed project again (for a group: every video in it that failed). */
-export function retryProject(id: string, user: UserRow) {
-  const p = getProject(id, user);
-  const list = p.sourceType === 'group' ? projects.children(p.id).filter((k) => k.status === 'failed') : [p];
+export async function retryProject(id: string, user: UserRow) {
+  const p = await getProject(id, user);
+  const list = p.sourceType === 'group' ? (await projects.children(p.id)).filter((k) => k.status === 'failed') : [p];
   for (const k of list) {
-    projects.update(k.id, { status: 'queued', error: null, errorCode: null, stage: 'queued', progress: 0 });
+    await projects.update(k.id, { status: 'queued', error: null, errorCode: null, stage: 'queued', progress: 0 });
     enqueueProject(k.id);
   }
 }
 
 export async function deleteProject(id: string, user: UserRow) {
-  const p = getProject(id, user);
-  const kids = p.sourceType === 'group' ? projects.children(p.id) : [];
+  const p = await getProject(id, user);
+  const kids = p.sourceType === 'group' ? await projects.children(p.id) : [];
   if (p.status === 'processing' || kids.some((k) => k.status === 'processing')) throw new HttpError(409, 'Wait for this project to finish before deleting it.');
   await purgeProject(p); // here and in the cloud bucket
 }
@@ -129,18 +130,18 @@ export async function addPickedClips(user: UserRow, p: ProjectRow, ranges: TimeR
   const paid = await chargeClips(user.id, p.id, asked, 'Picked parts');
   let created: ClipRow[];
   try {
-    created = createPickedClips(projectId, ranges, join);
+    created = await createPickedClips(projectId, ranges, join);
   } catch (e) {
-    if (paid) credits.refund(paid, 'Refund · no clips made');
+    if (paid) await credits.refund(paid, 'Refund · no clips made');
     throw new HttpError(400, (e as Error).message);
   }
-  if (paid && created.length < asked) credits.reduceSpend(paid, creditsForClips(created.length), `Picked parts · ${created.length} clip${created.length === 1 ? '' : 's'}`);
+  if (paid && created.length < asked) await credits.reduceSpend(paid, creditsForClips(created.length), `Picked parts · ${created.length} clip${created.length === 1 ? '' : 's'}`);
   const ids = created.map((c) => c.id);
   enqueueJob(`pick:${projectId}:${ids.join(',')}`, async () => {
     try {
       await preparePickedClips(projectId, ids);
     } catch (e) {
-      if (paid) credits.refund(paid, 'Refund · picked parts couldn’t be prepared');
+      if (paid) await credits.refund(paid, 'Refund · picked parts couldn’t be prepared');
       throw e;
     }
     for (const id of ids) enqueueRender(id);

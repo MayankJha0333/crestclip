@@ -47,9 +47,7 @@ export async function twitchChannel(p: { id: string; tab: string; sort: string; 
   if (p.tab === 'clips') url = `https://www.twitch.tv/${login}/clips?filter=clips&range=${{ day: '24hr', week: '7d', month: '30d', all: 'all' }[p.range] ?? '7d'}`;
   else url = `https://www.twitch.tv/${login}/videos?filter=${p.tab === 'highlights' ? 'highlights' : 'archives'}&sort=${p.sort === 'views' ? 'views' : 'time'}`;
   const j = await ytdlpJson<Raw>(['--flat-playlist', '--playlist-end', String(p.limit), url], 90_000);
-  const items = (Array.isArray(j.entries) ? (j.entries as Raw[]) : [])
-    .map((e) => twItem(e, p.tab === 'clips' ? 'clip' : 'vod', login))
-    .filter((x): x is ExploreItem => Boolean(x));
+  const items = (Array.isArray(j.entries) ? (j.entries as Raw[]) : []).map((e) => twItem(e, p.tab === 'clips' ? 'clip' : 'vod', login)).filter((x): x is ExploreItem => Boolean(x));
   return {
     channel: { source: 'twitch', title: login, url: `https://www.twitch.tv/${login}`, avatar: null, banner: null, subscribers: null, description: null } as ExploreChannel,
     items,
@@ -88,8 +86,20 @@ export async function twitchSearch(q: string, limit: number): Promise<ExploreIte
     if (!/^[a-z0-9_]{2,25}$/.test(login)) return [];
     return [
       {
-        kind: 'channel', source: 'twitch', id: login, url: `https://www.twitch.tv/${login}`, title: login, channel: login, channelId: login,
-        channelUrl: `https://www.twitch.tv/${login}`, thumbnail: null, duration: null, views: null, subscribers: null, uploaded: null, isLive: false,
+        kind: 'channel',
+        source: 'twitch',
+        id: login,
+        url: `https://www.twitch.tv/${login}`,
+        title: login,
+        channel: login,
+        channelId: login,
+        channelUrl: `https://www.twitch.tv/${login}`,
+        thumbnail: null,
+        duration: null,
+        views: null,
+        subscribers: null,
+        uploaded: null,
+        isLive: false,
         description: 'Open to see past broadcasts and top clips',
       },
     ];
@@ -134,18 +144,42 @@ async function twitchHelixChannel(login: string, p: { tab: string; sort: string;
     const started = new Date(Date.now() - days * 86400_000).toISOString();
     const c = await helix<{ data: Raw[] }>(`clips?broadcaster_id=${user.id}&first=${Math.min(p.limit, 100)}&started_at=${started}`);
     items = c.data.map((x) => ({
-      kind: 'clip' as const, source: 'twitch' as const, id: String(x.id), url: String(x.url), title: String(x.title), channel: channel.title, channelId: String(user.id),
-      channelUrl: channel.url, thumbnail: str(x.thumbnail_url), duration: num(x.duration), views: num(x.view_count), subscribers: null,
-      uploaded: str(x.created_at), isLive: false, description: null,
+      kind: 'clip' as const,
+      source: 'twitch' as const,
+      id: String(x.id),
+      url: String(x.url),
+      title: String(x.title),
+      channel: channel.title,
+      channelId: String(user.id),
+      channelUrl: channel.url,
+      thumbnail: str(x.thumbnail_url),
+      duration: num(x.duration),
+      views: num(x.view_count),
+      subscribers: null,
+      uploaded: str(x.created_at),
+      isLive: false,
+      description: null,
     }));
   } else {
     const v = await helix<{ data: Raw[] }>(
       `videos?user_id=${user.id}&first=${Math.min(p.limit, 100)}&type=${p.tab === 'highlights' ? 'highlight' : 'archive'}&sort=${p.sort === 'views' ? 'views' : 'time'}`,
     );
     items = v.data.map((x) => ({
-      kind: 'vod' as const, source: 'twitch' as const, id: String(x.id), url: String(x.url), title: String(x.title), channel: channel.title, channelId: String(user.id),
-      channelUrl: channel.url, thumbnail: twThumb(str(x.thumbnail_url)), duration: twDuration(String(x.duration ?? '')), views: num(x.view_count), subscribers: null,
-      uploaded: str(x.created_at), isLive: false, description: null,
+      kind: 'vod' as const,
+      source: 'twitch' as const,
+      id: String(x.id),
+      url: String(x.url),
+      title: String(x.title),
+      channel: channel.title,
+      channelId: String(user.id),
+      channelUrl: channel.url,
+      thumbnail: twThumb(str(x.thumbnail_url)),
+      duration: twDuration(String(x.duration ?? '')),
+      views: num(x.view_count),
+      subscribers: null,
+      uploaded: str(x.created_at),
+      isLive: false,
+      description: null,
     }));
   }
   return { channel, items };

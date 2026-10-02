@@ -45,9 +45,9 @@ export async function finishConnect(platform: Platform, query: Record<string, un
   if (!pending || pending.platform !== platform) return settingsUrl({ error: 'That sign-in link expired. Please try connecting again.' });
   try {
     const r = await providers[platform].exchange(String(query.code ?? ''));
-    const taken = connections.find(platform, r.accountId);
+    const taken = await connections.find(platform, r.accountId);
     if (taken && taken.userId && taken.userId !== pending.userId) return settingsUrl({ error: `${r.handle ?? r.name ?? 'This account'} is already connected to another CrestClip account.` });
-    const c = connections.upsert({ userId: pending.userId, platform, accountId: r.accountId, name: r.name, handle: r.handle, avatar: r.avatar, tokens: seal(r.tokens) });
+    const c = await connections.upsert({ userId: pending.userId, platform, accountId: r.accountId, name: r.name, handle: r.handle, avatar: r.avatar, tokens: seal(r.tokens) });
     return settingsUrl({ connected: platform, name: c.name ?? '' });
   } catch (e) {
     return settingsUrl({ error: `Couldn’t connect: ${(e as Error).message}` });
@@ -55,20 +55,20 @@ export async function finishConnect(platform: Platform, query: Record<string, un
 }
 
 /** A connected account the person owns (404 otherwise). */
-function ownConnection(id: string, user: UserRow): ConnectionRow {
-  const c = connections.get(id);
+async function ownConnection(id: string, user: UserRow): Promise<ConnectionRow> {
+  const c = await connections.get(id);
   if (!c || c.userId !== user.id) throw new HttpError(404, 'Not found');
   return c;
 }
 
 export async function disconnect(id: string, user: UserRow) {
-  const c = ownConnection(id, user);
+  const c = await ownConnection(id, user);
   try {
     await providers[c.platform].revoke(open<Tokens>(c.tokens));
   } catch {
     /* best effort */
   }
-  connections.remove(c.id);
+  await connections.remove(c.id);
 }
 
 /** A fresh access token for this connection (refreshes and saves it when needed). */
@@ -78,7 +78,7 @@ async function accessToken(c: ConnectionRow): Promise<string> {
   if (soon) {
     try {
       t = await providers[c.platform].refresh(t);
-      connections.setTokens(c.id, seal(t));
+      await connections.setTokens(c.id, seal(t));
     } catch (e) {
       if (t.expiresAt < Date.now()) throw new Error(`${platformName(c.platform)} access expired — reconnect ${c.name ?? 'the account'}. (${(e as Error).message})`);
     }
@@ -102,22 +102,23 @@ export async function runPost(postId: string) {
   if (running.has(postId)) return;
   running.add(postId);
   try {
-    const post = posts.get(postId);
+    const post = await posts.get(postId);
     if (!post || post.status !== 'scheduled') return;
-    const conn = connections.get(post.connectionId);
-    const clip = clips.get(post.clipId);
-    if (!conn) return posts.update(post.id, { status: 'failed', error: 'The account was disconnected.' });
-    if (!clip?.filePath || !(await ensureLocal(clip.filePath))) return posts.update(post.id, { status: 'failed', error: 'The clip isn’t rendered (or was deleted). Re-render it and try again.' });
-    posts.update(post.id, { status: 'uploading', attempts: post.attempts + 1, error: null });
+    const conn = await connections.get(post.connectionId);
+    const clip = await clips.get(post.clipId);
+    if (!conn) return await posts.update(post.id, { status: 'failed', error: 'The account was disconnected.' });
+    if (!clip?.filePath || !(await ensureLocal(clip.filePath)))
+      return await posts.update(post.id, { status: 'failed', error: 'The clip isn’t rendered (or was deleted). Re-render it and try again.' });
+    await posts.update(post.id, { status: 'uploading', attempts: post.attempts + 1, error: null });
     const token = await accessToken(conn);
     const res: { id: string; url: string; note?: string } =
       conn.platform === 'youtube' ? await youtube.publish(token, post, clip.filePath) : await instagram.publish(token, conn.accountId, post, clip.filePath);
     // YouTube schedules are "published" to YouTube now and go live at publishAt; the UI shows them as scheduled until then
-    posts.update(post.id, { status: 'published', remoteId: res.id, remoteUrl: res.url, error: res.note ?? null });
+    await posts.update(post.id, { status: 'published', remoteId: res.id, remoteUrl: res.url, error: res.note ?? null });
   } catch (e) {
     const msg = (e as Error).message || String(e);
     console.warn(`[publish ${postId}]`, msg);
-    posts.update(postId, { status: 'failed', error: friendly(msg) });
+    await posts.update(postId, { status: 'failed', error: friendly(msg) });
   } finally {
     running.delete(postId);
   }
@@ -135,19 +136,19 @@ function friendly(msg: string) {
 const startsNow = (p: Pick<PostRow, 'scheduledAt' | 'platform'>) => !p.scheduledAt || p.platform === 'youtube';
 
 /** One post per chosen account. */
-export function createPosts(r: CreatePosts, user: UserRow): PostRow[] {
-  const clip = clips.get(r.clipId);
-  if (!clip || projects.get(clip.projectId)?.userId !== user.id) throw new HttpError(404, 'Clip not found');
+export async function createPosts(r: CreatePosts, user: UserRow): Promise<PostRow[]> {
+  const clip = await clips.get(r.clipId);
+  if (!clip || (await projects.get(clip.projectId))?.userId !== user.id) throw new HttpError(404, 'Clip not found');
   if (clip.status !== 'ready' || !clip.filePath) throw new HttpError(409, 'Wait for the clip to finish rendering first.');
   const when = r.scheduledAt ?? null;
   if (when && when < Date.now() - 60_000) throw new HttpError(400, 'That time is in the past.');
   if (when && when > Date.now() + 5 * 60_000) assertCanSchedule(user);
   const made: PostRow[] = [];
   for (const t of r.targets) {
-    const c = connections.get(t.connectionId);
+    const c = await connections.get(t.connectionId);
     if (!c || c.userId !== user.id) throw new HttpError(400, 'One of the accounts is no longer connected.');
     made.push(
-      posts.create({
+      await posts.create({
         clipId: clip.id,
         connectionId: c.id,
         platform: c.platform,
@@ -158,48 +159,52 @@ export function createPosts(r: CreatePosts, user: UserRow): PostRow[] {
       }),
     );
   }
-  for (const p of made) if (startsNow(p)) runPost(p.id);
-  return made.map((p) => posts.get(p.id)!);
+  for (const p of made) if (startsNow(p)) void runPost(p.id);
+  return (await Promise.all(made.map((p) => posts.get(p.id)))).filter((p): p is PostRow => Boolean(p));
 }
 
 /** Posts of one clip, or all of the person's posts. */
-export function listPosts(user: UserRow, clipId?: string) {
-  if (clipId === undefined) return posts.list(user.id);
-  const clip = clips.get(clipId);
-  return clip && projects.get(clip.projectId)?.userId === user.id ? posts.forClip(clipId) : [];
+export async function listPosts(user: UserRow, clipId?: string) {
+  if (clipId === undefined) return await posts.list(user.id);
+  const clip = await clips.get(clipId);
+  return clip && (await projects.get(clip.projectId))?.userId === user.id ? await posts.forClip(clipId) : [];
 }
 
 /** A post on a clip the person owns (404 otherwise). */
-function getPost(id: string, user: UserRow): PostRow {
-  const p = posts.get(id);
-  const clip = p && clips.get(p.clipId);
-  if (!p || !clip || projects.get(clip.projectId)?.userId !== user.id) throw new HttpError(404, 'Not found');
+async function getPost(id: string, user: UserRow): Promise<PostRow> {
+  const p = await posts.get(id);
+  const clip = p && (await clips.get(p.clipId));
+  if (!p || !clip || (await projects.get(clip.projectId))?.userId !== user.id) throw new HttpError(404, 'Not found');
   return p;
 }
 
-export function retryPost(id: string, user: UserRow): PostRow {
-  const p = getPost(id, user);
+export async function retryPost(id: string, user: UserRow): Promise<PostRow> {
+  const p = await getPost(id, user);
   if (p.status !== 'failed' && p.status !== 'canceled') throw new HttpError(409, 'Only failed or canceled posts can be retried.');
   const keepTime = p.scheduledAt && p.scheduledAt > Date.now() + 60_000 ? p.scheduledAt : null;
-  posts.update(p.id, { status: 'scheduled', error: null, scheduledAt: keepTime });
-  if (startsNow({ scheduledAt: keepTime, platform: p.platform })) runPost(p.id);
-  return posts.get(p.id)!;
+  await posts.update(p.id, { status: 'scheduled', error: null, scheduledAt: keepTime });
+  if (startsNow({ scheduledAt: keepTime, platform: p.platform })) void runPost(p.id);
+  return (await posts.get(p.id))!;
 }
 
-export function cancelPost(id: string, user: UserRow): PostRow {
-  const p = getPost(id, user);
+export async function cancelPost(id: string, user: UserRow): Promise<PostRow> {
+  const p = await getPost(id, user);
   if (p.status !== 'scheduled')
     throw new HttpError(409, p.platform === 'youtube' && p.status === 'published' ? 'Already on YouTube — change or delete it in YouTube Studio.' : 'This post already started.');
-  posts.update(p.id, { status: 'canceled' });
-  return posts.get(p.id)!;
+  await posts.update(p.id, { status: 'canceled' });
+  return (await posts.get(p.id))!;
 }
 
 /** Every 30 s: publish anything that's due. Also resumes posts interrupted by a restart. */
 export function startScheduler() {
-  for (const p of posts.stuck()) posts.update(p.id, { status: 'scheduled', error: 'Restarted after an interruption' });
-  const tick = () => {
-    for (const p of posts.due()) runPost(p.id);
-  };
+  const tick = () =>
+    void posts
+      .due()
+      .then((due) => due.forEach((p) => void runPost(p.id)))
+      .catch((e) => console.warn('[posts] scheduler:', (e as Error).message));
+  void (async () => {
+    for (const p of await posts.stuck()) await posts.update(p.id, { status: 'scheduled', error: 'Restarted after an interruption' });
+  })().catch((e) => console.warn('[posts] could not resume interrupted posts:', (e as Error).message));
   setTimeout(tick, 5000);
   setInterval(tick, 30_000).unref();
 }

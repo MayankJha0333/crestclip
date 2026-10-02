@@ -1,251 +1,118 @@
-import '../lib/quiet.js';
-import { createRequire } from 'node:module';
-import type { DatabaseSync as DatabaseSyncT } from 'node:sqlite';
-import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { MongoClient, MongoServerError, type Collection, type Db, type Document } from 'mongodb';
 import { config } from '../config.js';
 
-// required lazily (not a static import) so lib/quiet.ts can silence the experimental warning first
-const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as { DatabaseSync: typeof DatabaseSyncT };
-export const db = new DatabaseSync(path.join(config.dataDir, 'crestclip.db'));
-db.exec(`
-PRAGMA journal_mode = WAL;
-PRAGMA foreign_keys = ON;
-CREATE TABLE IF NOT EXISTS projects (
-  id TEXT PRIMARY KEY,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  source_type TEXT NOT NULL,
-  source_url TEXT,
-  title TEXT,
-  channel TEXT,
-  description TEXT,
-  duration REAL,
-  width INTEGER,
-  height INTEGER,
-  view_count INTEGER,
-  status TEXT NOT NULL DEFAULT 'queued',
-  stage TEXT,
-  stage_detail TEXT,
-  progress REAL DEFAULT 0,
-  error TEXT,
-  options_json TEXT NOT NULL,
-  signals_json TEXT,
-  transcript_json TEXT,
-  media_path TEXT,
-  thumb_path TEXT,
-  ai_notes TEXT,
-  parent_id TEXT,                    -- one project can hold several videos: each video is a child of a 'group' project
-  user_id TEXT,
-  credits_charged INTEGER NOT NULL DEFAULT 0,
-  error_code TEXT,                   -- credits | plan_limit
-  expires_at INTEGER                 -- deleted after this (storage time)
-);
-CREATE TABLE IF NOT EXISTS clips (
-  id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  idx INTEGER NOT NULL,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  start REAL NOT NULL,
-  end REAL NOT NULL,
-  title TEXT,
-  hook TEXT,
-  description TEXT,
-  hashtags_json TEXT,
-  reason TEXT,
-  category TEXT,
-  rubric_json TEXT,
-  ai_score REAL,
-  audience_score REAL,
-  peak_score REAL,
-  layout TEXT,
-  caption_style TEXT,
-  show_hook INTEGER DEFAULT 1,
-  status TEXT NOT NULL DEFAULT 'pending',
-  error TEXT,
-  file_path TEXT,
-  thumb_path TEXT,
-  reframe_json TEXT,
-  version INTEGER DEFAULT 0,
-  segments_json TEXT,                -- multi-part clips: [{start,end}, ...]
-  motion TEXT DEFAULT 'subtle',
-  music_json TEXT,
-  source TEXT DEFAULT 'ai',          -- ai | manual
-  pace TEXT DEFAULT 'off',           -- pause cutting
-  hooks_json TEXT,                   -- headline options
-  keywords_json TEXT,                -- [{w, emoji}] for caption emphasis
-  teaser_json TEXT,                  -- {start,end} flash-forward line
-  emoji INTEGER DEFAULT 0,
-  flash INTEGER DEFAULT 0,
-  out_duration REAL                  -- length of the finished video (after pause cuts / tease)
-);
-CREATE INDEX IF NOT EXISTS clips_project ON clips(project_id);
-CREATE INDEX IF NOT EXISTS projects_user ON projects(user_id, created_at);
-`);
+/**
+ * MongoDB. Every record is a document whose `_id` is a short random string; the rest of the app sees plain
+ * objects with an `id` instead (see `fromDoc`). Collections and indexes are set up once by `connectDb()`.
+ */
 
-// ---- publishing: connected accounts + posts ----
-db.exec(`
-CREATE TABLE IF NOT EXISTS connections (
-  id TEXT PRIMARY KEY,
-  platform TEXT NOT NULL,            -- 'youtube' | 'instagram'
-  account_id TEXT NOT NULL,
-  name TEXT,
-  handle TEXT,
-  avatar TEXT,
-  tokens TEXT NOT NULL,              -- encrypted JSON {access, refresh, expiresAt}
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  user_id TEXT,
-  UNIQUE(platform, account_id)
-);
-CREATE TABLE IF NOT EXISTS posts (
-  id TEXT PRIMARY KEY,
-  clip_id TEXT NOT NULL REFERENCES clips(id) ON DELETE CASCADE,
-  connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
-  platform TEXT NOT NULL,
-  title TEXT,
-  caption TEXT,
-  privacy TEXT,
-  scheduled_at INTEGER,              -- null = post now
-  status TEXT NOT NULL,              -- scheduled | uploading | processing | published | failed | canceled
-  remote_id TEXT,
-  remote_url TEXT,
-  error TEXT,
-  attempts INTEGER DEFAULT 0,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  autopilot_id TEXT,                 -- set when an Autopilot made this post
-  slot_key TEXT                      -- the Autopilot time slot it fills, e.g. "2026-10-02T13:00"
-);
-CREATE INDEX IF NOT EXISTS posts_clip ON posts(clip_id);
-CREATE INDEX IF NOT EXISTS posts_due ON posts(status, scheduled_at);
-`);
+/** A stored document: the row's fields, with `id` kept as `_id`. */
+export type Doc<T extends { id: string }> = Omit<T, 'id'> & { _id: string };
 
-// ---- Autopilot: find videos → clip them → post at the chosen times every day ----
-db.exec(`
-CREATE TABLE IF NOT EXISTS autopilots (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'active',   -- active | paused
-  config_json TEXT NOT NULL,               -- sources, filters, clip options, times, targets, mode, caption…
-  last_scan_at INTEGER,
-  last_error TEXT,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  user_id TEXT
-);
-CREATE TABLE IF NOT EXISTS autopilot_videos (
-  id TEXT PRIMARY KEY,
-  autopilot_id TEXT NOT NULL REFERENCES autopilots(id) ON DELETE CASCADE,
-  video_id TEXT NOT NULL,
-  url TEXT NOT NULL,
-  title TEXT,
-  channel TEXT,
-  thumbnail TEXT,
-  views INTEGER,
-  duration REAL,
-  published_at INTEGER,
-  status TEXT NOT NULL,                    -- waiting | queued | clipping | done | skipped | failed
-  reason TEXT,
-  project_id TEXT,
-  found_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  UNIQUE(autopilot_id, video_id)
-);
-CREATE TABLE IF NOT EXISTS autopilot_clips (
-  id TEXT PRIMARY KEY,
-  autopilot_id TEXT NOT NULL REFERENCES autopilots(id) ON DELETE CASCADE,
-  clip_id TEXT NOT NULL REFERENCES clips(id) ON DELETE CASCADE,
-  video_row_id TEXT,
-  status TEXT NOT NULL,                    -- review | ready | scheduled | posted | rejected | failed
-  score REAL,
-  slot_key TEXT,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  UNIQUE(autopilot_id, clip_id)
-);
-CREATE TABLE IF NOT EXISTS autopilot_skips (
-  autopilot_id TEXT NOT NULL REFERENCES autopilots(id) ON DELETE CASCADE,
-  slot_key TEXT NOT NULL,
-  PRIMARY KEY (autopilot_id, slot_key)
-);
-CREATE INDEX IF NOT EXISTS ap_videos_status ON autopilot_videos(autopilot_id, status);
-CREATE INDEX IF NOT EXISTS ap_clips_status ON autopilot_clips(autopilot_id, status);
-`);
+let client: MongoClient | null = null;
+let database: Db | null = null;
 
-// ---- accounts, plans and credits ----
-db.exec(`
-CREATE TABLE IF NOT EXISTS users (
-  id TEXT PRIMARY KEY,
-  email TEXT NOT NULL UNIQUE,
-  name TEXT,
-  password_hash TEXT,                      -- null for Google-only accounts
-  google_sub TEXT UNIQUE,
-  avatar TEXT,
-  is_admin INTEGER NOT NULL DEFAULT 0,
-  plan TEXT NOT NULL DEFAULT 'free',       -- free | creator | pro
-  cycle_start INTEGER,                     -- current credit month
-  cycle_end INTEGER,
-  rz_subscription_id TEXT,                 -- Razorpay subscription paying for the plan
-  cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  rz_pending_sub TEXT                      -- subscription opened in Checkout but not confirmed yet
-);
-CREATE TABLE IF NOT EXISTS sessions (
-  id TEXT PRIMARY KEY,                     -- sha256 of the cookie token (the token itself is never stored)
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  created_at INTEGER NOT NULL,
-  expires_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS credit_grants (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  source TEXT NOT NULL,                    -- plan | topup | bonus | refund
-  amount INTEGER NOT NULL,
-  remaining INTEGER NOT NULL,
-  expires_at INTEGER NOT NULL,
-  ref TEXT UNIQUE,                         -- makes grants idempotent (payment / subscription cycle)
-  created_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS credit_events (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  delta INTEGER NOT NULL,                  -- + added, − used
-  kind TEXT NOT NULL,                      -- grant | topup | spend | refund | adjust
-  note TEXT,
-  project_id TEXT,
-  detail_json TEXT,                        -- spend: which grants it came from (so a refund can put it back)
-  refunded INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS payments (
-  id TEXT PRIMARY KEY,                     -- Razorpay payment id
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL,                      -- subscription | topup
-  plan TEXT,
-  amount INTEGER,                          -- smallest currency unit
-  currency TEXT,
-  ref TEXT,                                -- order / subscription id
-  created_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
-CREATE INDEX IF NOT EXISTS grants_user ON credit_grants(user_id, expires_at);
-CREATE INDEX IF NOT EXISTS events_user ON credit_events(user_id, created_at);
-`);
-export const now = () => Date.now();
-/** Short random id for new rows. */
+/** Connect (once) and make sure every collection has its indexes. Call before anything reads or writes. */
+export async function connectDb(): Promise<Db> {
+  if (database) return database;
+  if (!config.mongoUri) throw new Error('MONGODB_URI is not set in .env — CrestClip needs a MongoDB database (for example a free MongoDB Atlas cluster).');
+  client = new MongoClient(config.mongoUri, { appName: 'crestclip', serverSelectionTimeoutMS: 15_000 });
+  await client.connect();
+  database = client.db(config.mongoDb);
+  await createIndexes(database);
+  return database;
+}
+
+export async function closeDb() {
+  await client?.close();
+  client = null;
+  database = null;
+}
+
+/** A collection, typed by the row it stores. */
+export function collection<T extends Document>(name: string): Collection<T> {
+  if (!database) throw new Error('The database is not connected yet (connectDb() must run first).');
+  return database.collection<T>(name);
+}
+
+export const COLLECTIONS = {
+  users: 'users',
+  sessions: 'sessions',
+  creditGrants: 'credit_grants',
+  creditEvents: 'credit_events',
+  payments: 'payments',
+  projects: 'projects',
+  clips: 'clips',
+  connections: 'connections',
+  posts: 'posts',
+  autopilots: 'autopilots',
+  autopilotVideos: 'autopilot_videos',
+  autopilotClips: 'autopilot_clips',
+  autopilotSkips: 'autopilot_skips',
+  meta: 'meta',
+} as const;
+
+async function createIndexes(db: Db) {
+  const c = COLLECTIONS;
+  const hasString = (field: string) => ({ partialFilterExpression: { [field]: { $type: 'string' } } });
+  await Promise.all([
+    db.collection(c.users).createIndexes([{ key: { email: 1 }, unique: true }, { key: { googleSub: 1 }, unique: true, ...hasString('googleSub') }, { key: { rzSubscriptionId: 1 } }]),
+    db.collection(c.sessions).createIndexes([{ key: { userId: 1 } }, { key: { expiresAt: 1 } }]),
+    db.collection(c.creditGrants).createIndexes([{ key: { userId: 1, expiresAt: 1 } }, { key: { ref: 1 }, unique: true, ...hasString('ref') }]),
+    db.collection(c.creditEvents).createIndexes([{ key: { userId: 1, createdAt: -1 } }, { key: { projectId: 1, kind: 1 } }]),
+    db.collection(c.payments).createIndexes([{ key: { userId: 1, createdAt: -1 } }]),
+    db.collection(c.projects).createIndexes([{ key: { userId: 1, createdAt: -1 } }, { key: { parentId: 1, createdAt: 1 } }, { key: { status: 1 } }, { key: { expiresAt: 1 } }]),
+    db.collection(c.clips).createIndexes([{ key: { projectId: 1, peakScore: -1 } }, { key: { status: 1 } }]),
+    db.collection(c.connections).createIndexes([{ key: { platform: 1, accountId: 1 }, unique: true }, { key: { userId: 1 } }]),
+    db
+      .collection(c.posts)
+      .createIndexes([
+        { key: { clipId: 1 } },
+        { key: { connectionId: 1 } },
+        { key: { userId: 1 } },
+        { key: { projectId: 1, status: 1 } },
+        { key: { status: 1, scheduledAt: 1 } },
+        { key: { autopilotId: 1, slotKey: 1 } },
+      ]),
+    db.collection(c.autopilots).createIndexes([{ key: { userId: 1, createdAt: -1 } }, { key: { status: 1 } }]),
+    db.collection(c.autopilotVideos).createIndexes([{ key: { autopilotId: 1, videoId: 1 }, unique: true }, { key: { autopilotId: 1, status: 1 } }]),
+    db.collection(c.autopilotClips).createIndexes([{ key: { autopilotId: 1, clipId: 1 }, unique: true }, { key: { autopilotId: 1, status: 1 } }, { key: { clipId: 1 } }]),
+    db.collection(c.autopilotSkips).createIndexes([{ key: { autopilotId: 1 } }]),
+  ]);
+}
+
+/** Short random id for new records. */
 export const newId = () => randomUUID().slice(0, 12);
-/** Read a JSON column; `d` when it's empty or unreadable. */
-export const parse = <T>(s: unknown, d: T): T => {
-  if (typeof s !== 'string' || !s) return d;
-  try {
-    return JSON.parse(s) as T;
-  } catch {
-    return d;
-  }
-};
 
-/** A row as SQLite returns it. */
-export type Raw = Record<string, unknown>;
+export const now = () => Date.now();
+
+let lastStamp = 0;
+/** A creation time that never repeats in this process, so "in the order they were made" stays exact. */
+export function stamp() {
+  lastStamp = Math.max(Date.now(), lastStamp + 1);
+  return lastStamp;
+}
+
+/** A stored document → the row the app uses (`_id` becomes `id`). */
+export function fromDoc<T extends { id: string }>(d: Doc<T>): T {
+  const { _id, ...rest } = d;
+  return { id: _id, ...rest } as unknown as T;
+}
+
+/**
+ * The `$set` for an update: only the allowed fields that are in `patch`, plus `updatedAt`.
+ * `undefined` values are stored as null (like clearing a field) unless `skipUndefined` is set.
+ */
+export function setFields(patch: object, allowed: readonly string[], opts: { skipUndefined?: boolean; touch?: boolean } = {}) {
+  const set: Record<string, unknown> = opts.touch === false ? {} : { updatedAt: now() };
+  for (const [k, v] of Object.entries(patch)) {
+    if (!allowed.includes(k)) continue;
+    if (v === undefined && opts.skipUndefined) continue;
+    set[k] = v === undefined ? null : v;
+  }
+  return set;
+}
+
+/** True for "this would break a unique index" (for insert-or-ignore). */
+export const isDuplicate = (e: unknown) => e instanceof MongoServerError && e.code === 11000;

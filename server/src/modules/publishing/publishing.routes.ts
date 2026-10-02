@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler, validate } from '../../lib/http.js';
-import { publicConnections, publicPost } from './publishing.presenter.js';
+import { publicConnections, publicPost, publicPosts } from './publishing.presenter.js';
 import { createPostsSchema } from './publishing.schemas.js';
 import * as service from './publishing.service.js';
 import type { Platform } from './providers/index.js';
@@ -8,9 +8,12 @@ import { me } from '../auth/auth.middleware.js';
 
 export const publishingRouter = Router();
 
-publishingRouter.get('/connections', (req, res) => {
-  res.json(publicConnections(me(req)));
-});
+publishingRouter.get(
+  '/connections',
+  asyncHandler(async (req, res) => {
+    res.json(await publicConnections(me(req)));
+  }),
+);
 
 publishingRouter.get('/connect/:platform/start', (req, res) => {
   const platform = req.params.platform;
@@ -33,20 +36,32 @@ publishingRouter.delete(
   }),
 );
 
-publishingRouter.post('/posts', (req, res) => {
-  const body = validate(createPostsSchema, req.body, 'Choose at least one account.');
-  res.status(201).json(service.createPosts(body, me(req)).map(publicPost));
-});
+publishingRouter.post(
+  '/posts',
+  asyncHandler(async (req, res) => {
+    const body = validate(createPostsSchema, req.body, 'Choose at least one account.');
+    res.status(201).json(await publicPosts(await service.createPosts(body, me(req))));
+  }),
+);
 
-publishingRouter.get('/posts', (req, res) => {
-  const clipId = typeof req.query.clipId === 'string' ? req.query.clipId : undefined;
-  res.json(service.listPosts(me(req), clipId).map(publicPost));
-});
+publishingRouter.get(
+  '/posts',
+  asyncHandler(async (req, res) => {
+    const clipId = typeof req.query.clipId === 'string' ? req.query.clipId : undefined;
+    res.json(await publicPosts(await service.listPosts(me(req), clipId)));
+  }),
+);
 
-publishingRouter.post('/posts/:id/retry', (req, res) => {
-  res.json(publicPost(service.retryPost(req.params.id, me(req))));
-});
+publishingRouter.post(
+  '/posts/:id/retry',
+  asyncHandler(async (req, res) => {
+    res.json(await publicPost(await service.retryPost(req.params.id, me(req))));
+  }),
+);
 
-publishingRouter.post('/posts/:id/cancel', (req, res) => {
-  res.json(publicPost(service.cancelPost(req.params.id, me(req))));
-});
+publishingRouter.post(
+  '/posts/:id/cancel',
+  asyncHandler(async (req, res) => {
+    res.json(await publicPost(await service.cancelPost(req.params.id, me(req))));
+  }),
+);

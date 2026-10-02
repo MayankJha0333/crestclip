@@ -27,7 +27,7 @@ billingRouter.get(
   asyncHandler(async (req, res) => {
     // catch up with Razorpay first: an upgrade paid for but never confirmed becomes active here
     const user = await service.refreshAccount(await service.reconcileSubscriptions(me(req), { scan: true }));
-    res.json({ ...service.accountSummary(user), history: service.creditHistory(user), payments: service.paymentHistory(user) });
+    res.json({ ...(await service.accountSummary(user)), history: await service.creditHistory(user), payments: await service.paymentHistory(user) });
   }),
 );
 
@@ -46,7 +46,7 @@ billingRouter.post(
   asyncHandler(async (req, res) => {
     const body = validate(z.object({ paymentId: z.string().min(1), subscriptionId: z.string().min(1), signature: z.string().min(1) }), req.body, 'Missing payment details.');
     const { user, pending } = await service.confirmSubscription(me(req), body);
-    res.json({ ...service.accountSummary(user), pending });
+    res.json({ ...(await service.accountSummary(user)), pending });
   }),
 );
 
@@ -64,7 +64,7 @@ billingRouter.post(
   asyncHandler(async (req, res) => {
     const body = validate(z.object({ orderId: z.string().min(1), paymentId: z.string().min(1), signature: z.string().min(1) }), req.body, 'Missing payment details.');
     const user = await service.confirmTopup(me(req), body);
-    res.json(service.accountSummary(user));
+    res.json(await service.accountSummary(user));
   }),
 );
 
@@ -72,6 +72,6 @@ billingRouter.post(
   '/billing/cancel',
   requireUser,
   asyncHandler(async (req, res) => {
-    res.json(service.accountSummary(await service.cancelPlan(me(req))));
+    res.json(await service.accountSummary(await service.cancelPlan(me(req))));
   }),
 );

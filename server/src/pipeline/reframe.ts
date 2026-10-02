@@ -150,7 +150,10 @@ function buildHolds(times: number[], xs: number[], cuts: number[], dur: number, 
   for (let s = 0; s < bounds.length - 1; s++) {
     const a = bounds[s];
     const b = bounds[s + 1];
-    const idx = times.map((t, i) => [t, i] as const).filter(([t]) => t >= a && t < b).map(([, i]) => i);
+    const idx = times
+      .map((t, i) => [t, i] as const)
+      .filter(([t]) => t >= a && t < b)
+      .map(([, i]) => i);
     if (!idx.length) {
       // no sample in this shot → nearest sample
       const nearest = times.reduce((best, t, i) => (Math.abs(t - (a + b) / 2) < Math.abs(times[best] - (a + b) / 2) ? i : best), 0);
@@ -181,8 +184,7 @@ function buildHolds(times: number[], xs: number[], cuts: number[], dur: number, 
   return merged.length ? merged : [{ t: 0, x: 0.5 }];
 }
 
-const validBox = (b: unknown): b is Box =>
-  Array.isArray(b) && b.length === 4 && b.every((v) => Number.isFinite(v)) && b[2] > b[0] && b[3] > b[1];
+const validBox = (b: unknown): b is Box => Array.isArray(b) && b.length === 4 && b.every((v) => Number.isFinite(v)) && b[2] > b[0] && b[3] > b[1];
 const cx = (b: Box) => Math.max(0, Math.min(1, (b[1] + b[3]) / 2000));
 const cy = (b: Box) => Math.max(0, Math.min(1, (b[0] + b[2]) / 2000));
 const area = (b: Box) => (b[2] - b[0]) * (b[3] - b[1]);

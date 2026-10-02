@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { config } from '../../config.js';
 import { sessions, type UserRow } from '../../db/index.js';
-import { HttpError } from '../../lib/http.js';
+import { asyncMiddleware, HttpError } from '../../lib/http.js';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -27,17 +27,17 @@ function readCookie(req: Request, name: string): string | null {
 }
 
 /** Every request: who is it? (no error when nobody is signed in) */
-export function attachUser(req: Request, _res: Response, next: NextFunction) {
+export const attachUser = asyncMiddleware(async (req, _res, next) => {
   const token = readCookie(req, SESSION_COOKIE);
   if (token) {
-    const u = sessions.user(token);
+    const u = await sessions.user(token);
     if (u) {
       req.user = u;
       req.sessionToken = token;
     }
   }
   next();
-}
+});
 
 /** Routes that need a signed-in person. */
 export function requireUser(req: Request, _res: Response, next: NextFunction) {

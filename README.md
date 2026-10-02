@@ -11,7 +11,7 @@ All AI runs on **Gemini through Google Cloud Vertex AI**, so it's billed to your
 
 ## What makes it different
 
-Most clipping tools only *guess* what's viral. CrestClip starts from what viewers **already rewatched**:
+Most clipping tools only _guess_ what's viral. CrestClip starts from what viewers **already rewatched**:
 
 1. **YouTube "Most replayed" heatmap.** yt-dlp reads it for free: 100 points showing where people rewind.
 2. **Timestamps in comments.** For example "12:41 😂", weighted by likes.
@@ -44,14 +44,21 @@ gcloud config set project YOUR_PROJECT_ID
 gcloud services enable aiplatform.googleapis.com
 ```
 
-**3. Configure CrestClip**
+**3. Create the database (MongoDB Atlas, free tier is enough to start)**
+
+In [MongoDB Atlas](https://www.mongodb.com/atlas): create a cluster → **Database Access** → add a user → **Network Access** → add your IP (or your server's) → **Connect → Drivers** → copy the connection string.
+
+**4. Configure CrestClip**
 
 ```bash
 cp .env.example .env
 # open .env and set GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID
+# and MONGODB_URI=mongodb+srv://USER:PASSWORD@your-cluster.mongodb.net
 ```
 
-**4. Install and run**
+Coming from an older CrestClip that kept everything in `data/crestclip.db` (SQLite)? On the first start with MongoDB set, it copies all of it over by itself (accounts, credits, payments, projects, clips, posts, Autopilots) and keeps the old file as a backup.
+
+**5. Install and run**
 
 ```bash
 npm install
@@ -121,9 +128,9 @@ No YouTube API key is needed. Explore uses yt-dlp, which CrestClip keeps up to d
 
 ## Editing: motion, music and your own picks
 
-- **Edit motion:** *Subtle* adds a punch-in zoom every few seconds at natural pauses and glides between speakers in the same shot. *Dynamic* zooms more often and opens with a quick zoom-out on the hook. *Off* keeps steady framing.
-- **Background music:** pick a mood (Chill lo-fi, Upbeat, Inspiring, Hype, Suspense, Funny, Emotional, Clean tech), *Auto* (matches each clip's category), or upload your own track. Mood tracks are instrumental, made once with Google's **Lyria** model on Vertex AI (your credits) and reused. Music loops smoothly, fades in/out, and ducks under speech.
-- **Cut pauses:** *Natural* (default) shortens pauses longer than ~0.6 s and drops a lone "um" sitting between two pauses; *Fast* cuts nearly every pause; *Off* keeps everything. Cuts are made only on real silences measured from the audio, and each cut gets a small zoom change so the jump isn't noticeable. Stories and emotional moments keep more breathing room.
+- **Edit motion:** _Subtle_ adds a punch-in zoom every few seconds at natural pauses and glides between speakers in the same shot. _Dynamic_ zooms more often and opens with a quick zoom-out on the hook. _Off_ keeps steady framing.
+- **Background music:** pick a mood (Chill lo-fi, Upbeat, Inspiring, Hype, Suspense, Funny, Emotional, Clean tech), _Auto_ (matches each clip's category), or upload your own track. Mood tracks are instrumental, made once with Google's **Lyria** model on Vertex AI (your credits) and reused. Music loops smoothly, fades in/out, and ducks under speech.
+- **Cut pauses:** _Natural_ (default) shortens pauses longer than ~0.6 s and drops a lone "um" sitting between two pauses; _Fast_ cuts nearly every pause; _Off_ keeps everything. Cuts are made only on real silences measured from the audio, and each cut gets a small zoom change so the jump isn't noticeable. Stories and emotional moments keep more breathing room.
 - **Key words:** the AI marks 3–8 important words per clip; captions show them bigger and in an accent colour (one per line). Turn on **Emoji on key words** to pop a matching emoji above them.
 - **Hooks:** the AI writes 3 headline options per clip; pick one in Edit → Hook & captions, or write your own.
 - **Flash-forward opening:** plays the clip's punchiest line (1–3 s, punched in) first, then the story from the start. Off by default; the AI only offers it when a line works as a tease.
@@ -138,36 +145,37 @@ ones (views, length, age), waits for YouTube's "most rewatched" graph, clips the
 time slots. The **Schedule** tab shows every upcoming post — cancel any one, or pause the whole autopilot.
 
 Timing runs on **Redis** (BullMQ): set `REDIS_URL`, or let CrestClip use a local Redis / build its own (see `.env.example`).
-SQLite stays the record of truth, so Redis can restart empty — every job is put back on start-up.
+MongoDB stays the record of truth, so Redis can restart empty — every job is put back on start-up.
 Posting only happens while CrestClip is running; for 24/7 posting, run it on a server.
 
 ## Post to YouTube & Instagram
 
 Open **Settings → Connected accounts** to connect each account once. Then press **Post** on any clip: post now or schedule it. **Schedule** in the sidebar shows every upcoming and past post (yours and Autopilot's).
 
-| | YouTube Shorts | Instagram Reels |
-|---|---|---|
-| Sign-in | Google OAuth (`youtube.upload`) | Instagram Login (`instagram_business_basic`, `instagram_business_content_publish`) |
-| Upload | Resumable upload, YouTube Data API v3 | Resumable upload to Instagram, then publish |
-| Scheduling | YouTube's own `publishAt`: goes live even if CrestClip is off | CrestClip's scheduler publishes at the time: **keep CrestClip running** |
-| Limits | Apps that haven't passed YouTube's API audit can only upload **private** videos. Request the audit before launch | Business/Creator accounts only, about 100 API posts a day, redirect URL must be **https** |
+|            | YouTube Shorts                                                                                                   | Instagram Reels                                                                           |
+| ---------- | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Sign-in    | Google OAuth (`youtube.upload`)                                                                                  | Instagram Login (`instagram_business_basic`, `instagram_business_content_publish`)        |
+| Upload     | Resumable upload, YouTube Data API v3                                                                            | Resumable upload to Instagram, then publish                                               |
+| Scheduling | YouTube's own `publishAt`: goes live even if CrestClip is off                                                    | CrestClip's scheduler publishes at the time: **keep CrestClip running**                   |
+| Limits     | Apps that haven't passed YouTube's API audit can only upload **private** videos. Request the audit before launch | Business/Creator accounts only, about 100 API posts a day, redirect URL must be **https** |
 
-Setup: add `YOUTUBE_CLIENT_ID/SECRET` and/or `INSTAGRAM_APP_ID/SECRET` to `.env` (Settings shows the exact steps and redirect URLs). Account tokens are stored encrypted in the local database.
+Setup: add `YOUTUBE_CLIENT_ID/SECRET` and/or `INSTAGRAM_APP_ID/SECRET` to `.env` (Settings shows the exact steps and redirect URLs). Account tokens are stored encrypted in the database.
 
 ## How it works (the pipeline)
 
-| Step | What happens | Tool |
-|---|---|---|
-| 1. Get video | Read title, **Most replayed heatmap**, chapters and top comments. For long links, download **only the audio** (a 2-hour podcast is ~100 MB instead of ~3 GB). Short links and uploads use the whole video | yt-dlp |
-| 2. Listen | Pull out 16 kHz audio. Measure loudness per second and find pauses | ffmpeg |
-| 3. Transcribe | Cut the audio into 8-minute chunks. Transcribe them in parallel with timestamps | Gemini (fast model) |
-| 4. Find peaks | Build the engagement curve. Gemini reads the transcript, hotspots and (if possible) the video, then returns ranked clips with a rubric, title, hook, caption and hashtags | Gemini (main model) |
-| 5. Clean cuts | Snap starts to the first word of the hook and ends to the sentence end or a pause. Enforce the length for the platform. Remove overlapping clips | code |
-| 5b. Fetch clip parts | Long links only: download the video just for the chosen clips (+20 s padding), cut to the exact frame. Edits outside that range fetch their part on demand | yt-dlp + ffmpeg |
-| 6. Reframe | Sample a frame every ~1.5 s. Gemini boxes the speaking face. The crop holds steady per camera shot (it doesn't wobble). Two people → split screen; screen or game content → fit on a blurred background | Gemini + ffmpeg |
-| 7. Render | 1080×1920, 30 fps, H.264. Word-by-word `.ass` captions, a hook headline for 0–3 s, and loudness normalized to −14 LUFS | ffmpeg + libass |
+| Step                 | What happens                                                                                                                                                                                              | Tool                |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| 1. Get video         | Read title, **Most replayed heatmap**, chapters and top comments. For long links, download **only the audio** (a 2-hour podcast is ~100 MB instead of ~3 GB). Short links and uploads use the whole video | yt-dlp              |
+| 2. Listen            | Pull out 16 kHz audio. Measure loudness per second and find pauses                                                                                                                                        | ffmpeg              |
+| 3. Transcribe        | Cut the audio into 8-minute chunks. Transcribe them in parallel with timestamps                                                                                                                           | Gemini (fast model) |
+| 4. Find peaks        | Build the engagement curve. Gemini reads the transcript, hotspots and (if possible) the video, then returns ranked clips with a rubric, title, hook, caption and hashtags                                 | Gemini (main model) |
+| 5. Clean cuts        | Snap starts to the first word of the hook and ends to the sentence end or a pause. Enforce the length for the platform. Remove overlapping clips                                                          | code                |
+| 5b. Fetch clip parts | Long links only: download the video just for the chosen clips (+20 s padding), cut to the exact frame. Edits outside that range fetch their part on demand                                                | yt-dlp + ffmpeg     |
+| 6. Reframe           | Sample a frame every ~1.5 s. Gemini boxes the speaking face. The crop holds steady per camera shot (it doesn't wobble). Two people → split screen; screen or game content → fit on a blurred background   | Gemini + ffmpeg     |
+| 7. Render            | 1080×1920, 30 fps, H.264. Word-by-word `.ass` captions, a hook headline for 0–3 s, and loudness normalized to −14 LUFS                                                                                    | ffmpeg + libass     |
 
 Then on the project page (**Clips** tab) you can:
+
 - edit the hook, captions, framing, trim (click transcript lines), title and hashtags, then re-render
 - make **variants** (same moment, new look) so you can post again without being flagged as duplicate content
 - download clips or copy the ready-made post text
@@ -184,7 +192,7 @@ crestclip/
 │     ├─ app.ts               Express app: routers, /media, web app, error handler
 │     ├─ config.ts            settings from .env
 │     ├─ lib/                 http (HttpError, validate, asyncHandler), paths, secrets, processes
-│     ├─ db/                  SQLite (built into Node 22): connection + migrations, one repository per table
+│     ├─ db/                  MongoDB: connection + indexes, one repository per collection, one-time SQLite import
 │     ├─ infra/               job queue, Redis, managed tools (ffmpeg, yt-dlp), local https
 │     ├─ modules/             one folder per feature: *.routes (HTTP) → *.service (logic) → *.presenter (JSON)
 │     │  ├─ projects/  clips/  music/  explore/  publishing/  autopilot/  system/
@@ -206,11 +214,11 @@ Everyone signs up (email + password, or **Continue with Google**) and gets their
 
 **Credits** are spent per clip: **every clip costs 5 credits** (`CREDITS_PER_CLIP` in `plans.ts`). Asking for 8 clips takes 40 credits up front; if only 6 good moments come out, 10 go back. Clips you pick on the rewatch graph cost the same. Editing and re-rendering is free, and a video that fails gives all its credits back. Video length is limited per plan, which keeps the AI cost of very long videos in check.
 
-| Plan | Price | Credits / month (clips) | Limits |
-|---|---|---|---|
-| Free | $0 | 60 (12 clips) | videos up to 30 min · 3 videos per project · 720p with a small CrestClip mark · post now only |
-| Creator | $15 | 400 (80 clips) | videos up to 2 h · 15 per project · 1080p · your own logo · scheduling · unused credits roll over 1 month |
-| Pro | $29 | 1,000 (200 clips) | videos up to 3 h · everything in Creator · Autopilot |
+| Plan    | Price | Credits / month (clips) | Limits                                                                                                    |
+| ------- | ----- | ----------------------- | --------------------------------------------------------------------------------------------------------- |
+| Free    | $0    | 60 (12 clips)           | videos up to 30 min · 3 videos per project · 720p with a small CrestClip mark · post now only             |
+| Creator | $15   | 400 (80 clips)          | videos up to 2 h · 15 per project · 1080p · your own logo · scheduling · unused credits roll over 1 month |
+| Pro     | $29   | 1,000 (200 clips)       | videos up to 3 h · everything in Creator · Autopilot                                                      |
 
 **Top-up:** 100 credits for $5, on any plan, usable for 12 months. Credits are used soonest-to-expire first. **Currency:** every price and every payment is in **US dollars (USD)** — one currency for everyone, so international customers pay exactly what they see (their bank converts if their card is in another currency). To change prices or limits, edit `PLANS` / `TOPUP` in `server/src/modules/billing/plans.ts`, then create Razorpay plans with the same amounts.
 
@@ -221,13 +229,14 @@ Everyone signs up (email + password, or **Continue with Google**) and gets their
 ### Taking payments with Razorpay
 
 1. **API keys:** Razorpay Dashboard → API Keys → copy the Key Id and Secret into `.env` (`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`). Start with **Test Mode** keys.
-2. **Dollar payments:** Dashboard → Payment Methods → *International Payments* → Request (Razorpay asks for your live website with these policy pages; approval takes up to 5 working days). CrestClip charges only in USD, so upgrades and top-ups stay off until this is approved.
+2. **Dollar payments:** Dashboard → Payment Methods → _International Payments_ → Request (Razorpay asks for your live website with these policy pages; approval takes up to 5 working days). CrestClip charges only in USD, so upgrades and top-ups stay off until this is approved.
 3. **Plans:** Dashboard → Subscriptions → Plans → create two **monthly USD** plans: Creator **$15** → `RAZORPAY_PLAN_CREATOR`, Pro **$29** → `RAZORPAY_PLAN_PRO`. CrestClip checks each plan before checkout and shows a clear message if its currency, amount or period doesn't match `plans.ts`.
 4. **Webhook** (renewals, and payments made after someone closes the tab): Dashboard → Webhooks → URL `<PUBLIC_URL>/api/billing/webhook`, pick a secret and put it in `RAZORPAY_WEBHOOK_SECRET`. Turn on these events:
    - `subscription.activated`, `subscription.charged`, `subscription.cancelled`, `subscription.halted`, `subscription.completed`
    - `payment.captured`
 
    Locally (no public URL), renewals are still picked up: CrestClip checks the subscription with Razorpay when a month runs out.
+
 5. Restart CrestClip. **Plan & credits** in the app now shows working Upgrade and Buy credits buttons.
 
 Without Razorpay keys, everything else works (credits, limits, monthly refills). Upgrades are off, and an admin can give plans and credits by hand in **Settings → Admin**.

@@ -1,4 +1,4 @@
-import { db, newId, now, type Raw } from './connection.js';
+import { collection, COLLECTIONS, fromDoc, newId, now, stamp, type Doc } from './connection.js';
 
 export interface ConnectionRow {
   id: string;
@@ -8,59 +8,56 @@ export interface ConnectionRow {
   name: string | null;
   handle: string | null;
   avatar: string | null;
+  /** encrypted JSON {access, refresh, expiresAt} */
   tokens: string;
   createdAt: number;
   updatedAt: number;
 }
-const toConn = (r: Raw): ConnectionRow => ({
-  id: r.id as string,
-  userId: (r.user_id as string) ?? null,
-  platform: r.platform as ConnectionRow['platform'],
-  accountId: r.account_id as string,
-  name: (r.name as string) ?? null,
-  handle: (r.handle as string) ?? null,
-  avatar: (r.avatar as string) ?? null,
-  tokens: r.tokens as string,
-  createdAt: r.created_at as number,
-  updatedAt: r.updated_at as number,
-});
+
+const col = () => collection<Doc<ConnectionRow>>(COLLECTIONS.connections);
+const toConn = (d: Doc<ConnectionRow>) => fromDoc<ConnectionRow>(d);
+
 export const connections = {
-  list(userId: string): ConnectionRow[] {
-    return (db.prepare('SELECT * FROM connections WHERE user_id = ? ORDER BY platform, created_at').all(userId) as Raw[]).map(toConn);
+  async list(userId: string): Promise<ConnectionRow[]> {
+    return (await col().find({ userId }).sort({ platform: 1, createdAt: 1 }).toArray()).map(toConn);
   },
   /** The same YouTube / Instagram account saved by someone (to stop one account being linked to two people). */
-  find(platform: string, accountId: string): ConnectionRow | null {
-    const r = db.prepare('SELECT * FROM connections WHERE platform = ? AND account_id = ?').get(platform, accountId) as Raw | undefined;
-    return r ? toConn(r) : null;
+  async find(platform: string, accountId: string): Promise<ConnectionRow | null> {
+    const d = await col().findOne({ platform: platform as ConnectionRow['platform'], accountId });
+    return d ? toConn(d) : null;
   },
-  get(id: string): ConnectionRow | null {
-    const r = db.prepare('SELECT * FROM connections WHERE id = ?').get(id) as Raw | undefined;
-    return r ? toConn(r) : null;
+  async getMany(ids: string[]): Promise<ConnectionRow[]> {
+    return ids.length
+      ? (
+          await col()
+            .find({ _id: { $in: [...new Set(ids)] } })
+            .toArray()
+        ).map(toConn)
+      : [];
+  },
+  async get(id: string): Promise<ConnectionRow | null> {
+    const d = await col().findOne({ _id: id });
+    return d ? toConn(d) : null;
   },
   /** insert or update (same platform + account = reconnect) */
-  upsert(c: { userId: string; platform: string; accountId: string; name: string | null; handle: string | null; avatar: string | null; tokens: string }): ConnectionRow {
-    const existing = db.prepare('SELECT id FROM connections WHERE platform = ? AND account_id = ?').get(c.platform, c.accountId) as Raw | undefined;
-    const id = (existing?.id as string) ?? newId();
-    if (existing) db.prepare('UPDATE connections SET name = ?, handle = ?, avatar = ?, tokens = ?, updated_at = ? WHERE id = ?').run(c.name, c.handle, c.avatar, c.tokens, now(), id);
-    else
-      db.prepare('INSERT INTO connections (id, user_id, platform, account_id, name, handle, avatar, tokens, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-        id,
-        c.userId,
-        c.platform,
-        c.accountId,
-        c.name,
-        c.handle,
-        c.avatar,
-        c.tokens,
-        now(),
-        now(),
-      );
-    return this.get(id)!;
+  async upsert(c: { userId: string; platform: string; accountId: string; name: string | null; handle: string | null; avatar: string | null; tokens: string }): Promise<ConnectionRow> {
+    const at = stamp();
+    const d = await col().findOneAndUpdate(
+      { platform: c.platform as ConnectionRow['platform'], accountId: c.accountId },
+      {
+        $set: { name: c.name, handle: c.handle, avatar: c.avatar, tokens: c.tokens, updatedAt: at },
+        $setOnInsert: { _id: newId(), userId: c.userId, createdAt: at },
+      },
+      { upsert: true, returnDocument: 'after' },
+    );
+    return toConn(d!);
   },
-  setTokens(id: string, tokens: string) {
-    db.prepare('UPDATE connections SET tokens = ?, updated_at = ? WHERE id = ?').run(tokens, now(), id);
+  async setTokens(id: string, tokens: string) {
+    await col().updateOne({ _id: id }, { $set: { tokens, updatedAt: now() } });
   },
-  remove(id: string) {
-    db.prepare('DELETE FROM connections WHERE id = ?').run(id);
+  /** Disconnect: the account and its posts. */
+  async remove(id: string) {
+    await collection(COLLECTIONS.posts).deleteMany({ connectionId: id });
+    await col().deleteOne({ _id: id });
   },
 };

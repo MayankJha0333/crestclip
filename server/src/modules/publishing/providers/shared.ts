@@ -15,8 +15,7 @@ export const platformName = (p: Platform) => (p === 'youtube' ? 'YouTube' : 'Ins
 export const redirectUri = (p: Platform) => `${p === 'instagram' ? config.instagramRedirectBase : config.publicUrl}/api/connect/${p}/callback`;
 
 /** True when the app keys for this platform are in .env. */
-export const isConfigured = (p: Platform) =>
-  p === 'youtube' ? Boolean(config.youtubeClientId && config.youtubeClientSecret) : Boolean(config.instagramAppId && config.instagramAppSecret);
+export const isConfigured = (p: Platform) => (p === 'youtube' ? Boolean(config.youtubeClientId && config.youtubeClientSecret) : Boolean(config.instagramAppId && config.instagramAppSecret));
 
 /** fetch + JSON, throwing the platform's own error message on failure. */
 export async function jsonFetch<T>(url: string, init: RequestInit = {}): Promise<T> {
@@ -31,7 +30,11 @@ export async function jsonFetch<T>(url: string, init: RequestInit = {}): Promise
   if (!res.ok) {
     const b = body as { error?: { message?: string; error_user_msg?: string } | string; error_description?: string; error_message?: string };
     const msg =
-      (typeof b?.error === 'object' && (b.error.error_user_msg || b.error.message)) || b?.error_description || b?.error_message || (typeof b?.error === 'string' ? b.error : '') || String(text).slice(0, 300);
+      (typeof b?.error === 'object' && (b.error.error_user_msg || b.error.message)) ||
+      b?.error_description ||
+      b?.error_message ||
+      (typeof b?.error === 'string' ? b.error : '') ||
+      String(text).slice(0, 300);
     throw new Error(`${res.status}: ${msg}`);
   }
   return body as T;

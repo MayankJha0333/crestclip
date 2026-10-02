@@ -1,5 +1,5 @@
 import { config } from '../config.js';
-import { db, newId, now, parse, type Raw } from './connection.js';
+import { collection, COLLECTIONS, fromDoc, newId, now, setFields, stamp, type Doc } from './connection.js';
 import type { ProjectOptions, Segment, Signals } from '../types.js';
 
 export interface ProjectRow {
@@ -38,144 +38,154 @@ export interface ProjectRow {
   aiNotes: string | null;
 }
 
-function toProject(r: Raw): ProjectRow {
-  return {
-    id: r.id as string,
-    userId: (r.user_id as string) ?? null,
-    creditsCharged: (r.credits_charged as number) ?? 0,
-    errorCode: (r.error_code as string) ?? null,
-    createdAt: r.created_at as number,
-    updatedAt: r.updated_at as number,
-    expiresAt: (r.expires_at as number) ?? null,
-    sourceType: r.source_type as ProjectRow['sourceType'],
-    sourceUrl: (r.source_url as string) ?? null,
-    parentId: (r.parent_id as string) ?? null,
-    title: (r.title as string) ?? null,
-    channel: (r.channel as string) ?? null,
-    description: (r.description as string) ?? null,
-    duration: (r.duration as number) ?? null,
-    width: (r.width as number) ?? null,
-    height: (r.height as number) ?? null,
-    viewCount: (r.view_count as number) ?? null,
-    status: r.status as ProjectRow['status'],
-    stage: (r.stage as string) ?? null,
-    stageDetail: (r.stage_detail as string) ?? null,
-    progress: (r.progress as number) ?? 0,
-    error: (r.error as string) ?? null,
-    options: parse(r.options_json, {} as ProjectOptions),
-    signals: parse(r.signals_json, null),
-    transcript: parse(r.transcript_json, null),
-    mediaPath: (r.media_path as string) ?? null,
-    thumbPath: (r.thumb_path as string) ?? null,
-    aiNotes: (r.ai_notes as string) ?? null,
-  };
-}
+const col = () => collection<Doc<ProjectRow>>(COLLECTIONS.projects);
+const toProject = (d: Doc<ProjectRow>) => fromDoc<ProjectRow>(d);
+
+const UPDATABLE = [
+  'sourceUrl',
+  'title',
+  'channel',
+  'description',
+  'duration',
+  'width',
+  'height',
+  'viewCount',
+  'status',
+  'stage',
+  'stageDetail',
+  'progress',
+  'error',
+  'options',
+  'signals',
+  'transcript',
+  'mediaPath',
+  'thumbPath',
+  'aiNotes',
+  'creditsCharged',
+  'errorCode',
+] as const;
+
+/** Fields the projects list needs (the big transcript and signals stay out). */
+const LIST_FIELDS = { transcript: 0, signals: 0, description: 0, aiNotes: 0, mediaPath: 0 } as const;
 
 export const projects = {
-  create(p: { userId: string; sourceType: 'url' | 'upload' | 'group'; sourceUrl?: string; title?: string; options: ProjectOptions; parentId?: string | null }) {
-    const id = newId();
+  async create(p: { userId: string; sourceType: 'url' | 'upload' | 'group'; sourceUrl?: string; title?: string; options: ProjectOptions; parentId?: string | null }): Promise<ProjectRow> {
     // a group only holds its videos; its status is worked out from them
     const status = p.sourceType === 'group' ? 'done' : 'queued';
-    db.prepare(
-      `INSERT INTO projects (id, user_id, created_at, updated_at, expires_at, source_type, source_url, title, options_json, status, stage, progress, parent_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
-    ).run(
-      id,
-      p.userId,
-      now(),
-      now(),
-      // a video inside a multi-video project goes with the project
-      (p.parentId ? this.get(p.parentId)?.expiresAt : null) ?? now() + config.retentionDays * 86400_000,
-      p.sourceType,
-      p.sourceUrl ?? null,
-      p.title ?? null,
-      JSON.stringify(p.options),
+    // a video inside a multi-video project goes with the project
+    const parentExpiry = p.parentId ? (await this.get(p.parentId))?.expiresAt : null;
+    const at = stamp();
+    const row: Doc<ProjectRow> = {
+      _id: newId(),
+      userId: p.userId,
+      creditsCharged: 0,
+      errorCode: null,
+      createdAt: at,
+      updatedAt: at,
+      expiresAt: parentExpiry ?? at + config.retentionDays * 86400_000,
+      sourceType: p.sourceType,
+      sourceUrl: p.sourceUrl ?? null,
+      title: p.title ?? null,
+      channel: null,
+      description: null,
+      parentId: p.parentId ?? null,
+      duration: null,
+      width: null,
+      height: null,
+      viewCount: null,
       status,
-      status,
-      p.parentId ?? null,
-    );
-    return this.get(id)!;
-  },
-  get(id: string): ProjectRow | null {
-    const r = db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as Raw | undefined;
-    return r ? toProject(r) : null;
-  },
-  list(userId: string): (ProjectRow & { clipCount: number; readyCount: number; bestScore: number | null })[] {
-    const rows = db
-      .prepare(
-        `SELECT p.id, p.user_id, p.created_at, p.updated_at, p.expires_at, p.source_type, p.source_url, p.title, p.channel, p.duration, p.width, p.height,
-                p.view_count, p.status, p.stage, p.stage_detail, p.progress, p.error, p.error_code, p.options_json, p.thumb_path, p.parent_id,
-                (SELECT COUNT(*) FROM clips c WHERE c.project_id = p.id) AS clip_count,
-                (SELECT COUNT(*) FROM clips c WHERE c.project_id = p.id AND c.status='ready') AS ready_count,
-                (SELECT MAX(peak_score) FROM clips c WHERE c.project_id = p.id) AS best_score
-         FROM projects p WHERE p.parent_id IS NULL AND p.user_id = ? ORDER BY created_at DESC`,
-      )
-      .all(userId) as Raw[];
-    return rows.map((r) => ({
-      ...toProject(r),
-      clipCount: r.clip_count as number,
-      readyCount: r.ready_count as number,
-      bestScore: (r.best_score as number) ?? null,
-    }));
-  },
-  update(id: string, patch: Partial<Omit<ProjectRow, 'id' | 'createdAt'>>) {
-    const map: Record<string, [string, (v: unknown) => unknown]> = {
-      sourceUrl: ['source_url', (v) => v],
-      title: ['title', (v) => v],
-      channel: ['channel', (v) => v],
-      description: ['description', (v) => v],
-      duration: ['duration', (v) => v],
-      width: ['width', (v) => v],
-      height: ['height', (v) => v],
-      viewCount: ['view_count', (v) => v],
-      status: ['status', (v) => v],
-      stage: ['stage', (v) => v],
-      stageDetail: ['stage_detail', (v) => v],
-      progress: ['progress', (v) => v],
-      error: ['error', (v) => v],
-      options: ['options_json', (v) => JSON.stringify(v)],
-      signals: ['signals_json', (v) => JSON.stringify(v)],
-      transcript: ['transcript_json', (v) => JSON.stringify(v)],
-      mediaPath: ['media_path', (v) => v],
-      thumbPath: ['thumb_path', (v) => v],
-      aiNotes: ['ai_notes', (v) => v],
-      creditsCharged: ['credits_charged', (v) => v],
-      errorCode: ['error_code', (v) => v],
+      stage: status,
+      stageDetail: null,
+      progress: 0,
+      error: null,
+      options: p.options,
+      signals: null,
+      transcript: null,
+      mediaPath: null,
+      thumbPath: null,
+      aiNotes: null,
     };
-    const sets: string[] = ['updated_at = ?'];
-    const vals: unknown[] = [now()];
-    for (const [k, v] of Object.entries(patch)) {
-      const m = map[k];
-      if (!m) continue;
-      sets.push(`${m[0]} = ?`);
-      vals.push(v === undefined ? null : m[1](v));
-    }
-    vals.push(id);
-    db.prepare(`UPDATE projects SET ${sets.join(', ')} WHERE id = ?`).run(...(vals as never[]));
+    await col().insertOne(row);
+    return toProject(row);
   },
-  remove(id: string) {
-    db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+  async get(id: string): Promise<ProjectRow | null> {
+    const d = await col().findOne({ _id: id });
+    return d ? toProject(d) : null;
+  },
+  /** One person's projects (newest first) with their clip counts and best score. */
+  async list(userId: string): Promise<(ProjectRow & { clipCount: number; readyCount: number; bestScore: number | null })[]> {
+    const rows = (await col().find({ userId, parentId: null }, { projection: LIST_FIELDS }).sort({ createdAt: -1 }).toArray()).map((d) => ({
+      ...toProject(d),
+      transcript: null,
+      signals: null,
+      description: null,
+      aiNotes: null,
+      mediaPath: null,
+    }));
+    const stats = await collection(COLLECTIONS.clips)
+      .aggregate<{ _id: string; clipCount: number; readyCount: number; bestScore: number | null }>([
+        { $match: { projectId: { $in: rows.map((r) => r.id) } } },
+        {
+          $group: {
+            _id: '$projectId',
+            clipCount: { $sum: 1 },
+            readyCount: { $sum: { $cond: [{ $eq: ['$status', 'ready'] }, 1, 0] } },
+            bestScore: { $max: '$peakScore' },
+          },
+        },
+      ])
+      .toArray();
+    const byId = new Map(stats.map((s) => [s._id, s]));
+    return rows.map((r) => ({ ...r, clipCount: byId.get(r.id)?.clipCount ?? 0, readyCount: byId.get(r.id)?.readyCount ?? 0, bestScore: byId.get(r.id)?.bestScore ?? null }));
+  },
+  async update(id: string, patch: Partial<Omit<ProjectRow, 'id' | 'createdAt'>>) {
+    await col().updateOne({ _id: id }, { $set: setFields(patch, UPDATABLE) });
+  },
+  /** Delete a project with its clips (and those clips' posts and Autopilot entries). Its videos are removed by the caller. */
+  async remove(id: string) {
+    const clipIds = (
+      await collection<{ _id: string }>(COLLECTIONS.clips)
+        .find({ projectId: id }, { projection: { _id: 1 } })
+        .toArray()
+    ).map((c) => c._id);
+    await Promise.all([
+      collection(COLLECTIONS.clips).deleteMany({ projectId: id }),
+      collection(COLLECTIONS.posts).deleteMany({ clipId: { $in: clipIds } }),
+      collection(COLLECTIONS.autopilotClips).deleteMany({ clipId: { $in: clipIds } }),
+    ]);
+    await col().deleteOne({ _id: id });
   },
   /** the videos inside a multi-video project, in the order they were added */
-  children(parentId: string): ProjectRow[] {
-    return (db.prepare('SELECT * FROM projects WHERE parent_id = ? ORDER BY created_at, rowid').all(parentId) as Raw[]).map(toProject);
+  async children(parentId: string): Promise<ProjectRow[]> {
+    return (await col().find({ parentId }).sort({ createdAt: 1, _id: 1 }).toArray()).map(toProject);
   },
   /** Top-level projects whose storage time is over (their videos go with them). */
-  expired(at = now()): ProjectRow[] {
-    return (db.prepare('SELECT * FROM projects WHERE parent_id IS NULL AND expires_at IS NOT NULL AND expires_at <= ? ORDER BY expires_at').all(at) as Raw[]).map(toProject);
+  async expired(at = now()): Promise<ProjectRow[]> {
+    return (
+      await col()
+        .find({ parentId: null, expiresAt: { $ne: null, $lte: at } })
+        .sort({ expiresAt: 1 })
+        .toArray()
+    ).map(toProject);
   },
   /** Something still waiting to be posted from this project's clips? (then it isn't deleted yet) */
-  hasPendingPosts(id: string): boolean {
-    return Boolean(
-      db
-        .prepare(
-          `SELECT 1 FROM posts po JOIN clips c ON c.id = po.clip_id JOIN projects p ON p.id = c.project_id
-           WHERE (p.id = ? OR p.parent_id = ?) AND po.status IN ('scheduled','uploading','processing') LIMIT 1`,
-        )
-        .get(id, id),
-    );
+  async hasPendingPosts(id: string): Promise<boolean> {
+    const ids = [
+      id,
+      ...(
+        await col()
+          .find({ parentId: id }, { projection: { _id: 1 } })
+          .toArray()
+      ).map((p) => p._id),
+    ];
+    return Boolean(await collection(COLLECTIONS.posts).findOne({ projectId: { $in: ids }, status: { $in: ['scheduled', 'uploading', 'processing'] } }, { projection: { _id: 1 } }));
   },
-  unfinished(): ProjectRow[] {
-    return (db.prepare(`SELECT * FROM projects WHERE status IN ('queued','processing') ORDER BY created_at`).all() as Raw[]).map(toProject);
+  async unfinished(): Promise<ProjectRow[]> {
+    return (
+      await col()
+        .find({ status: { $in: ['queued', 'processing'] } })
+        .sort({ createdAt: 1 })
+        .toArray()
+    ).map(toProject);
   },
 };
