@@ -55,6 +55,11 @@ export const COLLECTIONS = {
 
 async function createIndexes(db: Db) {
   const c = COLLECTIONS;
+  // one channel used to be allowed in only one CrestClip account; now each account can connect it
+  await db
+    .collection(c.connections)
+    .dropIndex('platform_1_accountId_1')
+    .catch(() => {});
   const hasString = (field: string) => ({ partialFilterExpression: { [field]: { $type: 'string' } } });
   await Promise.all([
     db.collection(c.users).createIndexes([{ key: { email: 1 }, unique: true }, { key: { googleSub: 1 }, unique: true, ...hasString('googleSub') }, { key: { rzSubscriptionId: 1 } }]),
@@ -64,7 +69,7 @@ async function createIndexes(db: Db) {
     db.collection(c.payments).createIndexes([{ key: { userId: 1, createdAt: -1 } }]),
     db.collection(c.projects).createIndexes([{ key: { userId: 1, createdAt: -1 } }, { key: { parentId: 1, createdAt: 1 } }, { key: { status: 1 } }, { key: { expiresAt: 1 } }]),
     db.collection(c.clips).createIndexes([{ key: { projectId: 1, peakScore: -1 } }, { key: { status: 1 } }]),
-    db.collection(c.connections).createIndexes([{ key: { platform: 1, accountId: 1 }, unique: true }, { key: { userId: 1 } }]),
+    db.collection(c.connections).createIndexes([{ key: { userId: 1, platform: 1, accountId: 1 }, unique: true }]),
     db
       .collection(c.posts)
       .createIndexes([

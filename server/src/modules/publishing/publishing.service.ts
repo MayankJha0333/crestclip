@@ -45,8 +45,6 @@ export async function finishConnect(platform: Platform, query: Record<string, un
   if (!pending || pending.platform !== platform) return settingsUrl({ error: 'That sign-in link expired. Please try connecting again.' });
   try {
     const r = await providers[platform].exchange(String(query.code ?? ''));
-    const taken = await connections.find(platform, r.accountId);
-    if (taken && taken.userId && taken.userId !== pending.userId) return settingsUrl({ error: `${r.handle ?? r.name ?? 'This account'} is already connected to another CrestClip account.` });
     const c = await connections.upsert({ userId: pending.userId, platform, accountId: r.accountId, name: r.name, handle: r.handle, avatar: r.avatar, tokens: seal(r.tokens) });
     return settingsUrl({ connected: platform, name: c.name ?? '' });
   } catch (e) {

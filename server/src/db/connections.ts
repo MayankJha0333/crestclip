@@ -21,11 +21,6 @@ export const connections = {
   async list(userId: string): Promise<ConnectionRow[]> {
     return (await col().find({ userId }).sort({ platform: 1, createdAt: 1 }).toArray()).map(toConn);
   },
-  /** The same YouTube / Instagram account saved by someone (to stop one account being linked to two people). */
-  async find(platform: string, accountId: string): Promise<ConnectionRow | null> {
-    const d = await col().findOne({ platform: platform as ConnectionRow['platform'], accountId });
-    return d ? toConn(d) : null;
-  },
   async getMany(ids: string[]): Promise<ConnectionRow[]> {
     return ids.length
       ? (
@@ -39,14 +34,17 @@ export const connections = {
     const d = await col().findOne({ _id: id });
     return d ? toConn(d) : null;
   },
-  /** insert or update (same platform + account = reconnect) */
+  /**
+   * Insert or update: the same person connecting the same YouTube / Instagram account again = a reconnect.
+   * Different CrestClip accounts may connect the same channel; each keeps its own sign-in.
+   */
   async upsert(c: { userId: string; platform: string; accountId: string; name: string | null; handle: string | null; avatar: string | null; tokens: string }): Promise<ConnectionRow> {
     const at = stamp();
     const d = await col().findOneAndUpdate(
-      { platform: c.platform as ConnectionRow['platform'], accountId: c.accountId },
+      { userId: c.userId, platform: c.platform as ConnectionRow['platform'], accountId: c.accountId },
       {
         $set: { name: c.name, handle: c.handle, avatar: c.avatar, tokens: c.tokens, updatedAt: at },
-        $setOnInsert: { _id: newId(), userId: c.userId, createdAt: at },
+        $setOnInsert: { _id: newId(), createdAt: at },
       },
       { upsert: true, returnDocument: 'after' },
     );
