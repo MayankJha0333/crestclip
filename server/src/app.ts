@@ -15,6 +15,7 @@ import { exploreRouter } from './modules/explore/explore.routes.js';
 import { musicRouter } from './modules/music/music.routes.js';
 import { projectsRouter } from './modules/projects/projects.routes.js';
 import { publishingRouter } from './modules/publishing/publishing.routes.js';
+import { robotsTxt, sendAppPage, sitemapXml } from './modules/seo/seo.js';
 import { systemRouter } from './modules/system/system.routes.js';
 import { watermarkRouter } from './modules/watermark/watermark.routes.js';
 
@@ -75,8 +76,11 @@ export function createApp() {
 
   app.use('/media', mediaAccess, fromCloud, express.static(config.dataDir, { fallthrough: false, maxAge: '1h', index: false, dotfiles: 'deny' }));
   if (fs.existsSync(config.webDist)) {
+    app.get('/robots.txt', robotsTxt);
+    app.get('/sitemap.xml', sitemapXml);
     app.use(express.static(config.webDist, { index: false, maxAge: '1h' }));
-    app.get(/^\/(?!api|media).*/, (_req, res) => res.sendFile(path.join(config.webDist, 'index.html')));
+    // every other address gets the app page, with its own title, tags and search-engine text (see seo.ts)
+    app.get(/^\/(?!api|media).*/, sendAppPage);
   }
 
   app.use(errorHandler);

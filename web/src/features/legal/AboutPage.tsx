@@ -5,7 +5,7 @@ import { ContactDetails, LegalLayout, Section } from './LegalLayout';
 export function AboutPage() {
   const b = useBusiness();
   return (
-    <LegalLayout title={`About ${b.name}`} intro="CrestClip turns long videos into short, ready-to-post clips — starting from the moments viewers actually rewatch." business={b}>
+    <LegalLayout title={`About ${b.name}`} intro="CrestClip (formerly PeakClip) turns long videos into short, ready-to-post clips — starting from the moments viewers actually rewatch." business={b}>
       <Section title="What we do">
         <p>
           Paste a link to a podcast, stream or interview, or upload a video. CrestClip reads YouTube’s “most replayed” graph, timestamped comments and the energy in the audio, then uses Google’s

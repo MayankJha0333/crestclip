@@ -13,7 +13,7 @@ import { SettingsPage } from '../features/settings/SettingsPage';
 import { AuthPage } from '../features/auth/AuthPage';
 import { RequireAuth } from '../features/auth/auth';
 import { BillingPage } from '../features/billing/BillingPage';
-import { AboutPage, ContactPage, PricingPage, PrivacyPage, RefundsPage, ShippingPage, TermsPage } from '../features/legal';
+import { AboutPage, ContactPage, CrayoAlternativePage, PricingPage, PrivacyPage, RefundsPage, ShippingPage, TermsPage } from '../features/legal';
 import { ReceiptPage } from '../features/billing/ReceiptPage';
 
 export const router = createBrowserRouter([
@@ -29,6 +29,8 @@ export const router = createBrowserRouter([
   { path: '/refunds', element: <RefundsPage /> },
   { path: '/refund-policy', element: <Navigate to="/refunds" replace /> },
   { path: '/shipping', element: <ShippingPage /> },
+  // comparison page for people searching for a Crayo alternative
+  { path: '/crayo-alternative', element: <CrayoAlternativePage /> },
   // a printable receipt for one payment (outside the app frame so it prints cleanly)
   {
     path: '/receipt/:id',

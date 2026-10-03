@@ -10,6 +10,7 @@ export const LEGAL_LINKS = [
   { to: '/privacy', label: 'Privacy' },
   { to: '/refunds', label: 'Refunds & cancellation' },
   { to: '/shipping', label: 'Shipping & delivery' },
+  { to: '/crayo-alternative', label: 'CrestClip vs Crayo' },
 ];
 
 export function SiteFooter({ owner }: { owner?: string }) {

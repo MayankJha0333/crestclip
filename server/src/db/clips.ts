@@ -1,4 +1,5 @@
 import { collection, COLLECTIONS, fromDoc, newId, setFields, stamp, type Doc } from './connection.js';
+import { inDataDir } from '../lib/paths.js';
 import type { ClipCandidate, Keyword, Motion, MusicSettings, Pace, ReframePlan, Rubric, TimeRange } from '../types.js';
 
 export interface ClipRow {
@@ -48,7 +49,15 @@ const DEFAULT_MUSIC: MusicSettings = { track: 'none', volume: 15, duck: true };
 const col = () => collection<Doc<ClipRow>>(COLLECTIONS.clips);
 const toClip = (d: Doc<ClipRow>): ClipRow => {
   const c = fromDoc<ClipRow>(d);
-  return { ...c, music: { ...DEFAULT_MUSIC, ...(c.music ?? {}) }, hooks: c.hooks ?? [], keywords: c.keywords ?? [], hashtags: c.hashtags ?? [] };
+  return {
+    ...c,
+    filePath: inDataDir(c.filePath),
+    thumbPath: inDataDir(c.thumbPath),
+    music: { ...DEFAULT_MUSIC, ...(c.music ?? {}) },
+    hooks: c.hooks ?? [],
+    keywords: c.keywords ?? [],
+    hashtags: c.hashtags ?? [],
+  };
 };
 
 const UPDATABLE = [

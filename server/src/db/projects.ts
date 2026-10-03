@@ -1,5 +1,6 @@
 import { config } from '../config.js';
 import { collection, COLLECTIONS, fromDoc, newId, now, setFields, stamp, type Doc } from './connection.js';
+import { inDataDir } from '../lib/paths.js';
 import type { ProjectOptions, Segment, Signals } from '../types.js';
 
 export interface ProjectRow {
@@ -39,7 +40,11 @@ export interface ProjectRow {
 }
 
 const col = () => collection<Doc<ProjectRow>>(COLLECTIONS.projects);
-const toProject = (d: Doc<ProjectRow>) => fromDoc<ProjectRow>(d);
+const toProject = (d: Doc<ProjectRow>): ProjectRow => {
+  const p = fromDoc<ProjectRow>(d);
+  // rows made on another computer keep its paths — point them into this data folder
+  return { ...p, mediaPath: inDataDir(p.mediaPath ?? null), thumbPath: inDataDir(p.thumbPath ?? null) };
+};
 
 const UPDATABLE = [
   'sourceUrl',

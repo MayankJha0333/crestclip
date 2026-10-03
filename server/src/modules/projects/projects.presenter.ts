@@ -11,6 +11,17 @@ function sourceVideoUrl(p: ProjectRow): string | null {
   return toMediaUrl(p.mediaPath);
 }
 
+/** The project's own thumbnail, when its file is on this computer (projects made elsewhere may not have it here). */
+const ownThumbUrl = (p: ProjectRow) => (p.thumbPath && fs.existsSync(p.thumbPath) ? toMediaUrl(p.thumbPath) : null);
+
+/** A thumbnail for a project: its own, else its best clip's (clip thumbnails are also kept in the cloud bucket). */
+async function thumbFor(p: ProjectRow): Promise<string | null> {
+  const own = ownThumbUrl(p);
+  if (own) return own;
+  const best = (await clips.forProject(p.id)).filter((c) => c.thumbPath).sort((a, b) => b.peakScore - a.peakScore)[0];
+  return best ? toMediaUrl(best.thumbPath) : null;
+}
+
 export function publicProject(p: ProjectRow, withDetail = false) {
   return {
     id: p.id,
@@ -35,7 +46,7 @@ export function publicProject(p: ProjectRow, withDetail = false) {
     errorCode: p.errorCode,
     creditsCharged: p.creditsCharged,
     options: p.options,
-    thumbUrl: toMediaUrl(p.thumbPath),
+    thumbUrl: ownThumbUrl(p),
     ...(withDetail
       ? {
           download: footageSavings(projectDir(p.id)),
@@ -64,6 +75,7 @@ async function groupSummary(g: ProjectRow) {
   const failed = kids.length > 0 && kids.every((k) => k.status === 'failed');
   const all = (await Promise.all(kids.map((k) => clips.forProject(k.id)))).flat();
   const first = kids.find((k) => k.thumbPath) ?? kids[0];
+  const thumbUrl = first ? await thumbFor(first) : null;
   const named = kids.filter((k) => k.title);
   const title = g.title || (named.length ? `${named[0].title}${kids.length > 1 ? ` + ${kids.length - 1} more` : ''}` : `${kids.length} videos`);
   const working = kids.find((k) => k.status === 'processing');
@@ -85,7 +97,7 @@ async function groupSummary(g: ProjectRow) {
       errorCode: kids.find((k) => k.status === 'failed' && k.errorCode)?.errorCode ?? null,
       creditsCharged: kids.reduce((a, k) => a + k.creditsCharged, 0),
       duration: kids.reduce((a, k) => a + (k.duration ?? 0), 0) || null,
-      thumbUrl: first ? toMediaUrl(first.thumbPath) : null,
+      thumbUrl,
       videoCount: kids.length,
       clipCount: all.length,
       readyCount: all.filter((c) => c.status === 'ready').length,
@@ -113,11 +125,12 @@ async function publicGroup(g: ProjectRow) {
 
 /** One row of the projects list. */
 export async function publicProjectListItem(p: Awaited<ReturnType<typeof projects.list>>[number]) {
-  return p.sourceType === 'group' ? await publicGroupSummary(p) : { ...publicProject(p), clipCount: p.clipCount, readyCount: p.readyCount, bestScore: p.bestScore };
+  if (p.sourceType === 'group') return await publicGroupSummary(p);
+  return { ...publicProject(p), thumbUrl: await thumbFor(p), clipCount: p.clipCount, readyCount: p.readyCount, bestScore: p.bestScore };
 }
 
 /** The project page: a group with its videos + clips, or one video with its details + clips. */
 export async function publicProjectDetail(p: ProjectRow) {
   if (p.sourceType === 'group') return await publicGroup(p);
-  return { ...publicProject(p, true), clips: await publicClips(await clips.forProject(p.id)) };
+  return { ...publicProject(p, true), thumbUrl: await thumbFor(p), clips: await publicClips(await clips.forProject(p.id)) };
 }
