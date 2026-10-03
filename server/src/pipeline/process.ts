@@ -3,7 +3,7 @@ import path from 'node:path';
 import { config } from '../config.js';
 import { withRequiredTags } from './instructions.js';
 import { clips as clipDb, projects, type ClipDefaults, type ClipRow, type ProjectRow } from '../db/index.js';
-import { pool, run } from '../lib/proc.js';
+import { limiter, pool, run } from '../lib/proc.js';
 import { projectDir } from '../lib/paths.js';
 import { buildAss, wordsInRange, type EmojiCue } from './captions.js';
 import { part, uploadToGcs, deleteFromGcs, usage } from './gemini.js';
@@ -300,6 +300,9 @@ async function renderAll(projectId: string, list: ClipRow[]) {
 
 const inflight = new Map<string, Promise<void>>();
 const again = new Set<string>();
+/** Clip renders are the heavy part (CPU + memory): at most RENDER_CONCURRENCY at once across ALL projects, however
+ *  many videos (JOB_CONCURRENCY) are being worked on in parallel. */
+const renderSlot = limiter(config.renderConcurrency);
 
 /** Reframe (face tracking via Gemini) + captions + encode one clip. Safe to call again after edits:
  *  a call that arrives mid-render is coalesced into one re-render after the current one finishes. */
@@ -311,7 +314,7 @@ export function renderClipJob(clipId: string): Promise<void> {
   }
   const job = (async () => {
     try {
-      await renderOnce(clipId);
+      await renderSlot(() => renderOnce(clipId));
     } finally {
       inflight.delete(clipId);
       if (again.delete(clipId)) await renderClipJob(clipId);

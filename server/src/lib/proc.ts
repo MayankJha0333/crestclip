@@ -76,4 +76,23 @@ export async function pool<T, R>(items: T[], limit: number, fn: (item: T, i: num
   return results;
 }
 
+/**
+ * A shared cap on how many of one kind of job run at once, across everything that uses it — e.g. clip renders
+ * from every project together, so 5 videos being processed side by side never start 10 ffmpeg encodes at once.
+ */
+export function limiter(limit: number) {
+  let running = 0;
+  const waiting: (() => void)[] = [];
+  return async function run<T>(fn: () => Promise<T>): Promise<T> {
+    if (running >= Math.max(1, limit)) await new Promise<void>((go) => waiting.push(go));
+    running++;
+    try {
+      return await fn();
+    } finally {
+      running--;
+      waiting.shift()?.();
+    }
+  };
+}
+
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
