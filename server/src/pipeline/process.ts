@@ -10,8 +10,8 @@ import { part, uploadToGcs, deleteFromGcs, usage } from './gemini.js';
 import { removeFromCloud, saveToCloud } from '../infra/cloudStore.js';
 import { extractAudio, extractAudioRange, hasLibass, loudnessPerSecond, makeProxy, probe, silences as findSilences, thumbnail } from './media.js';
 import { aiScore, describeClips, findMoments, finalizeClips, snapRange } from './moments.js';
-import { planReframe } from './reframe.js';
-import { concatParts, mixMusic, planZooms, renderClip } from './render.js';
+import { contentBand, planReframe } from './reframe.js';
+import { concatParts, faceOnFrame, mixMusic, planZooms, renderClip } from './render.js';
 import { emojiPng } from './emoji.js';
 import { cutTimes, keptLength, planKeep, retimeWords, silencesIn } from './pace.js';
 import { crestclipMark, watermarkForRender, watermarkTopBottom } from './watermark.js';
@@ -377,14 +377,23 @@ async function renderOnce(clipId: string) {
       let want = c.layout === 'auto' ? (plan.suggested ?? plan.layout) : (c.layout as typeof plan.layout);
       if (want === 'split' && !plan.splitCenters) want = 'fit'; // fewer than two faces found
       plan = { ...plan, layout: want };
+      // empty dark borders above/below the picture (letterbox, a face-cam circle on a plain background): find them
+      // once per plan, so "fill" zooms in and cuts them away (older plans get checked on their next render)
+      if (plan.layout === 'fill' && plan.band === undefined)
+        plan = { ...plan, band: await contentBand({ src: foot.src, start: ls, end: le, width: foot.width, height: foot.height, holds: plan.holds, workDir: work }).catch(() => null) };
       plans.push(plan);
 
       const dur = seg.end - seg.start;
       const words = wordsInRange(p!.transcript ?? [], seg.start, seg.end);
       const first = i === 0;
       const hookY = watermark && watermarkTopBottom(watermark) ? watermarkTopBottom(watermark)! + 30 : undefined;
+      // captions go under the face: a bit lower when the face sits low in the frame, never into the apps' bottom area
+      const face = faceOnFrame(plan, foot.height);
+      const captionY = face == null ? undefined : Math.round(Math.min(1360, Math.max(1180, face * 1920 + 380)));
       const captions = (w: Word[], d: number, withHook: boolean) =>
-        canText ? buildAss({ words: w, duration: d, style, layout: plan.layout, hook: withHook ? c.hook : '', showHook: withHook && c.showHook, keywords: c.keywords, emoji: c.emoji, hookY }) : null;
+        canText
+          ? buildAss({ words: w, duration: d, style, layout: plan.layout, hook: withHook ? c.hook : '', showHook: withHook && c.showHook, keywords: c.keywords, emoji: c.emoji, hookY, captionY })
+          : null;
       const emojiImages = (cues: EmojiCue[] = []) =>
         cues.flatMap((em) => {
           const file = emojiPng(em.emoji);

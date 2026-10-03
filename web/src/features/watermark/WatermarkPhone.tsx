@@ -48,7 +48,7 @@ export function WatermarkPhone({ watermark: w, scene, onPosition }: { watermark:
 
         <WatermarkMark watermark={{ ...w, enabled: true }} />
 
-        {/* the four spots — tap to move the logo */}
+        {/* the four corners — tap to move the logo */}
         <div role="radiogroup" aria-label="Watermark position">
           {POSITIONS.map((p) => {
             const on = w.position === p.value;

@@ -7,10 +7,10 @@ import { cn } from '../../lib/cn';
  */
 export const BOX = { small: 'w-[13%]', medium: 'w-[19%]', large: 'w-[26%]' } as const;
 export const SPOT = {
-  'top-left': 'top-[11.5%] left-[8.5%]',
-  'top-right': 'top-[11.5%] right-[8.5%]',
-  'bottom-left': 'bottom-[22%] left-[8.5%]',
-  'bottom-right': 'bottom-[22%] right-[8.5%]',
+  'top-left': 'top-[2.5%] left-[4%]',
+  'top-right': 'top-[2.5%] right-[4%]',
+  'bottom-left': 'bottom-[2.5%] left-[4%]',
+  'bottom-right': 'bottom-[2.5%] right-[4%]',
 } as const;
 const ALIGN = { 'top-left': 'object-left-top', 'top-right': 'object-right-top', 'bottom-left': 'object-left-bottom', 'bottom-right': 'object-right-bottom' } as const;
 

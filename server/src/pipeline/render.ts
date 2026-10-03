@@ -3,6 +3,7 @@ import path from 'node:path';
 import { config } from '../config.js';
 import { run } from '../lib/proc.js';
 import type { Motion, ReframePlan, Word } from '../types.js';
+import { MAX_BAND_ZOOM } from './reframe.js';
 import { watermarkFilter, type Watermark } from './watermark.js';
 
 const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
@@ -80,6 +81,25 @@ function zoomExpr(zooms: Zoom[], intro: boolean) {
   return expr;
 }
 
+/**
+ * The "fill" crop window on the source: full height, or — when the video has empty dark borders above/below
+ * (plan.band) — a shorter window around the picture, so the borders are cut away and the subject fills the frame.
+ */
+export function fillWindow(plan: Pick<ReframePlan, 'band'>, h: number) {
+  const band = plan.band;
+  if (!band) return { ch: even(h), y: 0 };
+  const ch = even(Math.min(h, Math.max((band.bottom - band.top) * h, h / MAX_BAND_ZOOM)));
+  const mid = ((band.top + band.bottom) / 2) * h;
+  return { ch, y: Math.round(clamp(mid - ch / 2, 0, h - ch)) };
+}
+
+/** Where the speaker's face lands on the finished 9:16 frame (0 = top, 1 = bottom), when known. */
+export function faceOnFrame(plan: ReframePlan, h: number): number | null {
+  if (plan.layout !== 'fill' || plan.faceY == null) return null;
+  const { ch, y } = fillWindow(plan, h);
+  return clamp((plan.faceY * h - y) / ch, 0, 1);
+}
+
 function buildVideoGraph(plan: ReframePlan, w: number, h: number, smooth = false): string {
   const layout = plan.layout;
   const cw = even((h * 9) / 16);
@@ -115,7 +135,9 @@ function buildVideoGraph(plan: ReframePlan, w: number, h: number, smooth = false
   if (cw >= w) {
     return `[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1[v0]`;
   }
-  return `[0:v]crop=w=${cw}:h=${even(h)}:x='${holdExpr(plan.holds, w, cw, smooth)}':y=0,scale=1080:1920:flags=lanczos,setsar=1[v0]`;
+  const win = fillWindow(plan, h); // shorter than the full height when there are empty borders to cut away
+  const fw = even((win.ch * 9) / 16);
+  return `[0:v]crop=w=${fw}:h=${win.ch}:x='${holdExpr(plan.holds, w, fw, smooth)}':y=${win.y},scale=1080:1920:flags=lanczos,setsar=1[v0]`;
 }
 
 export async function renderClip(opts: {

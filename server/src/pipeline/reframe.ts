@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
+import { run } from '../lib/proc.js';
 import { framesAt, sceneCuts } from './media.js';
 import { generateJson, part } from './gemini.js';
 import type { CropHold, Layout, ReframePlan } from '../types.js';
@@ -192,4 +193,73 @@ function median(a: number[]) {
   const s = [...a].sort((x, y) => x - y);
   const m = Math.floor(s.length / 2);
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+// ---------------- empty borders (letterbox, face-cam circle on a plain background) ----------------
+
+/** Most "fill" can zoom in to cut away empty borders (more would look soft: it's an upscale). */
+export const MAX_BAND_ZOOM = 1.6;
+
+/** Where the crop column sits at time t (fraction of width, 0-1). */
+function holdAt(holds: CropHold[], t: number) {
+  let x = holds[0]?.x ?? 0.5;
+  for (const h of holds) if (h.t <= t) x = h.x;
+  return x;
+}
+
+/**
+ * Find empty dark rows above and below the picture inside the crop column (sampled over the clip). Only flat, dark
+ * rows count as empty — never a bright wall or sky — and the band is the union over all samples, so nothing that
+ * shows in any sampled frame is cut. Returns null when the picture already fills (almost) the whole height.
+ */
+export async function contentBand(opts: { src: string; start: number; end: number; width: number; height: number; holds: CropHold[]; workDir: string }) {
+  const { src, start, end, width, height, holds } = opts;
+  const cropW = (height * 9) / 16 / width;
+  if (cropW >= 0.95) return null;
+  const dur = Math.max(0.5, end - start);
+  const times = Array.from({ length: 6 }, (_, i) => ((i + 0.5) * dur) / 6);
+  const W = 256;
+  const dir = path.join(opts.workDir, 'band');
+  fs.mkdirSync(dir, { recursive: true });
+  let top = 1;
+  let bottom = 0;
+  let seen = 0;
+  for (const [i, t] of times.entries()) {
+    const f = path.join(dir, `b${i}.gray`);
+    await run(config.ffmpeg, ['-y', '-v', 'error', '-ss', (start + t).toFixed(3), '-i', src, '-frames:v', '1', '-vf', `scale=${W}:-2,format=gray`, '-f', 'rawvideo', f], {
+      timeoutMs: 60_000,
+    }).catch(() => null);
+    if (!fs.existsSync(f)) continue;
+    const px = fs.readFileSync(f);
+    const H = Math.floor(px.length / W);
+    if (H < 20) continue;
+    const xc = holdAt(holds, t);
+    const x0 = Math.round(Math.max(0, Math.min(1 - cropW, xc - cropW / 2)) * W);
+    const x1 = Math.min(W, x0 + Math.round(cropW * W));
+    const empty = (r: number) => {
+      let sum = 0;
+      let sq = 0;
+      const n = x1 - x0;
+      for (let x = x0; x < x1; x++) {
+        const v = px[r * W + x];
+        sum += v;
+        sq += v * v;
+      }
+      const mean = sum / n;
+      const sd = Math.sqrt(Math.max(0, sq / n - mean * mean));
+      return mean < 55 && sd < 9;
+    };
+    let a = 0;
+    while (a < H && empty(a)) a++;
+    if (a >= H) continue; // a black frame (fade): says nothing
+    let b = H - 1;
+    while (b > a && empty(b)) b--;
+    top = Math.min(top, a / H);
+    bottom = Math.max(bottom, (b + 1) / H);
+    seen++;
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
+  if (!seen) return null;
+  const band = { top: Math.max(0, top - 0.03), bottom: Math.min(1, bottom + 0.03) };
+  return band.bottom - band.top > 0.88 ? null : { top: +band.top.toFixed(4), bottom: +band.bottom.toFixed(4) };
 }

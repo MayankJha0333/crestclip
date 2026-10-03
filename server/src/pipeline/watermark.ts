@@ -22,14 +22,13 @@ export interface Watermark {
 }
 
 /**
- * Where the logo sits on the 1080×1920 frame (kept in sync with the web preview in WatermarkMark.tsx).
- * Everything stays inside the area no app covers: below the ~210 px Reels top bar, ~90 px in from the sides,
- * and bottom corners above the caption + buttons area (~320 px) of TikTok / Reels / Shorts.
+ * Where the logo sits on the 1080×1920 frame (kept in sync with the web preview in WatermarkMark.tsx):
+ * tucked into the chosen corner of the video, a small even gap from the edges.
  */
 const WATERMARK_BOX = { small: 0.13, medium: 0.19, large: 0.26 } as const; // max width AND height, as a share of the frame width
-const SIDE = 0.085; // gap from the left/right edge, share of width (92 px)
-const TOP = 0.115; // gap from the top, share of height (221 px)
-const BOTTOM = 0.22; // gap from the bottom, share of height
+const SIDE = 0.04; // gap from the left/right edge, share of width (43 px)
+const TOP = 0.025; // gap from the top, share of height (48 px)
+const BOTTOM = 0.025; // gap from the bottom, share of height (48 px)
 
 const DEFAULTS: Watermark = { enabled: true, file: null, name: '', position: 'top-right', size: 'medium', opacity: 85 };
 

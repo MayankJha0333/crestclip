@@ -126,6 +126,12 @@ export interface ReframePlan {
   splitCenters?: [number, number];
   faceRatio: number;
   faceY?: number;
+  /**
+   * Rows of the source (0-1, top/bottom) that hold the picture inside the crop column. Set when the video has empty
+   * dark borders above/below (letterbox, a face-cam circle on a plain background…), so "fill" zooms in to cut them
+   * away. null = the picture fills the height (checked, nothing to cut); undefined = not checked yet.
+   */
+  band?: { top: number; bottom: number } | null;
   suggested?: Exclude<Layout, 'auto'>;
   content?: string;
   start?: number; // clip range this plan was computed for

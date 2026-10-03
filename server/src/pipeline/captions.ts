@@ -2,7 +2,8 @@ import type { CaptionStyle, Keyword, Segment, Word } from '../types.js';
 
 /**
  * Word-by-word animated captions rendered as an .ass subtitle file (burned in by ffmpeg/libass).
- * Canvas is 1080x1920. Captions sit at ~61% height — inside the TikTok / Reels / Shorts safe zones.
+ * Canvas is 1080x1920. Captions sit at ~61-71% height — below the speaker's face, above the TikTok / Reels / Shorts
+ * buttons and description at the bottom.
  * Key words (picked by the AI) are drawn bigger and in an accent colour, at most one per line.
  */
 
@@ -191,10 +192,12 @@ export function buildAss(opts: {
   emoji?: boolean;
   /** top of the hook headline (moved down when a logo sits in a top corner) */
   hookY?: number;
+  /** caption line centre (px on 1920), when the face position is known — keeps captions off the face */
+  captionY?: number;
 }): { ass: string; emojis: EmojiCue[]; captionY: number } {
   const W = 1080;
   const H = 1920;
-  const capY = opts.layout === 'split' ? 960 : opts.layout === 'fit' ? 1290 : 1180;
+  const capY = opts.layout === 'split' ? 960 : opts.layout === 'fit' ? 1290 : (opts.captionY ?? 1180);
   const lines: string[] = [];
   const emojis: EmojiCue[] = [];
   const header = `[Script Info]
@@ -254,7 +257,7 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
   if (opts.showHook && opts.hook?.trim()) {
     const end = Math.min(3.2, Math.max(1.5, opts.duration - 0.2));
     // y stays below the top ~210 px that Reels covers with its own buttons
-    lines.push(`Dialogue: 1,${ts(0)},${ts(end)},Hook,,0,0,0,,{\\an8\\pos(${W / 2},${opts.hookY ?? (opts.layout === 'split' ? 230 : 300)})\\fad(120,220)}${esc(opts.hook.trim())}`);
+    lines.push(`Dialogue: 1,${ts(0)},${ts(end)},Hook,,0,0,0,,{\\an8\\pos(${W / 2},${Math.max(opts.hookY ?? 0, opts.layout === 'split' ? 230 : 300)})\\fad(120,220)}${esc(opts.hook.trim())}`);
   }
 
   return { ass: `${header}${styles.join('\n')}\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n${lines.join('\n')}\n`, emojis, captionY: capY };

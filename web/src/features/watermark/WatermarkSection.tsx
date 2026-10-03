@@ -129,11 +129,7 @@ export function WatermarkSection() {
               Tap a corner to move it · <span className="whitespace-nowrap text-ink">{spot}</span>
             </p>
             <Segmented label="Preview background" size="sm" value={scene} onChange={setScene} options={SCENES} />
-            {w.position === 'bottom-right' && (
-              <p className="rounded-2xl bg-warn-bg px-3 py-2 text-center text-xs font-semibold text-warn-ink">
-                TikTok and Reels show like and share buttons on the right. They may cover it here — top corners are safest.
-              </p>
-            )}
+            <p className="text-center text-xs text-ink-3">The logo sits right in the corner of your video. When posted, apps may draw their buttons or your username over a corner.</p>
           </div>
 
           <div className="flex min-w-0 flex-col gap-5">
