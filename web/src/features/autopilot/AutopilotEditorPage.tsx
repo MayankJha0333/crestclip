@@ -12,6 +12,7 @@ import { CaptionPicker } from '../clip-settings/CaptionPicker';
 import { MotionPicker } from '../clip-settings/MotionPicker';
 import { SOCIAL } from '../schedule/postStatus';
 import { allZones, compact, defaultTimes, EMPTY_AUTOPILOT, prettyTime, REGIONS, sourceText } from './helpers';
+import { LANGUAGES } from './languages';
 import { track } from '../../lib/analytics';
 
 function Step({ n, title, hint, children }: { n: number; title: string; hint?: ReactNode; children: ReactNode }) {
@@ -84,6 +85,9 @@ export function AutopilotEditorPage() {
 
   const set = <K extends keyof AutopilotInput>(k: K, v: AutopilotInput[K]) => setF((x) => ({ ...x, [k]: v }));
   const setFilter = (k: keyof AutopilotConfig['filters'], v: number) => setF((x) => ({ ...x, filters: { ...x.filters, [k]: v } }));
+  const langs = f.filters.languages ?? [];
+  const setLangs = (v: string[]) => setF((x) => ({ ...x, filters: { ...x.filters, languages: v } }));
+  const [showAllLangs, setShowAllLangs] = useState(false);
   const setOpt = (k: string, v: unknown) => setF((x) => ({ ...x, options: { ...x.options, [k]: v } }));
   const setCount = (n: number) => {
     const count = Math.max(1, Math.min(12, n));
@@ -253,6 +257,44 @@ export function AutopilotEditorPage() {
           ) : (
             <p className="mt-2.5 text-[13px] text-ink-3">Nothing added yet.</p>
           )}
+
+          {/* spoken language: optional; empty = any language */}
+          <div className="mt-5 border-t border-line pt-4">
+            <FieldLabel>Spoken language</FieldLabel>
+            <p className="-mt-1 mb-2.5 text-[12.5px] text-ink-3">Only clip videos in these languages. CrestClip checks each video before spending credits.</p>
+            <div role="group" aria-label="Spoken language" className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                aria-pressed={!langs.length}
+                onClick={() => setLangs([])}
+                className={cn('rounded-full px-3 py-1.5 text-[13px] font-bold transition-colors', !langs.length ? 'bg-ink text-on-ink' : 'bg-row text-ink-2 hover:bg-row-hover')}
+              >
+                Any language
+              </button>
+              {(showAllLangs ? LANGUAGES : LANGUAGES.filter((l, i) => i < 8 || langs.includes(l.code))).map((l) => {
+                const on = langs.includes(l.code);
+                return (
+                  <button
+                    key={l.code}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => setLangs(on ? langs.filter((x) => x !== l.code) : [...langs, l.code])}
+                    className={cn(
+                      'inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[13px] font-bold transition-colors',
+                      on ? 'bg-orange-bg text-orange-ink ring-2 ring-tangerine' : 'bg-row text-ink-2 hover:bg-row-hover',
+                    )}
+                  >
+                    {on && <Check size={13} strokeWidth={3} />} {l.label}
+                  </button>
+                );
+              })}
+              {!showAllLangs && (
+                <button type="button" onClick={() => setShowAllLangs(true)} className="rounded-full px-3 py-1.5 text-[13px] font-bold text-accent hover:bg-row">
+                  More…
+                </button>
+              )}
+            </div>
+          </div>
         </Step>
 
         <Step n={3} title="Which videos are worth clipping?" hint="Skips weak videos before any AI credits are spent.">
@@ -331,7 +373,7 @@ export function AutopilotEditorPage() {
                 size="sm"
                 value={String(f.clipsPerVideo)}
                 onChange={(v) => set('clipsPerVideo', Number(v))}
-                options={['1', '2', '3'].map((n) => ({ value: n, label: n }))}
+                options={['1', '2', '3', '4', '5'].map((n) => ({ value: n, label: n }))}
               />
             </div>
             <div>

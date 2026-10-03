@@ -12,7 +12,8 @@ export interface AutopilotSource {
 }
 export interface AutopilotConfig {
   sources: AutopilotSource[];
-  filters: { minViews: number; minMinutes: number; maxMinutes: number; maxAgeDays: number; waitHours: number };
+  /** languages: spoken languages to keep (ISO codes like "en"); empty/missing = any language */
+  filters: { minViews: number; minMinutes: number; maxMinutes: number; maxAgeDays: number; waitHours: number; languages?: string[] };
   options: ProjectOptions;
   clipsPerVideo: number;
   /** local times "HH:MM", one per daily post */

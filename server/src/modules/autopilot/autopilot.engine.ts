@@ -9,6 +9,7 @@ import { creditsForClips, planOf } from '../billing/plans.js';
 import type { ProjectOptions } from '../../types.js';
 import { channelVideos, topicVideos, uploadDateMs, videoDetails, type FoundVideo } from './autopilot.sources.js';
 import { upcomingSlots, type Slot } from './autopilot.time.js';
+import { languageMismatch } from '../../pipeline/language.js';
 
 /**
  * Autopilot, step by step (every few minutes, for each active autopilot):
@@ -71,7 +72,7 @@ async function scan(ap: AutopilotRow) {
         if (!src.channelId) continue;
         found = await channelVideos(src.channelId);
       } else {
-        found = await topicVideos(src.value, src.region ?? null, f.maxAgeDays);
+        found = await topicVideos(src.value, src.region ?? null, f.maxAgeDays, f.languages?.length === 1 ? f.languages[0] : null);
       }
     } catch (e) {
       errors.push(`${src.label ?? src.value}: ${(e as Error).message}`);
@@ -84,6 +85,7 @@ async function scan(ap: AutopilotRow) {
       if (v.publishedAt && v.publishedAt < Date.now() - f.maxAgeDays * 86400_000) [status, reason] = ['skipped', `Older than ${f.maxAgeDays} days`];
       else if (v.duration != null && v.duration < f.minMinutes * 60) [status, reason] = ['skipped', v.duration <= 60 ? 'A Short' : `Shorter than ${f.minMinutes} min`];
       else if (v.duration != null && v.duration > f.maxMinutes * 60) [status, reason] = ['skipped', `Longer than ${f.maxMinutes} min`];
+      else if (languageMismatch(f.languages, null, v.title)) [status, reason] = ['skipped', languageMismatch(f.languages, null, v.title)];
       if (status === 'skipped' && !v.publishedAt) continue; // don't fill the list with junk from searches
       if (await apVideos.add({ autopilotId: ap.id, ...v, status, reason })) added++;
     }
@@ -123,7 +125,8 @@ async function startClipping(ap: AutopilotRow) {
   if ((await apVideos.withStatus(ap.id, 'clipping')).length >= 2) return; // a couple at a time is plenty
   // daily budget so Gemini credits aren't spent faster than clips get posted
   const budget = Math.ceil(perDay / Math.max(1, ap.config.clipsPerVideo)) + 1;
-  if ((await apVideos.startedSince(ap.id, hoursAgo(24))) >= budget) return;
+  // …except when a posting time in the next 24 hours has nothing to post (e.g. a clip was removed from it)
+  if ((await apVideos.startedSince(ap.id, hoursAgo(24))) >= budget && !(await emptySlotSoon(ap))) return;
 
   const f = ap.config.filters;
   for (const v of await apVideos.withStatus(ap.id, 'waiting')) {
@@ -141,6 +144,11 @@ async function startClipping(ap: AutopilotRow) {
     await apVideos.update(v.id, { views, duration: d.duration, title: d.title || v.title });
     if (d.isLive) {
       await apVideos.update(v.id, { status: 'skipped', reason: 'A live stream' });
+      continue;
+    }
+    const wrongLanguage = languageMismatch(f.languages, d.language, d.title || v.title || '');
+    if (wrongLanguage) {
+      await apVideos.update(v.id, { status: 'skipped', reason: wrongLanguage });
       continue;
     }
     if (d.duration < f.minMinutes * 60 || d.duration > f.maxMinutes * 60) {
@@ -189,7 +197,7 @@ async function plan(ap: AutopilotRow) {
   if (!cfg.times.length || !cfg.targets.length) return;
   const skips = await apSkips.list(ap.id);
   const slots = upcomingSlots(cfg.times, cfg.timezone, Date.now() + 2 * 60_000, PLAN_DAYS);
-  const targets = (await Promise.all(cfg.targets.map(async (t) => ({ ...t, conn: await connections.get(t.connectionId) })))).filter((t) => t.conn);
+  const targets = await targetsOf(ap);
   if (!targets.length) {
     await autopilots.update(ap.id, { lastError: 'None of the chosen accounts are connected any more — edit the autopilot and pick an account.' });
     return;
@@ -201,28 +209,89 @@ async function plan(ap: AutopilotRow) {
     if ((await posts.forSlot(ap.id, slot.key)).some((p) => p.status !== 'canceled')) continue;
     if (await apClips.bySlot(ap.id, slot.key)) continue;
     const item = ready.shift()!;
-    const clip = await clips.get(item.clipId);
-    if (!clip?.filePath) {
-      await apClips.update(item.id, { status: 'failed' });
-      continue;
-    }
-    const caption = await captionFor(ap, clip);
-    for (const t of targets) {
-      const post = await posts.create({
-        clipId: clip.id,
-        connectionId: t.connectionId,
-        platform: t.conn!.platform,
-        title: t.conn!.platform === 'youtube' ? (clip.title || 'New clip').slice(0, 100) : null,
-        caption,
-        privacy: t.conn!.platform === 'youtube' ? (t.privacy ?? 'public') : null,
-        scheduledAt: slot.at,
-        autopilotId: ap.id,
-        slotKey: slot.key,
-      });
-      await schedulePostJob(post);
-    }
-    await apClips.update(item.id, { status: 'scheduled', slotKey: slot.key });
+    await bookClip(ap, item, slot, targets);
   }
+  await closeGaps(ap, slots, skips);
+}
+
+/** The accounts this autopilot posts to (only those still connected). */
+async function targetsOf(ap: AutopilotRow) {
+  return (await Promise.all(ap.config.targets.map(async (t) => ({ ...t, conn: await connections.get(t.connectionId) })))).filter((t) => t.conn);
+}
+
+/** Book one clip into one posting time: a post per account, each with a timer. Returns false if the clip is gone. */
+async function bookClip(ap: AutopilotRow, item: ApClipRow, slot: Slot, targets: Awaited<ReturnType<typeof targetsOf>>) {
+  const clip = await clips.get(item.clipId);
+  if (!clip?.filePath) {
+    await apClips.update(item.id, { status: 'failed' });
+    return false;
+  }
+  const caption = await captionFor(ap, clip);
+  for (const t of targets) {
+    const post = await posts.create({
+      clipId: clip.id,
+      connectionId: t.connectionId,
+      platform: t.conn!.platform,
+      title: t.conn!.platform === 'youtube' ? (clip.title || 'New clip').slice(0, 100) : null,
+      caption,
+      privacy: t.conn!.platform === 'youtube' ? (t.privacy ?? 'public') : null,
+      scheduledAt: slot.at,
+      autopilotId: ap.id,
+      slotKey: slot.key,
+    });
+    await schedulePostJob(post);
+  }
+  await apClips.update(item.id, { status: 'scheduled', slotKey: slot.key });
+  return true;
+}
+
+/** A posting time's state: its live posts and the autopilot clip booked for it. */
+async function slotState(apId: string, key: string) {
+  const ps = (await posts.forSlot(apId, key)).filter((p) => p.status !== 'canceled');
+  return { ps, item: await apClips.bySlot(apId, key) };
+}
+
+/**
+ * A time left empty (its clip was removed and nothing is in line) doesn't stay a hole in the middle of the plan:
+ * every later clip moves up one time, in order, so the gap ends up at the far end — where Autopilot has the most
+ * time to make a new clip. Only posts that haven't started uploading move.
+ */
+async function closeGaps(ap: AutopilotRow, slots: Slot[], skips: Set<string>) {
+  const open = slots.filter((s) => !skips.has(s.key));
+  const state = await Promise.all(open.map((s) => slotState(ap.id, s.key)));
+  const movable = (i: number) => {
+    const x = state[i];
+    return Boolean(x.item && x.item.status === 'scheduled' && x.ps.length && x.ps.every((p) => p.status === 'scheduled'));
+  };
+  for (let i = 0; i < open.length; i++) {
+    if (state[i].ps.length || state[i].item) continue; // filled
+    let j = i + 1;
+    while (j < open.length && !movable(j)) j++;
+    if (j >= open.length) break; // nothing later to pull forward
+    const to = open[i];
+    for (const p of state[j].ps) {
+      await postQueue?.remove(p.id).catch(() => {});
+      await posts.update(p.id, { scheduledAt: to.at, slotKey: to.key });
+      await schedulePostJob({ ...p, scheduledAt: to.at, slotKey: to.key });
+    }
+    await apClips.update(state[j].item!.id, { slotKey: to.key });
+    log(`${ap.name}: moved a clip up to ${to.date} ${to.time} to fill an empty time`);
+    state[i] = state[j];
+    state[j] = { ps: [], item: null };
+  }
+}
+
+/** Is a posting time in the next 24 hours still empty? */
+async function emptySlotSoon(ap: AutopilotRow) {
+  const cfg = ap.config;
+  if (!cfg.times.length || !cfg.targets.length) return false;
+  const skips = await apSkips.list(ap.id);
+  const soon = upcomingSlots(cfg.times, cfg.timezone, Date.now() + 2 * 60_000, 2).filter((s) => s.at < Date.now() + 24 * 3600_000 && !skips.has(s.key));
+  for (const s of soon) {
+    const st = await slotState(ap.id, s.key);
+    if (!st.ps.length && !st.item) return true;
+  }
+  return false;
 }
 
 // ---------------- 5. tidy ----------------
@@ -304,6 +373,58 @@ export async function rejectClip(item: ApClipRow) {
     }
   }
   await apClips.update(item.id, { status: 'rejected', slotKey: null });
+  await kick();
+}
+
+/**
+ * Clips that could take a time's place: finished clips in line, plus the other finished clips Autopilot made from
+ * the same videos that were never put in line (each video gives a spare). Best first.
+ */
+export async function alternatives(ap: AutopilotRow) {
+  const used = new Set((await apClips.list(ap.id)).map((c) => c.clipId));
+  const inLine = (await apClips.withStatus(ap.id, 'ready')).map((c) => ({ clipId: c.clipId, apClipId: c.id as string | null }));
+  const spare: { clipId: string; apClipId: string | null; score: number }[] = [];
+  for (const v of await apVideos.list(ap.id, 100)) {
+    if (!v.projectId) continue;
+    for (const c of await clips.forProject(v.projectId)) if (c.status === 'ready' && c.filePath && !used.has(c.id)) spare.push({ clipId: c.id, apClipId: null, score: c.peakScore });
+  }
+  spare.sort((a, b) => b.score - a.score);
+  return [...inLine, ...spare.map(({ clipId, apClipId }) => ({ clipId, apClipId }))].slice(0, 30);
+}
+
+/**
+ * Put a different clip into a booked time: the current clip is taken off (not posted), the chosen one is booked at
+ * the same time. `choice` is a clip in line (apClipId) or a spare clip from this autopilot's videos (clipId).
+ */
+export async function swapSlot(ap: AutopilotRow, key: string, choice: { apClipId?: string; clipId?: string }) {
+  const slot = upcomingSlots(ap.config.times, ap.config.timezone, Date.now() + 2 * 60_000, 8).find((s) => s.key === key);
+  if (!slot) throw new Error('This time has passed or is too close to change.');
+  const targets = await targetsOf(ap);
+  if (!targets.length) throw new Error('None of the chosen accounts are connected any more.');
+  // the clip that goes in
+  let next: ApClipRow | null = null;
+  if (choice.apClipId) {
+    next = await apClips.get(choice.apClipId);
+    if (!next || next.autopilotId !== ap.id || !['ready', 'review'].includes(next.status)) throw new Error('That clip isn’t available any more.');
+  } else if (choice.clipId) {
+    const ok = (await alternatives(ap)).some((a) => a.clipId === choice.clipId && !a.apClipId);
+    if (!ok) throw new Error('That clip isn’t available any more.');
+    const c = (await clips.get(choice.clipId))!;
+    const v = (await apVideos.list(ap.id, 100)).find((x) => x.projectId === c.projectId);
+    next = await apClips.add({ autopilotId: ap.id, clipId: c.id, videoRowId: v?.id ?? null, status: 'ready', score: c.peakScore });
+    if (!next) throw new Error('That clip isn’t available any more.');
+  } else throw new Error('Pick a clip.');
+  // the clip that comes out (only if nothing has started uploading yet)
+  const live = (await posts.forSlot(ap.id, key)).filter((p) => p.status !== 'canceled');
+  if (live.some((p) => p.status !== 'scheduled')) throw new Error('This clip is already being posted.');
+  for (const p of live) {
+    await posts.update(p.id, { status: 'canceled' });
+    await postQueue?.remove(p.id).catch(() => {});
+  }
+  const out = await apClips.bySlot(ap.id, key);
+  if (out) await apClips.update(out.id, { status: 'rejected', slotKey: null });
+  await apSkips.remove(ap.id, key);
+  await bookClip(ap, next, slot, targets);
   await kick();
 }
 

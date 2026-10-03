@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { autopilots } from '../../db/index.js';
 import { asyncHandler, validate } from '../../lib/http.js';
-import { autopilotDetail, autopilotStatus, autopilotSummary } from './autopilot.presenter.js';
+import { alternativesView, autopilotDetail, autopilotStatus, autopilotSummary } from './autopilot.presenter.js';
 import { autopilotSchema } from './autopilot.schemas.js';
 import { me } from '../auth/auth.middleware.js';
 import * as service from './autopilot.service.js';
@@ -93,6 +93,21 @@ autopilotRouter.post(
   '/autopilots/:id/slots/:key/skip',
   asyncHandler(async (req, res) => {
     await service.skipAutopilotSlot(req.params.id, me(req), req.params.key);
+    res.json({ ok: true });
+  }),
+);
+
+autopilotRouter.get(
+  '/autopilots/:id/alternatives',
+  asyncHandler(async (req, res) => {
+    res.json(await alternativesView(await service.slotAlternatives(req.params.id, me(req))));
+  }),
+);
+
+autopilotRouter.post(
+  '/autopilots/:id/slots/:key/swap',
+  asyncHandler(async (req, res) => {
+    await service.swapAutopilotSlot(req.params.id, me(req), req.params.key, req.body);
     res.json({ ok: true });
   }),
 );

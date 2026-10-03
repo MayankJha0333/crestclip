@@ -3,7 +3,7 @@ import { assertAutopilot } from '../billing/billing.service.js';
 import { HttpError, toHttpError } from '../../lib/http.js';
 import type { ProjectOptions } from '../../types.js';
 import { optionsSchema } from '../projects/projects.schemas.js';
-import { kick, rejectClip, releaseScheduled, restoreSlot, scanNow, skipSlot } from './autopilot.engine.js';
+import { alternatives, kick, rejectClip, releaseScheduled, restoreSlot, scanNow, skipSlot, swapSlot } from './autopilot.engine.js';
 import type { AutopilotForm } from './autopilot.schemas.js';
 import { channelVideos, resolveChannel, topicVideos } from './autopilot.sources.js';
 
@@ -110,6 +110,18 @@ export async function skipAutopilotSlot(id: string, user: UserRow, key: string) 
 
 export async function restoreAutopilotSlot(id: string, user: UserRow, key: string) {
   await restoreSlot((await getAutopilot(id, user)).id, key);
+}
+
+/** Clips that could replace the one booked at a time (the delete / swap dialog). */
+export async function slotAlternatives(id: string, user: UserRow) {
+  return alternatives(await getAutopilot(id, user));
+}
+
+/** Put another clip into a booked time. */
+export async function swapAutopilotSlot(id: string, user: UserRow, key: string, body: { apClipId?: unknown; clipId?: unknown } | undefined) {
+  const ap = await getAutopilot(id, user);
+  const choice = { apClipId: body?.apClipId ? String(body.apClipId) : undefined, clipId: body?.clipId ? String(body.clipId) : undefined };
+  await swapSlot(ap, key, choice).catch(toHttpError(409));
 }
 
 /** Approve or reject a clip waiting in an autopilot's queue. */

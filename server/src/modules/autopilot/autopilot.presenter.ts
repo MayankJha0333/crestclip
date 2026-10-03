@@ -90,4 +90,10 @@ export async function autopilotDetail(ap: AutopilotRow) {
 }
 
 /** Is the scheduler running, and on which Redis (a custom REDIS_URL is not shown — it may hold a password). */
+/** Clips that could replace a booked one, as clip cards (gone clips left out). */
+export async function alternativesView(list: { clipId: string; apClipId: string | null }[]) {
+  const out = await Promise.all(list.map(async (a) => ({ apClipId: a.apClipId, inLine: Boolean(a.apClipId), clip: await autopilotClip(a.clipId) })));
+  return out.filter((a) => a.clip);
+}
+
 export const autopilotStatus = () => ({ ...redisStatus, url: redisStatus.source === 'env' ? 'custom' : redisStatus.url, running: autopilotReady() });

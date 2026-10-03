@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -22,12 +22,12 @@ import {
   X,
   XCircle,
 } from 'lucide-react';
-import { api, type ApItem, type ApSlot, type ApVideo, type AutopilotDetail } from '../../lib/api';
+import { api, type ApAlternative, type ApItem, type ApSlot, type ApVideo, type AutopilotDetail } from '../../lib/api';
 import { cn } from '../../lib/cn';
 import { timeAgo } from '../../lib/format';
 import { usePolling } from '../../lib/hooks';
 import { toast } from '../../lib/toast';
-import { Badge, Button, buttonClass, Card, ConfirmDialog, EmptyState, Skeleton, StatTile, Tabs, type BadgeTone } from '../../components/ui';
+import { Badge, Button, buttonClass, Card, ConfirmDialog, Dialog, EmptyState, Skeleton, Tabs, type BadgeTone } from '../../components/ui';
 import { ClipVideo } from '../clips/ClipVideo';
 import { PostList } from '../schedule/PostList';
 import { SOCIAL } from '../schedule/postStatus';
@@ -286,6 +286,7 @@ export function AutopilotDetailPage() {
   );
   usePolling(load, 6000);
 
+  const [removing, setRemoving] = useState<ApSlot | null>(null);
   const act = async (key: string, fn: () => Promise<unknown>, msg?: string) => {
     setBusy(key);
     try {
@@ -352,13 +353,37 @@ export function AutopilotDetailPage() {
         </p>
       )}
 
-      <div className="mb-6 grid max-w-3xl grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatTile tone="orange" icon={<Eye size={15} />} value={a.counts.review} label="To review" />
-        <StatTile tone="sky" icon={<CalendarClock size={15} />} value={a.counts.scheduled} label="Booked" />
-        <StatTile tone="muted" icon={<Clapperboard size={15} />} value={a.counts.ready} label="In line" />
-        <StatTile tone="good" icon={<CheckCircle2 size={15} />} value={a.counts.posted} label="Posted" />
-      </div>
+      {(() => {
+        const auto = a.config.mode === 'auto';
+        const stats: StatDef[] = [
+          // "To review" only matters when clips wait for your OK
+          ...(!auto || a.counts.review
+            ? [def({ key: 'review', tone: 'orange', icon: <Eye size={18} />, value: a.counts.review, label: 'To review', hint: 'Clips waiting for your OK', tab: 'review' })]
+            : []),
+          def({ key: 'booked', tone: 'sky', icon: <CalendarClock size={18} />, value: a.counts.scheduled, label: 'Booked', hint: 'Set to post at an upcoming time', tab: 'schedule' }),
+          def({ key: 'line', tone: 'lilac', icon: <Clapperboard size={18} />, value: a.counts.ready, label: 'In line', hint: 'Ready, waiting for a free time', tab: auto ? 'review' : 'schedule' }),
+          def({ key: 'posted', tone: 'good', icon: <CheckCircle2 size={18} />, value: a.counts.posted, label: 'Posted', hint: 'Live on your accounts', tab: 'history' }),
+        ];
+        return (
+          <div className={cn('mb-6 grid grid-cols-2 gap-3 sm:gap-4', stats.length === 4 ? 'lg:grid-cols-4' : 'sm:grid-cols-3')}>
+            {stats.map((st) => (
+              <ApStat key={st.key} tone={st.tone} icon={st.icon} value={st.value} label={st.label} hint={st.hint} onClick={() => setTab(st.tab)} />
+            ))}
+          </div>
+        );
+      })()}
 
+      <RemoveClipDialog
+        autopilotId={id}
+        slot={removing}
+        whenLabel={removing ? `${dayName(removing.date, tz)} · ${prettyTime(removing.time)}` : ''}
+        onClose={() => setRemoving(null)}
+        onDone={async (msg) => {
+          setRemoving(null);
+          toast(msg);
+          await load();
+        }}
+      />
       <Tabs
         className="mb-4"
         label="Autopilot view"
@@ -395,7 +420,7 @@ export function AutopilotDetailPage() {
                       counts={a.counts}
                       onSkip={() => act(s.key, () => api.skipSlot(id, s.key), 'Cancelled — the clip moves to the next free time')}
                       onRestore={() => act(s.key, () => api.restoreSlot(id, s.key), 'Time restored')}
-                      onReject={() => s.apClipId && act(s.key, () => api.apClip(id, s.apClipId!, 'reject'), 'Clip removed from the schedule')}
+                      onReject={() => setRemoving(s)}
                     />
                   ))}
                 </div>
@@ -444,5 +469,158 @@ export function AutopilotDetailPage() {
         </p>
       </ConfirmDialog>
     </>
+  );
+}
+
+type StatDef = { key: string; tone: keyof typeof STAT_TONE; icon: ReactNode; value: number; label: string; hint: string; tab: Tab };
+const def = (x: StatDef) => x;
+
+const STAT_TONE = {
+  orange: { chip: 'bg-orange-bg text-orange-ink', bar: 'bg-tangerine' },
+  sky: { chip: 'bg-info-bg text-info-ink', bar: 'bg-sky' },
+  lilac: { chip: 'bg-lilac/25 text-[#5b45c9] dark:text-lilac', bar: 'bg-lilac' },
+  good: { chip: 'bg-good-bg text-good-ink', bar: 'bg-mint' },
+} as const;
+
+/** One counter at the top of an autopilot: a raised card (stands out on the light page), tap it to open that list. */
+function ApStat({ tone, icon, value, label, hint, onClick }: { tone: keyof typeof STAT_TONE; icon: ReactNode; value: number; label: string; hint: string; onClick: () => void }) {
+  const t = STAT_TONE[tone];
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'group relative flex min-w-0 flex-col gap-3 overflow-hidden rounded-[22px] bg-surface p-4 text-left shadow-clay-sm transition-all outline-none hover:-translate-y-0.5 focus-visible:ring-3 focus-visible:ring-tangerine sm:p-5',
+      )}
+    >
+      <span aria-hidden className={cn('absolute inset-x-0 top-0 h-1', t.bar, value === 0 && 'opacity-40')} />
+      <span className="flex items-center gap-2.5">
+        <span className={cn('grid size-9 shrink-0 place-items-center rounded-xl', t.chip)}>{icon}</span>
+        <span className="truncate text-[13.5px] font-extrabold text-ink-2">{label}</span>
+      </span>
+      <span className="flex items-end justify-between gap-2">
+        <b className={cn('font-display text-[34px] leading-none tracking-tight', value === 0 ? 'text-ink-3' : 'text-ink')}>{value}</b>
+      </span>
+      <small className="line-clamp-2 text-[12px] leading-snug text-ink-3">{hint}</small>
+    </button>
+  );
+}
+
+/**
+ * Asked when a booked clip is deleted: swap in another finished clip at the same time, or just take it off
+ * (then the later clips move up one time).
+ */
+function RemoveClipDialog({ autopilotId, slot, whenLabel, onClose, onDone }: { autopilotId: string; slot: ApSlot | null; whenLabel: string; onClose: () => void; onDone: (msg: string) => void }) {
+  const [options, setOptions] = useState<ApAlternative[] | null>(null);
+  const [pick, setPick] = useState<string | null>(null);
+  const [busy, setBusy] = useState<'swap' | 'remove' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const key = slot?.key ?? null;
+  useEffect(() => {
+    if (!key) return;
+    setOptions(null);
+    setPick(null);
+    setError(null);
+    api
+      .apAlternatives(autopilotId)
+      .then(setOptions)
+      .catch(() => setOptions([]));
+  }, [autopilotId, key]);
+
+  const run = async (kind: 'swap' | 'remove') => {
+    if (!slot) return;
+    setBusy(kind);
+    setError(null);
+    try {
+      if (kind === 'swap') {
+        const o = options?.find((x) => x.clip.id === pick);
+        if (!o) return;
+        await api.swapSlot(autopilotId, slot.key, o.apClipId ? { apClipId: o.apClipId } : { clipId: o.clip.id });
+        onDone('Swapped — the new clip posts at the same time');
+      } else {
+        if (slot.apClipId) await api.apClip(autopilotId, slot.apClipId, 'reject');
+        onDone('Clip removed — the later clips move up one time');
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Dialog
+      open={Boolean(slot)}
+      onClose={onClose}
+      busy={busy !== null}
+      size="lg"
+      title="Remove this clip?"
+      footer={
+        <div className="flex w-full flex-wrap items-center justify-end gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={busy !== null}>
+            Keep it
+          </Button>
+          <Button variant="danger" onClick={() => run('remove')} loading={busy === 'remove'} disabled={busy !== null}>
+            <Trash2 size={15} /> Just remove
+          </Button>
+          <Button variant="primary" onClick={() => run('swap')} loading={busy === 'swap'} disabled={!pick || busy !== null}>
+            <RefreshCw size={15} /> Swap clip
+          </Button>
+        </div>
+      }
+    >
+      {slot?.clip && (
+        <div className="flex items-center gap-3 rounded-2xl bg-sunken p-3 shadow-well">
+          {slot.clip.thumbUrl ? <img src={slot.clip.thumbUrl} alt="" className="h-16 w-9 shrink-0 rounded-[9px] object-cover" /> : <span className="h-16 w-9 shrink-0 rounded-[9px] bg-media" />}
+          <span className="flex min-w-0 flex-col">
+            <small className="text-xs font-bold text-ink-3">Booked for {whenLabel}</small>
+            <b className="line-clamp-2 text-[14.5px] leading-snug">{slot.clip.title}</b>
+          </span>
+        </div>
+      )}
+
+      <h3 className="mt-5 mb-1 font-display text-[17px] font-bold">Swap in another clip</h3>
+      <p className="mb-3 text-[13px] text-ink-3">It posts at the same time instead. Or choose “Just remove” and the later clips move up one time.</p>
+      {options == null ? (
+        <div className="grid gap-2.5 sm:grid-cols-2">
+          <Skeleton className="h-21 rounded-2xl" />
+          <Skeleton className="h-21 rounded-2xl" />
+        </div>
+      ) : options.length === 0 ? (
+        <p className="rounded-2xl bg-row px-4 py-3.5 text-[13.5px] text-ink-2">No other finished clips right now. New ones arrive as Autopilot clips more videos.</p>
+      ) : (
+        <div role="radiogroup" aria-label="Clip to swap in" className="grid max-h-[46vh] gap-2.5 overflow-y-auto p-0.5 sm:grid-cols-2">
+          {options.map((o) => {
+            const on = pick === o.clip.id;
+            return (
+              <button
+                key={o.clip.id}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                onClick={() => setPick(o.clip.id)}
+                className={cn(
+                  'flex items-center gap-3 rounded-2xl bg-row p-2.5 text-left transition-all outline-none hover:bg-row-hover focus-visible:ring-3 focus-visible:ring-tangerine',
+                  on && 'bg-orange-bg ring-2 ring-tangerine',
+                )}
+              >
+                {o.clip.thumbUrl ? <img src={o.clip.thumbUrl} alt="" className="h-16 w-9 shrink-0 rounded-[9px] object-cover" /> : <span className="h-16 w-9 shrink-0 rounded-[9px] bg-media" />}
+                <span className="flex min-w-0 flex-1 flex-col gap-1">
+                  <b className="line-clamp-2 text-[13.5px] leading-snug">{o.clip.title}</b>
+                  <span className="flex flex-wrap items-center gap-1.5 text-[11.5px] text-ink-3">
+                    <Badge tone={o.inLine ? 'good' : 'neutral'}>{o.inLine ? 'In line' : 'Spare'}</Badge>
+                    score {o.clip.score} · {o.clip.duration}s
+                  </span>
+                </span>
+                <span aria-hidden className={cn('grid size-5 shrink-0 place-items-center rounded-full border-2', on ? 'border-tangerine bg-tangerine text-white' : 'border-line-strong')}>
+                  {on && <Check size={12} strokeWidth={3} />}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {error && <p className="mt-3 rounded-xl bg-bad-bg px-3 py-2 text-[13px] text-bad-ink">{error}</p>}
+    </Dialog>
   );
 }

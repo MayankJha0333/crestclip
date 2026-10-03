@@ -92,10 +92,11 @@ export async function channelVideos(channelId: string): Promise<FoundVideo[]> {
 }
 
 /** Videos for a topic search, newest-first within the age limit, optionally for one country. */
-export async function topicVideos(query: string, region: string | null, maxAgeDays: number): Promise<FoundVideo[]> {
+export async function topicVideos(query: string, region: string | null, maxAgeDays: number, language?: string | null): Promise<FoundVideo[]> {
   const uploaded = maxAgeDays <= 1 ? 'today' : maxAgeDays <= 7 ? 'week' : maxAgeDays <= 31 ? 'month' : 'year';
   const sp = ytSearchParam({ type: 'videos', duration: '', sort: 'views', uploaded });
-  const items = await ytSearchWeb(query, sp, 10_000, region);
+  // one chosen language → ask YouTube to lean results toward it
+  const items = await ytSearchWeb(query, sp, 10_000, region, language || 'en');
   return items
     .filter((i) => i.kind === 'video' && !i.isLive)
     .map((i) => ({

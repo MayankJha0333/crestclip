@@ -26,6 +26,10 @@ export const autopilotSchema = z.object({
     maxMinutes: z.coerce.number().min(1).max(900).default(180),
     maxAgeDays: z.coerce.number().int().min(1).max(365).default(14),
     waitHours: z.coerce.number().min(0).max(240).default(24),
+    languages: z
+      .array(z.string().regex(/^[a-z]{2,3}$/))
+      .max(12)
+      .default([]),
   }),
   options: z.preprocess(dropNulls, optionsFields.partial()).default({}),
   clipsPerVideo: z.coerce.number().int().min(1).max(5).default(2),

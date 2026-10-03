@@ -73,7 +73,7 @@ const DEFAULT_CAPTION = '{title}\n\n{hashtags}\n\n🎥 Credit: {channel}';
 export const EMPTY_AUTOPILOT: AutopilotInput = {
   name: '',
   sources: [],
-  filters: { minViews: 10_000, minMinutes: 5, maxMinutes: 180, maxAgeDays: 14, waitHours: 24 },
+  filters: { minViews: 10_000, minMinutes: 5, maxMinutes: 180, maxAgeDays: 14, waitHours: 24, languages: [] },
   options: { platform: 'reels', captionStyle: 'pop', motion: 'subtle', music: 'auto', length: 'auto', layout: 'auto', showHook: true },
   clipsPerVideo: 2,
   times: defaultTimes(3),

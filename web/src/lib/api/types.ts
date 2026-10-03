@@ -276,7 +276,8 @@ export interface AutopilotSource {
 }
 export interface AutopilotConfig {
   sources: AutopilotSource[];
-  filters: { minViews: number; minMinutes: number; maxMinutes: number; maxAgeDays: number; waitHours: number };
+  /** languages: spoken languages to keep ("en", "hi"…); empty = any */
+  filters: { minViews: number; minMinutes: number; maxMinutes: number; maxAgeDays: number; waitHours: number; languages?: string[] };
   options: Partial<ProjectOptions>;
   clipsPerVideo: number;
   times: string[];
@@ -296,6 +297,12 @@ export interface ApClip {
   thumbUrl: string | null;
   videoUrl: string | null;
   source: { title: string | null; channel: string | null; url: string | null } | null;
+}
+/** A clip that could take a booked time's place (in line, or a spare from the same videos). */
+export interface ApAlternative {
+  apClipId: string | null;
+  inLine: boolean;
+  clip: ApClip;
 }
 export interface AutopilotSummary {
   id: string;

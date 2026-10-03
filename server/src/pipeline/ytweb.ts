@@ -243,8 +243,9 @@ function itemsFromInitialData(data: unknown): WebItem[] {
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
 
 /** One results page (≈20 items). Throws if YouTube's page couldn't be read. */
-export async function ytSearchWeb(query: string, sp: string, timeoutMs = 9000, gl?: string | null): Promise<WebItem[]> {
-  const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}${sp ? `&sp=${encodeURIComponent(sp)}` : ''}&hl=en${gl ? `&gl=${encodeURIComponent(gl)}` : ''}`;
+/** `hl` = interface language; YouTube also leans results toward it. */
+export async function ytSearchWeb(query: string, sp: string, timeoutMs = 9000, gl?: string | null, hl = 'en'): Promise<WebItem[]> {
+  const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}${sp ? `&sp=${encodeURIComponent(sp)}` : ''}&hl=${encodeURIComponent(hl)}${gl ? `&gl=${encodeURIComponent(gl)}` : ''}`;
   const res = await fetch(url, {
     headers: { 'user-agent': UA, 'accept-language': 'en-US,en;q=0.9', cookie: 'SOCS=CAI; CONSENT=YES+1' },
     signal: AbortSignal.timeout(timeoutMs),
@@ -271,6 +272,8 @@ export interface WebVideo {
   description: string;
   heatmap: { start_time: number; end_time: number; value: number }[] | null;
   chapters: { start_time: number; end_time: number; title: string }[];
+  /** the spoken language, from YouTube's auto-captions (e.g. "en", "hi"); null when there are none */
+  language: string | null;
 }
 
 export function youtubeId(url: string): string | null {
@@ -351,6 +354,13 @@ export async function ytWatchWeb(id: string, timeoutMs = 10_000): Promise<WebVid
   const likeText = html.match(/along with ([\d,]+) other people/);
   const likes = likeText ? Number(likeText[1].replace(/,/g, '')) + 1 : null;
 
+  // spoken language: YouTube's auto-generated captions ("asr") are made in the language people speak
+  const tracks = arr(get(player, 'captions', 'playerCaptionsTracklistRenderer', 'captionTracks'))
+    .map((t) => obj(t))
+    .filter((t): t is J => Boolean(t));
+  const asr = tracks.find((t) => t.kind === 'asr');
+  const language = asr?.languageCode ? String(asr.languageCode).toLowerCase() : null;
+
   const date = String(micro.uploadDate ?? micro.publishDate ?? '').slice(0, 10);
   const owner = String(micro.ownerProfileUrl ?? '').replace(/^http:/, 'https:');
   return {
@@ -367,5 +377,6 @@ export async function ytWatchWeb(id: string, timeoutMs = 10_000): Promise<WebVid
     description: String(vd.shortDescription ?? '').slice(0, 1200),
     heatmap,
     chapters,
+    language,
   };
 }

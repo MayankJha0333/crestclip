@@ -106,7 +106,7 @@ export const posts = {
   scheduledForAutopilot: (autopilotId: string) => list({ autopilotId, status: 'scheduled' }),
   allScheduledAutopilot: () => list({ autopilotId: { $ne: null }, status: 'scheduled' }),
   stuck: () => list({ status: { $in: ['uploading', 'processing'] } }),
-  async update(id: string, patch: Partial<Pick<PostRow, 'status' | 'remoteId' | 'remoteUrl' | 'error' | 'attempts' | 'scheduledAt'>>) {
-    await col().updateOne({ _id: id }, { $set: setFields(patch, ['status', 'remoteId', 'remoteUrl', 'error', 'attempts', 'scheduledAt']) });
+  async update(id: string, patch: Partial<Pick<PostRow, 'status' | 'remoteId' | 'remoteUrl' | 'error' | 'attempts' | 'scheduledAt' | 'slotKey'>>) {
+    await col().updateOne({ _id: id }, { $set: setFields(patch, ['status', 'remoteId', 'remoteUrl', 'error', 'attempts', 'scheduledAt', 'slotKey']) });
   },
 };

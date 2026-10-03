@@ -1,4 +1,5 @@
 import type {
+  ApAlternative,
   AdminUser,
   BillingAccount,
   CheckoutStart,
@@ -102,6 +103,9 @@ export const api = {
   deleteAutopilot: (id: string) => req<{ ok: boolean }>(`/api/autopilots/${id}`, { method: 'DELETE' }),
   skipSlot: (id: string, key: string) => req<{ ok: boolean }>(`/api/autopilots/${id}/slots/${encodeURIComponent(key)}/skip`, { method: 'POST' }),
   restoreSlot: (id: string, key: string) => req<{ ok: boolean }>(`/api/autopilots/${id}/slots/${encodeURIComponent(key)}/restore`, { method: 'POST' }),
+  apAlternatives: (id: string) => req<ApAlternative[]>(`/api/autopilots/${id}/alternatives`),
+  swapSlot: (id: string, key: string, choice: { apClipId?: string | null; clipId?: string }) =>
+    req<{ ok: boolean }>(`/api/autopilots/${id}/slots/${encodeURIComponent(key)}/swap`, json('POST', choice)),
   apClip: (id: string, itemId: string, action: 'approve' | 'reject') => req<{ ok: boolean }>(`/api/autopilots/${id}/clips/${itemId}/${action}`, { method: 'POST' }),
   createPosts: (body: { clipId: string; targets: { connectionId: string; title?: string; caption?: string; privacy?: 'public' | 'unlisted' | 'private' }[]; scheduledAt?: number | null }) =>
     req<PostItem[]>('/api/posts', json('POST', body)),
