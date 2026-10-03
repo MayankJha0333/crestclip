@@ -112,9 +112,6 @@ jobs:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    environment:
-      name: production
-      url: https://crestclip.com
     steps:
       - name: Wait for the server to run this version
         run: |

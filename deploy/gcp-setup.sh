@@ -10,7 +10,7 @@ set -euo pipefail
 
 PROJECT=peakclip-510216
 REGION=us-central1
-GITHUB_REPO=MayankJha0333/peakclip
+GITHUB_REPO=MayankJha0333/crestclip
 VM=crestclip-server
 VM_SA="crestclip-server@${PROJECT}.iam.gserviceaccount.com"
 DEPLOYER="github-deployer@${PROJECT}.iam.gserviceaccount.com"
@@ -45,13 +45,23 @@ gcloud artifacts repositories add-iam-policy-binding crestclip --location="$REGI
   --member="serviceAccount:${DEPLOYER}" --role=roles/artifactregistry.writer >/dev/null
 gcloud iam workload-identity-pools describe github --location=global >/dev/null 2>&1 ||
   gcloud iam workload-identity-pools create github --location=global --display-name="GitHub Actions"
-gcloud iam workload-identity-pools providers describe github --location=global --workload-identity-pool=github >/dev/null 2>&1 ||
+CONDITION="assertion.repository=='${GITHUB_REPO}' && assertion.ref=='refs/heads/main'"
+if gcloud iam workload-identity-pools providers describe github --location=global --workload-identity-pool=github >/dev/null 2>&1; then
+  # already there — make sure it trusts the current repo name (e.g. after renaming the repo)
+  gcloud iam workload-identity-pools providers update-oidc github --location=global --workload-identity-pool=github \
+    --attribute-condition="$CONDITION" >/dev/null
+else
   gcloud iam workload-identity-pools providers create-oidc github --location=global --workload-identity-pool=github \
     --display-name="GitHub" --issuer-uri="https://token.actions.githubusercontent.com" \
     --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.ref=assertion.ref" \
-    --attribute-condition="assertion.repository=='${GITHUB_REPO}' && assertion.ref=='refs/heads/main'"
+    --attribute-condition="$CONDITION"
+fi
+POOL="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/attribute.repository"
 gcloud iam service-accounts add-iam-policy-binding "$DEPLOYER" --role=roles/iam.workloadIdentityUser \
-  --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/attribute.repository/${GITHUB_REPO}" >/dev/null
+  --member="${POOL}/${GITHUB_REPO}" >/dev/null
+# the repo's old name no longer gets in
+gcloud iam service-accounts remove-iam-policy-binding "$DEPLOYER" --role=roles/iam.workloadIdentityUser \
+  --member="${POOL}/MayankJha0333/peakclip" >/dev/null 2>&1 || true
 
 say "3/3 Server"
 # Deploys are pulled by the server itself, so no SSH key is needed. Remove an old "deploy" key if one was added.
