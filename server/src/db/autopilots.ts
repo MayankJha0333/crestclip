@@ -189,6 +189,10 @@ export const apClips = {
   async withStatus(autopilotId: string, status: ApClipStatus): Promise<ApClipRow[]> {
     return (await clipCol().find({ autopilotId, status }).sort({ score: -1, createdAt: 1 }).toArray()).map(toApClip);
   },
+  /** every autopilot that has this clip */
+  async forClip(clipId: string): Promise<ApClipRow[]> {
+    return (await clipCol().find({ clipId }).toArray()).map(toApClip);
+  },
   async bySlot(autopilotId: string, slotKey: string): Promise<ApClipRow | null> {
     const d = await clipCol().findOne({ autopilotId, slotKey });
     return d ? toApClip(d) : null;

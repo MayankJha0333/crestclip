@@ -2,7 +2,7 @@ import { apClips, apVideos, clips, connections, posts, projects, type AutopilotR
 import { redisStatus } from '../../infra/redis.js';
 import { toMediaUrl } from '../../lib/paths.js';
 import { publicPost } from '../publishing/publishing.presenter.js';
-import { autopilotReady, schedule } from './autopilot.engine.js';
+import { autopilotReady, handPosts, schedule } from './autopilot.engine.js';
 
 /** The short clip card Autopilot shows (by clip id; null if the clip is gone). */
 async function autopilotClip(id: string) {
@@ -76,9 +76,18 @@ export async function autopilotDetail(ap: AutopilotRow) {
       apClipId: s.apClipId,
       clip: s.clipId ? await autopilotClip(s.clipId) : null,
       posts: await Promise.all(s.posts.map(async (p) => ({ id: p.id, platform: p.platform, status: p.status, error: p.error, remoteUrl: p.remoteUrl, account: await accountName(p.connectionId) }))),
+      // the same clip posted by the person themselves (shown as "by you"; Autopilot won't post it again there)
+      byYou: s.clipId
+        ? await Promise.all(
+            (await handPosts(s.clipId)).map(async (p) => ({ id: p.id, platform: p.platform, status: p.status, at: p.scheduledAt ?? p.updatedAt, remoteUrl: p.remoteUrl, account: await accountName(p.connectionId) })),
+          )
+        : [],
     })),
   );
-  const past = (await posts.forAutopilot(ap.id, 100)).filter((p) => p.status !== 'scheduled');
+  // Posted tab: Autopilot's own posts, plus clips of this autopilot the person posted by hand
+  const handDone = items.filter((i) => i.status === 'posted').map((i) => i.clipId);
+  const byHand = (await posts.forClips(handDone)).filter((p) => !p.autopilotId && ['uploading', 'processing', 'published'].includes(p.status));
+  const past = [...(await posts.forAutopilot(ap.id, 100)).filter((p) => p.status !== 'scheduled'), ...byHand].sort((a, b) => b.updatedAt - a.updatedAt);
   return {
     ...(await autopilotSummary(ap)),
     schedule: schedule7,

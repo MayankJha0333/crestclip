@@ -179,6 +179,10 @@ export async function createPosts(r: CreatePosts, user: UserRow): Promise<PostRo
     );
   }
   for (const p of made) if (startsNow(p)) void runPost(p.id);
+  // posted by hand → an autopilot that has this clip won't post it again (loaded here to avoid an import loop)
+  void import('../autopilot/autopilot.engine.js')
+    .then((m) => m.clipPostedByHand(r.clipId))
+    .catch((e) => console.warn('[posts] autopilot sync:', (e as Error).message));
   return (await Promise.all(made.map((p) => posts.get(p.id)))).filter((p): p is PostRow => Boolean(p));
 }
 

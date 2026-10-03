@@ -338,6 +338,8 @@ export interface ApSlot {
   apClipId: string | null;
   clip: ApClip | null;
   posts: { id: string; platform: 'youtube' | 'instagram'; status: PostStatus; error: string | null; remoteUrl: string | null; account: string | null }[];
+  /** the same clip posted (or booked) by the person themselves — Autopilot won't post it again on those accounts */
+  byYou?: { id: string; platform: 'youtube' | 'instagram'; status: PostStatus; at: number; remoteUrl: string | null; account: string | null }[];
 }
 export interface ApItem {
   id: string;

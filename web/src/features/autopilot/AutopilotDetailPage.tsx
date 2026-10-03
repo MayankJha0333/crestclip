@@ -59,6 +59,11 @@ function SlotRow({
   const posted = s.posts.some((p) => p.status === 'published');
   const failed = s.posts.some((p) => p.status === 'failed');
   const uploading = s.posts.some((p) => p.status === 'uploading' || p.status === 'processing');
+  const byYou = s.byYou ?? [];
+  // every account of this time was already posted by hand → nothing left for Autopilot to do here
+  const doneByYou = byYou.length > 0 && s.posts.length === 0;
+  const liveByYou = byYou.some((p) => p.status !== 'scheduled' && p.at <= Date.now());
+  const firstByYou = byYou.length ? Math.min(...byYou.map((p) => p.at)) : null;
   return (
     <div
       className={cn(
@@ -86,7 +91,27 @@ function SlotRow({
                 <FolderOpen size={11} className="inline -translate-y-px" /> Open project
               </Link>
             </span>
+            {doneByYou && firstByYou != null && (
+              <span className="text-[12px] font-bold text-good-ink">
+                {liveByYou ? 'You posted this yourself' : 'You booked this yourself'} ·{' '}
+                {new Date(firstByYou).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })} — Autopilot won’t post it again
+              </span>
+            )}
             <span className="mt-1 flex flex-wrap gap-1.5">
+              {byYou.map((p) => {
+                const Icon = SOCIAL[p.platform].Icon;
+                const live = p.status !== 'scheduled' && p.at <= Date.now();
+                return (
+                  <Badge key={p.id} tone={live ? 'good' : 'neutral'} title={live ? 'Posted by you' : 'Booked by you'}>
+                    <Icon size={11} /> {p.account ?? p.platform} · by you
+                    {p.remoteUrl && (
+                      <a href={p.remoteUrl} target="_blank" rel="noreferrer" aria-label="Open post" className="text-inherit">
+                        <ExternalLink size={11} />
+                      </a>
+                    )}
+                  </Badge>
+                );
+              })}
               {s.posts.map((p) => {
                 const Icon = SOCIAL[p.platform].Icon;
                 const tone: BadgeTone = p.status === 'published' ? 'good' : p.status === 'failed' ? 'bad' : p.status === 'uploading' || p.status === 'processing' ? 'warn' : 'neutral';
@@ -120,7 +145,11 @@ function SlotRow({
         </div>
       )}
       <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
-        {uploading ? (
+        {doneByYou ? (
+          <Badge tone="good">
+            <Check size={12} /> {liveByYou ? 'Posted by you' : 'Booked by you'}
+          </Badge>
+        ) : uploading ? (
           <Badge tone="warn">
             <Loader2 size={12} className="animate-spin" /> Posting…
           </Badge>

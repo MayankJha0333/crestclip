@@ -312,7 +312,45 @@ async function emptySlotSoon(ap: AutopilotRow) {
 }
 
 // ---------------- 5. tidy ----------------
+/** Posts the person made themselves (not an autopilot) for a clip, that count as done: live, posting, or booked. */
+export async function handPosts(clipId: string) {
+  return (await posts.forClip(clipId)).filter((p) => !p.autopilotId && ['scheduled', 'uploading', 'processing', 'published'].includes(p.status));
+}
+
+/**
+ * The person already posted (or booked) this clip themselves, so Autopilot doesn't post it again on those accounts.
+ * A booked time keeps the clip and shows "Posted by you"; a clip still waiting in line is marked done.
+ */
+async function syncHandPosted(ap: AutopilotRow, item: ApClipRow) {
+  const mine = await handPosts(item.clipId);
+  if (!mine.length) return;
+  const done = new Set(mine.map((p) => p.connectionId));
+  if (item.status === 'scheduled' && item.slotKey) {
+    const ofClip = async () => (await posts.forSlot(ap.id, item.slotKey!)).filter((p) => p.clipId === item.clipId);
+    for (const p of await ofClip()) {
+      if (p.status !== 'scheduled' || !done.has(p.connectionId)) continue;
+      await posts.update(p.id, { status: 'canceled', error: 'Already posted by you' });
+      await postQueue?.remove(p.id).catch(() => {});
+    }
+    // nothing left for Autopilot to post → this time is done (it keeps the clip, so nothing else is booked there)
+    if ((await ofClip()).every((p) => p.status === 'canceled')) await apClips.update(item.id, { status: 'posted' });
+    log(`${ap.name}: "${item.clipId}" was posted by hand — not posting it again`);
+  } else if (item.status === 'ready' || item.status === 'review') {
+    if (ap.config.targets.every((t) => done.has(t.connectionId))) await apClips.update(item.id, { status: 'posted', slotKey: null });
+  }
+}
+
+/** Right after the person posts a clip themselves: update every autopilot that has it (no waiting for the tick). */
+export async function clipPostedByHand(clipId: string) {
+  for (const item of await apClips.forClip(clipId)) {
+    if (!['scheduled', 'ready', 'review'].includes(item.status)) continue;
+    const ap = await autopilots.get(item.autopilotId);
+    if (ap) await syncHandPosted(ap, item);
+  }
+}
+
 async function tidy(ap: AutopilotRow) {
+  for (const status of ['scheduled', 'ready', 'review'] as const) for (const c of await apClips.withStatus(ap.id, status)) await syncHandPosted(ap, c);
   for (const c of await apClips.withStatus(ap.id, 'scheduled')) {
     if (!c.slotKey) continue;
     const list = (await posts.forSlot(ap.id, c.slotKey)).filter((p) => p.clipId === c.clipId);
@@ -477,7 +515,7 @@ export async function schedule(ap: AutopilotRow, days = 7) {
     slots.map(async (s) => {
       const list = (await posts.forSlot(ap.id, s.key)).filter((p) => p.status !== 'canceled');
       const item = await apClips.bySlot(ap.id, s.key);
-      return { ...s, skipped: skips.has(s.key), posts: list, clipId: list[0]?.clipId ?? item?.clipId ?? null, apClipId: item?.id ?? null };
+      return { ...s, skipped: skips.has(s.key), posts: list, clipId: list[0]?.clipId ?? item?.clipId ?? null, apClipId: item?.id ?? null, itemStatus: item?.status ?? null };
     }),
   );
 }
