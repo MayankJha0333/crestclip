@@ -1,0 +1,131 @@
+# CrestClip CI/CD
+#
+#   Every push and pull request:   1. Check the code (types + web build)
+#                                  2. Build the app image and test that it starts
+#   Pushes to main only:              … upload it to Google Artifact Registry and mark it as "main"
+#                                  3. Wait until crestclip.com runs it — the server checks for a new "main"
+#                                     every minute and switches by itself (deploy/pull-deploy.sh), going back to
+#                                     the old version if the new one doesn't start.
+#
+# GitHub never logs in to the server and stores no keys: it uploads with a keyless Google login.
+# One-time setup: deploy/gcp-setup.sh (Cloud Shell) → GitHub variable GCP_WIF_PROVIDER; deploy/server-install.sh (server).
+
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# a newer push replaces an older one that's still running
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: us-central1-docker.pkg.dev
+  IMAGE: us-central1-docker.pkg.dev/peakclip-510216/crestclip/app
+  DEPLOYER: github-deployer@peakclip-510216.iam.gserviceaccount.com
+  DOMAIN: crestclip.com
+
+jobs:
+  check:
+    name: 1 · Check the code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Server types
+        run: npm run typecheck -w server
+      - name: Web app types + build
+        run: npm run build -w web
+
+  image:
+    name: 2 · Build and test the app image
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write # lets this job log in to Google without a stored key
+    services:
+      mongo:
+        image: mongo:7
+        ports: ['27017:27017']
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: crestclip:test
+          build-args: APP_VERSION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Start it and check it answers
+        run: |
+          docker run -d --name app --network host \
+            -e CRESTCLIP_FAKE_AI=1 -e PUBLIC_URL=http://localhost:8787 \
+            -e MONGODB_URI=mongodb://127.0.0.1:27017 -e MONGODB_DB=ci \
+            -e REDIS_URL=redis://127.0.0.1:6379 crestclip:test
+          for i in $(seq 1 60); do curl -fsS -o /dev/null http://127.0.0.1:8787/api/live && break; sleep 2; done
+          curl -fsS http://127.0.0.1:8787/api/live | grep -q '"version":"${{ github.sha }}"'
+          curl -fsS http://127.0.0.1:8787/ | grep -q 'id="root"'
+          curl -fsS http://127.0.0.1:8787/api/billing/plans >/dev/null
+          echo "✓ the image starts, reaches the database and serves the web app"
+      - name: App logs
+        if: always()
+        run: docker logs app 2>&1 | tail -80 || true
+
+      - name: Log in to Google (keyless)
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        id: google
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOYER }}
+          token_format: access_token
+      - name: Upload the image
+        if: steps.google.outcome == 'success'
+        run: |
+          echo '${{ steps.google.outputs.access_token }}' | docker login -u oauth2accesstoken --password-stdin "https://$REGISTRY"
+          docker tag crestclip:test "$IMAGE:${{ github.sha }}"
+          docker tag crestclip:test "$IMAGE:main"
+          docker push -q "$IMAGE:${{ github.sha }}"
+          docker push -q "$IMAGE:main"
+          echo "✓ uploaded — the server will pick it up within a minute"
+
+  live:
+    name: 3 · Wait for crestclip.com to switch
+    needs: image
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: https://crestclip.com
+    steps:
+      - name: Wait for the server to run this version
+        run: |
+          want='${{ github.sha }}'
+          for i in $(seq 1 90); do
+            now=$(curl -fsS --max-time 10 "https://$DOMAIN/api/live" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("version", ""))' 2>/dev/null || true)
+            if [ "$now" = "$want" ]; then echo "✓ https://$DOMAIN is running $want"; exit 0; fi
+            echo "  live version: ${now:-no answer} — waiting…"
+            sleep 10
+          done
+          echo "✗ The server didn't switch to this version within 15 minutes."
+          echo "  It most likely didn't start and the server went back to the previous version."
+          echo "  See why on the server:  journalctl -u crestclip-update -n 120"
+          exit 1

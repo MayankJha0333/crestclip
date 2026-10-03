@@ -1,0 +1,14 @@
+# Caddy gets a free HTTPS certificate for the domain (Let's Encrypt) and renews it by itself.
+# The domain must already point at this server (DNS A record) before the first start.
+
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8787 {
+		# pass progress updates and long downloads through straight away
+		flush_interval -1
+	}
+}
+
+www.{$DOMAIN} {
+	redir https://{$DOMAIN}{uri} permanent
+}

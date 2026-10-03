@@ -31,6 +31,12 @@ export async function closeDb() {
   database = null;
 }
 
+/** A quick round trip to the database (the "is it up?" check used by deploys). */
+export async function pingDb() {
+  if (!database) throw new Error('The database is not connected yet.');
+  await database.command({ ping: 1 });
+}
+
 /** A collection, typed by the row it stores. */
 export function collection<T extends Document>(name: string): Collection<T> {
   if (!database) throw new Error('The database is not connected yet (connectDb() must run first).');

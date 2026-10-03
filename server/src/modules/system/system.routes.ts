@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../../lib/http.js';
+import { pingDb } from '../../db/index.js';
 import * as service from './system.service.js';
 
 export const systemRouter = Router();
@@ -22,3 +23,12 @@ systemRouter.post(
 systemRouter.get('/site', (_req, res) => {
   res.json(service.site());
 });
+
+/** Public: the server is running and can reach the database, and which version it is (the git commit). Deploys wait for this. */
+systemRouter.get(
+  '/live',
+  asyncHandler(async (_req, res) => {
+    await pingDb();
+    res.json({ ok: true, version: process.env.APP_VERSION ?? 'dev' });
+  }),
+);

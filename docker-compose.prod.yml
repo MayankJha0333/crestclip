@@ -1,0 +1,68 @@
+# CrestClip on one server (a Google Cloud VM): the app + Redis + Caddy (automatic HTTPS).
+#
+# Deploys normally happen by themselves: GitHub Actions builds the app image, copies this file to the server
+# (/opt/crestclip) and runs deploy/deploy.sh, which writes deploy.env (IMAGE=…, DOMAIN=…) and starts it all.
+#
+#   By hand on the server:  cd /opt/crestclip && sudo docker compose -f docker-compose.prod.yml --env-file deploy.env up -d
+#   Logs:                   sudo docker compose -f docker-compose.prod.yml --env-file deploy.env logs -f app
+#
+# The app reads its settings from /opt/crestclip/.env (mounted, never baked into the image) and keeps its files
+# (videos, the secret key) in /opt/crestclip/data. Everything uses the machine's own network, so the app, Redis and
+# Caddy talk over 127.0.0.1 — only Caddy's ports 80/443 are open to the internet (the cloud firewall keeps 8787 and
+# 6379 closed).
+
+x-logs: &logs
+  logging:
+    driver: json-file
+    options: { max-size: 20m, max-file: '3' }
+
+services:
+  app:
+    image: ${IMAGE:?IMAGE is not set — run deploy/deploy.sh or pass --env-file deploy.env}
+    restart: unless-stopped
+    network_mode: host
+    init: true
+    stop_grace_period: 30s
+    environment:
+      NODE_ENV: production
+      PORT: '8787'
+      DATA_DIR: /data
+      REDIS_URL: redis://127.0.0.1:6379
+      # On Google Cloud the machine's own service account is used — no key file needed
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+      # Mac paths from a copied .env don't exist here; the image has its own tools
+      FFMPEG_PATH: ''
+      FFPROBE_PATH: ''
+      YTDLP_PATH: ''
+    volumes:
+      - ./.env:/app/.env:ro
+      - ./data:/data
+    depends_on: [redis]
+    <<: *logs
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    network_mode: host
+    command: ['redis-server', '--bind', '127.0.0.1', '--port', '6379', '--appendonly', 'yes']
+    volumes:
+      - redis:/data
+    <<: *logs
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      DOMAIN: ${DOMAIN:-crestclip.com}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [app]
+    <<: *logs
+
+volumes:
+  redis: {}
+  caddy_data: {}
+  caddy_config: {}
