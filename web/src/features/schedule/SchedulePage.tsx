@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { AlertTriangle, CalendarClock, CheckCircle2, Clapperboard, FolderOpen, History, Link2, Settings } from 'lucide-react';
 import { api, type Connections, type PostItem } from '../../lib/api';
 import { usePolling } from '../../lib/hooks';
@@ -11,6 +11,7 @@ import { dayLabel, isUpcoming, SOCIAL, type SocialPlatform } from './postStatus'
 export function SchedulePage() {
   const [list, setList] = useState<PostItem[] | null>(null);
   const [conn, setConn] = useState<Connections | null>(null);
+  const nav = useNavigate();
   const [tab, setTab] = useState<'upcoming' | 'history'>('upcoming');
   const [only, setOnly] = useState<'all' | SocialPlatform>('all');
   usePolling(() => {
@@ -55,11 +56,11 @@ export function SchedulePage() {
           </Link>
         }
       />
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatTile icon={<Link2 size={15} />} tone="sky" value={linked} label="Accounts connected" />
-        <StatTile icon={<CalendarClock size={15} />} tone="orange" value={upcoming.length} label="Scheduled" />
-        <StatTile icon={<CheckCircle2 size={15} />} tone="good" value={posted} label="Posted" />
-        <StatTile icon={<AlertTriangle size={15} />} tone={failed ? 'bad' : 'muted'} value={failed} label="Need attention" />
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        <StatTile icon={<Link2 size={20} />} tone="sky" value={linked} label={linked === 1 ? 'Account' : 'Accounts'} hint="Ready to post to" onClick={() => nav('/app/settings')} />
+        <StatTile icon={<CalendarClock size={20} />} tone="orange" value={upcoming.length} label="Scheduled" hint="Going out soon" onClick={() => setTab('upcoming')} />
+        <StatTile icon={<CheckCircle2 size={20} />} tone="good" value={posted} label="Posted" hint="Live now" onClick={() => setTab('history')} />
+        <StatTile icon={<AlertTriangle size={20} />} tone={failed ? 'bad' : 'muted'} value={failed} label="Failed" hint={failed ? 'Tap to retry' : 'All good'} onClick={() => setTab('history')} />
       </div>
 
       <Card className="p-5 sm:p-6">

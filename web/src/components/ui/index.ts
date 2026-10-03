@@ -10,7 +10,7 @@ export { Progress, Skeleton } from './Progress';
 export { Segmented } from './Segmented';
 export { Sheet } from './Sheet';
 export { Spinner } from './Spinner';
-export { StatTile } from './StatTile';
+export { StatTile, type StatTone } from './StatTile';
 export { Tabs } from './Tabs';
 export { Toaster } from './Toaster';
 export { Toggle } from './Toggle';

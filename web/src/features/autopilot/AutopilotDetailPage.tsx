@@ -28,7 +28,7 @@ import { cn } from '../../lib/cn';
 import { timeAgo } from '../../lib/format';
 import { usePolling } from '../../lib/hooks';
 import { toast } from '../../lib/toast';
-import { Badge, Button, buttonClass, Card, ConfirmDialog, Dialog, EmptyState, Skeleton, Tabs, type BadgeTone } from '../../components/ui';
+import { Badge, Button, buttonClass, Card, ConfirmDialog, Dialog, EmptyState, Skeleton, StatTile, Tabs, type BadgeTone, type StatTone } from '../../components/ui';
 import { ClipVideo } from '../clips/ClipVideo';
 import { PostList } from '../schedule/PostList';
 import { SOCIAL } from '../schedule/postStatus';
@@ -93,8 +93,8 @@ function SlotRow({
             </span>
             {doneByYou && firstByYou != null && (
               <span className="text-[12px] font-bold text-good-ink">
-                {liveByYou ? 'You posted this yourself' : 'You booked this yourself'} ·{' '}
-                {new Date(firstByYou).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })} — Autopilot won’t post it again
+                {liveByYou ? 'You posted this yourself' : 'You booked this yourself'} · {new Date(firstByYou).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })} —
+                Autopilot won’t post it again
               </span>
             )}
             <span className="mt-1 flex flex-wrap gap-1.5">
@@ -392,16 +392,16 @@ export function AutopilotDetailPage() {
         const stats: StatDef[] = [
           // "To review" only matters when clips wait for your OK
           ...(!auto || a.counts.review
-            ? [def({ key: 'review', tone: 'orange', icon: <Eye size={18} />, value: a.counts.review, label: 'To review', hint: 'Clips waiting for your OK', tab: 'review' })]
+            ? [def({ key: 'review', tone: 'orange', icon: <Eye size={20} />, value: a.counts.review, label: 'To review', hint: 'Clips waiting for your OK', tab: 'review' })]
             : []),
-          def({ key: 'booked', tone: 'sky', icon: <CalendarClock size={18} />, value: a.counts.scheduled, label: 'Booked', hint: 'Set to post at an upcoming time', tab: 'schedule' }),
-          def({ key: 'line', tone: 'lilac', icon: <Clapperboard size={18} />, value: a.counts.ready, label: 'In line', hint: 'Ready, waiting for a free time', tab: auto ? 'review' : 'schedule' }),
-          def({ key: 'posted', tone: 'good', icon: <CheckCircle2 size={18} />, value: a.counts.posted, label: 'Posted', hint: 'Live on your accounts', tab: 'history' }),
+          def({ key: 'booked', tone: 'sky', icon: <CalendarClock size={20} />, value: a.counts.scheduled, label: 'Booked', hint: 'Set to post at an upcoming time', tab: 'schedule' }),
+          def({ key: 'line', tone: 'lilac', icon: <Clapperboard size={20} />, value: a.counts.ready, label: 'In line', hint: 'Ready, waiting for a free time', tab: auto ? 'review' : 'schedule' }),
+          def({ key: 'posted', tone: 'good', icon: <CheckCircle2 size={20} />, value: a.counts.posted, label: 'Posted', hint: 'Live on your accounts', tab: 'history' }),
         ];
         return (
-          <div className={cn('mb-6 grid grid-cols-2 gap-3 sm:gap-4', stats.length === 4 ? 'lg:grid-cols-4' : 'sm:grid-cols-3')}>
+          <div className={cn('mb-6 grid grid-cols-2 gap-3 sm:gap-4', stats.length === 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-3')}>
             {stats.map((st) => (
-              <ApStat key={st.key} tone={st.tone} icon={st.icon} value={st.value} label={st.label} hint={st.hint} onClick={() => setTab(st.tab)} />
+              <StatTile key={st.key} tone={st.tone} icon={st.icon} value={st.value} label={st.label} hint={st.hint} onClick={() => setTab(st.tab)} />
             ))}
           </div>
         );
@@ -506,39 +506,8 @@ export function AutopilotDetailPage() {
   );
 }
 
-type StatDef = { key: string; tone: keyof typeof STAT_TONE; icon: ReactNode; value: number; label: string; hint: string; tab: Tab };
+type StatDef = { key: string; tone: StatTone; icon: ReactNode; value: number; label: string; hint: string; tab: Tab };
 const def = (x: StatDef) => x;
-
-const STAT_TONE = {
-  orange: { chip: 'bg-orange-bg text-orange-ink', bar: 'bg-tangerine' },
-  sky: { chip: 'bg-info-bg text-info-ink', bar: 'bg-sky' },
-  lilac: { chip: 'bg-lilac/25 text-[#5b45c9] dark:text-lilac', bar: 'bg-lilac' },
-  good: { chip: 'bg-good-bg text-good-ink', bar: 'bg-mint' },
-} as const;
-
-/** One counter at the top of an autopilot: a raised card (stands out on the light page), tap it to open that list. */
-function ApStat({ tone, icon, value, label, hint, onClick }: { tone: keyof typeof STAT_TONE; icon: ReactNode; value: number; label: string; hint: string; onClick: () => void }) {
-  const t = STAT_TONE[tone];
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'group relative flex min-w-0 flex-col gap-3 overflow-hidden rounded-[22px] bg-surface p-4 text-left shadow-clay-sm transition-all outline-none hover:-translate-y-0.5 focus-visible:ring-3 focus-visible:ring-tangerine sm:p-5',
-      )}
-    >
-      <span aria-hidden className={cn('absolute inset-x-0 top-0 h-1', t.bar, value === 0 && 'opacity-40')} />
-      <span className="flex items-center gap-2.5">
-        <span className={cn('grid size-9 shrink-0 place-items-center rounded-xl', t.chip)}>{icon}</span>
-        <span className="truncate text-[13.5px] font-extrabold text-ink-2">{label}</span>
-      </span>
-      <span className="flex items-end justify-between gap-2">
-        <b className={cn('font-display text-[34px] leading-none tracking-tight', value === 0 ? 'text-ink-3' : 'text-ink')}>{value}</b>
-      </span>
-      <small className="line-clamp-2 text-[12px] leading-snug text-ink-3">{hint}</small>
-    </button>
-  );
-}
 
 /**
  * Asked when a booked clip is deleted: swap in another finished clip at the same time, or just take it off
