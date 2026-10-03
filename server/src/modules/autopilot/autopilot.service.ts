@@ -73,7 +73,8 @@ export async function updateAutopilot(user: UserRow, ap: AutopilotRow, form: Aut
     JSON.stringify(config.targets) !== JSON.stringify(ap.config.targets) ||
     config.caption !== ap.config.caption;
   await autopilots.update(ap.id, { name, config });
-  if (timesChanged) await releaseScheduled(ap.id); // re-book everything at the new times
+  // re-book everything with the new settings: when the person asks to, or by default when times/accounts/caption changed
+  if (form.replan ?? timesChanged) await releaseScheduled(ap.id);
   if (ap.config.mode === 'review' && config.mode === 'auto') for (const c of await apClips.withStatus(ap.id, 'review')) await apClips.update(c.id, { status: 'ready' });
   await kick();
   return (await autopilots.get(ap.id))!;

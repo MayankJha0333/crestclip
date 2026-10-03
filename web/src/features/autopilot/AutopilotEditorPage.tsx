@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { AlertTriangle, Bot, Check, Eye, Globe, Hash, Minus, Plus, Search, ShieldCheck, Sparkles, X, Youtube } from 'lucide-react';
+import { AlertTriangle, Bot, Check, Eye, Globe, Hash, Minus, Plus, RefreshCw, Search, ShieldCheck, Sparkles, X, Youtube } from 'lucide-react';
 import { useAccount } from '../auth/auth';
 import { UpgradeCallout } from '../billing/UpgradeCallout';
 import { api, type Account, type AutopilotConfig, type AutopilotInput, type AutopilotSource, type CaptionStyle, type Motion } from '../../lib/api';
 import { cn } from '../../lib/cn';
 import { timeAgo } from '../../lib/format';
 import { toast } from '../../lib/toast';
-import { Button, buttonClass, Card, Chip, Field, FieldLabel, Input, PageHeader, Segmented, Select, Skeleton, Textarea, Toggle } from '../../components/ui';
+import { Button, buttonClass, Card, Chip, Dialog, Field, FieldLabel, Input, PageHeader, Segmented, Select, Skeleton, Textarea, Toggle } from '../../components/ui';
 import { CaptionPicker } from '../clip-settings/CaptionPicker';
 import { MotionPicker } from '../clip-settings/MotionPicker';
 import { SOCIAL } from '../schedule/postStatus';
@@ -36,11 +37,15 @@ export function AutopilotEditorPage() {
   const nav = useNavigate();
   const [f, setF] = useState<AutopilotInput>(EMPTY_AUTOPILOT);
   const [loaded, setLoaded] = useState(!id);
+  const [booked, setBooked] = useState(0); // posts already booked (edit only)
+  const [savedPlan, setSavedPlan] = useState(''); // times/zone/accounts/caption as last saved
+  const [askReplan, setAskReplan] = useState(false);
   const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [srcKind, setSrcKind] = useState<'youtube_channel' | 'youtube_topic'>('youtube_channel');
   const [srcText, setSrcText] = useState('');
   const [srcRegion, setSrcRegion] = useState('');
+  const [srcSort, setSrcSort] = useState<'trending' | 'views' | 'date'>('trending');
   const [adding, setAdding] = useState(false);
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const zones = useMemo(allZones, []);
@@ -72,6 +77,8 @@ export function AutopilotEditorPage() {
         .autopilot(id)
         .then((a) => {
           setF({ ...a.config, name: a.name, rightsConfirmed: true });
+          setBooked(a.counts.scheduled);
+          setSavedPlan(planKey(a.config));
           setLoaded(true);
         })
         .catch((e: Error) => toast(e.message, 'error'));
@@ -103,7 +110,7 @@ export function AutopilotEditorPage() {
     const value = srcText.trim();
     if (!value) return;
     if (srcKind === 'youtube_topic') {
-      set('sources', [...f.sources, { kind: 'youtube_topic', value, region: srcRegion || null, label: value }]);
+      set('sources', [...f.sources, { kind: 'youtube_topic', value, region: srcRegion || null, label: value, sort: srcSort }]);
       return setSrcText('');
     }
     setAdding(true);
@@ -138,14 +145,21 @@ export function AutopilotEditorPage() {
     !f.rightsConfirmed && 'Confirm you have the rights',
   ].filter(Boolean) as string[];
 
-  const save = async () => {
+  /** Ask what to do with booked posts before saving an edit (only when some are booked). */
+  const trySave = () => {
     if (problems.length) return toast(problems[0], 'error');
+    if (id && booked > 0) return setAskReplan(true);
+    void save();
+  };
+  const save = async (replan?: boolean) => {
+    if (problems.length) return toast(problems[0], 'error');
+    setAskReplan(false);
     setSaving(true);
     try {
       const body = { ...f, times: [...f.times].sort() };
-      const a = id ? await api.updateAutopilot(id, body) : await api.createAutopilot(body);
+      const a = id ? await api.updateAutopilot(id, replan === undefined ? body : { ...body, replan }) : await api.createAutopilot(body);
       if (!id) track('create_autopilot');
-      toast(id ? 'Saved — schedule updated' : 'Autopilot is running');
+      toast(!id ? 'Autopilot is running' : replan ? 'Saved — booked posts are being re-planned with the new settings' : 'Saved');
       nav(`/app/autopilot/${a.id}`);
     } catch (e) {
       toast((e as Error).message, 'error');
@@ -166,6 +180,7 @@ export function AutopilotEditorPage() {
   if (!loaded) return <Skeleton className="h-96 rounded-[28px]" />;
   const sorted = [...f.times].sort();
 
+  const planChanged = savedPlan !== planKey(f);
   return (
     <div className="pb-28">
       <PageHeader
@@ -206,12 +221,24 @@ export function AutopilotEditorPage() {
             ]}
           />
           <div className="flex flex-wrap gap-2.5">
-            <Input
-              className="min-w-56 flex-1"
-              value={srcText}
-              placeholder={srcKind === 'youtube_channel' ? 'Channel link or @handle, e.g. @lexfridman' : 'Topic, e.g. podcast funny moments'}
-              onChange={(e) => setSrcText(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addSource())}
+            <SourceSearch
+              kind={srcKind}
+              text={srcText}
+              region={srcRegion}
+              days={f.filters.maxAgeDays}
+              onText={setSrcText}
+              onEnter={addSource}
+              onPickChannel={(c) => {
+                if (f.sources.some((x) => x.channelId === c.channelId)) return toast('That channel is already added');
+                set('sources', [...f.sources, { kind: 'youtube_channel', value: c.url, channelId: c.channelId, label: c.name }]);
+                setSrcText('');
+              }}
+              onPickTopic={(t) => {
+                if (f.sources.some((x) => x.kind === 'youtube_topic' && x.value.toLowerCase() === t.toLowerCase() && (x.region ?? '') === srcRegion && (x.sort ?? 'views') === srcSort))
+                  return toast('That topic is already added');
+                set('sources', [...f.sources, { kind: 'youtube_topic', value: t, region: srcRegion || null, label: t, sort: srcSort }]);
+                setSrcText('');
+              }}
             />
             {srcKind === 'youtube_topic' && (
               <Select className="w-44" value={srcRegion} onChange={(e) => setSrcRegion(e.target.value)} aria-label="Country">
@@ -226,6 +253,25 @@ export function AutopilotEditorPage() {
               {!adding && <Plus size={16} />} Add
             </Button>
           </div>
+          {srcKind === 'youtube_topic' && (
+            <div className="mt-3 flex flex-wrap items-center gap-2.5">
+              <span className="text-[13px] font-bold text-ink-2">Pick videos that are</span>
+              <Segmented
+                label="Pick videos by"
+                size="sm"
+                value={srcSort}
+                onChange={setSrcSort}
+                options={[
+                  { value: 'trending', label: '🔥 Trending' },
+                  { value: 'views', label: 'Most viewed' },
+                  { value: 'date', label: 'Newest' },
+                ]}
+              />
+              <small className="text-[12px] text-ink-3">
+                {srcSort === 'trending' ? 'Fresh videos gaining views fastest right now' : srcSort === 'views' ? 'The most watched videos in your time window' : 'The latest uploads first'}
+              </small>
+            </div>
+          )}
           {f.sources.length > 0 ? (
             <div className="mt-3.5 flex flex-wrap gap-2">
               {f.sources.map((s, i) => {
@@ -294,6 +340,24 @@ export function AutopilotEditorPage() {
                 </button>
               )}
             </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 border-t border-line pt-4 md:grid-cols-2">
+            <TagInput
+              label="Skip videos whose title has"
+              hint="e.g. trailer, reaction, highlights"
+              placeholder="Type a word, press Enter"
+              values={f.filters.excludeWords ?? []}
+              onChange={(v) => setF((x) => ({ ...x, filters: { ...x.filters, excludeWords: v } }))}
+            />
+            <TagInput
+              suggestChannels
+              label="Never use these channels"
+              hint="Handy for topic searches — type the channel name"
+              placeholder="Channel name, press Enter"
+              values={f.filters.blockChannels ?? []}
+              onChange={(v) => setF((x) => ({ ...x, filters: { ...x.filters, blockChannels: v } }))}
+            />
           </div>
         </Step>
 
@@ -561,10 +625,410 @@ export function AutopilotEditorPage() {
         <span className={cn('min-w-0 truncate text-[13px]', problems.length ? 'font-bold text-warn-ink' : 'text-ink-3')}>
           {problems[0] ?? `${f.times.length} post${f.times.length > 1 ? 's' : ''} a day · ${sorted.map(prettyTime).join(', ')} · ${f.mode === 'review' ? 'you approve each clip' : 'fully automatic'}`}
         </span>
-        <Button variant="primary" onClick={save} loading={saving}>
+        <Button variant="primary" onClick={trySave} loading={saving}>
           {!saving && <Check size={17} />} {id ? 'Save changes' : 'Start autopilot'}
         </Button>
       </div>
+      <Dialog
+        open={askReplan}
+        onClose={() => setAskReplan(false)}
+        title="Apply the changes to booked posts?"
+        footer={
+          <Button variant="ghost" onClick={() => setAskReplan(false)}>
+            Back to editing
+          </Button>
+        }
+      >
+        <p className="mb-4 text-[14px] text-ink-2">
+          {booked} post{booked > 1 ? 's are' : ' is'} already booked with the old settings.
+        </p>
+        <div className="flex flex-col gap-2.5">
+          <button
+            type="button"
+            onClick={() => save(true)}
+            className="flex items-start gap-3 rounded-2xl bg-row p-4 text-left transition-colors hover:bg-row-hover focus-visible:ring-3 focus-visible:ring-tangerine"
+          >
+            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-orange-bg text-orange-ink">
+              <RefreshCw size={17} />
+            </span>
+            <span className="flex flex-col gap-0.5">
+              <b className="font-display text-[15.5px]">
+                Re-plan all booked posts {planChanged && <span className="ml-1 rounded-full bg-good-bg px-2 py-0.5 text-[11px] text-good-ink">Recommended</span>}
+              </b>
+              <span className="text-[13px] text-ink-3">Booked clips go back in line and are booked again with your new times, accounts and caption. Nothing is lost.</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => save(false)}
+            className="flex items-start gap-3 rounded-2xl bg-row p-4 text-left transition-colors hover:bg-row-hover focus-visible:ring-3 focus-visible:ring-tangerine"
+          >
+            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-muted-bg text-ink-2">
+              <Check size={17} />
+            </span>
+            <span className="flex flex-col gap-0.5">
+              <b className="font-display text-[15.5px]">Keep booked posts as they are</b>
+              <span className="text-[13px] text-ink-3">They post as planned. The new settings apply from the next clip that gets booked.</span>
+            </span>
+          </button>
+        </div>
+      </Dialog>
     </div>
   );
+}
+
+/** What decides when and where posts go — if this changed, re-planning booked posts is the natural choice. */
+const planKey = (c: Pick<AutopilotConfig, 'times' | 'timezone' | 'targets' | 'caption'>) =>
+  JSON.stringify([[...c.times].sort(), c.timezone, c.targets.map((t) => [t.connectionId, t.privacy ?? '']), c.caption]);
+
+/** A small "type and press Enter" list of words, shown as removable chips. */
+function TagInput({
+  label,
+  hint,
+  placeholder,
+  values,
+  onChange,
+  suggestChannels,
+}: {
+  label: string;
+  hint: string;
+  placeholder: string;
+  values: string[];
+  onChange: (v: string[]) => void;
+  /** show YouTube channels while typing; picking one adds its name */
+  suggestChannels?: boolean;
+}) {
+  const [text, setText] = useState('');
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const wrap = useRef<HTMLDivElement>(null);
+  const { hits, loading } = useChannelSearch(text, Boolean(suggestChannels));
+  const show = Boolean(suggestChannels) && open && text.trim().length >= 2 && (loading || hits.length > 0);
+  const addName = (name: string) => {
+    if (!values.some((v) => v.toLowerCase() === name.toLowerCase())) onChange([...values, name.slice(0, 80)].slice(0, 30));
+    setText('');
+    setOpen(false);
+  };
+  const add = () => {
+    const parts = text
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean);
+    const next = [...values];
+    for (const p of parts) if (!next.some((v) => v.toLowerCase() === p.toLowerCase())) next.push(p.slice(0, 80));
+    onChange(next.slice(0, 30));
+    setText('');
+  };
+  return (
+    <div>
+      <FieldLabel>{label}</FieldLabel>
+      <p className="-mt-1 mb-2 text-[12.5px] text-ink-3">{hint}</p>
+      <div ref={wrap} className="flex gap-2">
+        <Input
+          className="min-w-0 flex-1"
+          value={text}
+          placeholder={placeholder}
+          onChange={(e) => {
+            setText(e.target.value);
+            setOpen(true);
+            setActive(0);
+          }}
+          onKeyDown={(e) => {
+            if (show && e.key === 'ArrowDown') {
+              e.preventDefault();
+              setActive((a) => Math.min(hits.length - 1, a + 1));
+            } else if (show && e.key === 'ArrowUp') {
+              e.preventDefault();
+              setActive((a) => Math.max(0, a - 1));
+            } else if (e.key === 'Escape') setOpen(false);
+            else if (e.key === 'Enter' || e.key === ',') {
+              e.preventDefault();
+              if (show && hits[active]) addName(hits[active].name);
+              else add();
+            }
+          }}
+          onBlur={() =>
+            setTimeout(() => {
+              setOpen(false);
+            }, 150)
+          }
+          aria-label={label}
+        />
+      </div>
+      {show && (
+        <Floating anchor={wrap}>
+          {loading && !hits.length && <p className="px-3 py-3 text-[13px] text-ink-3">Searching YouTube…</p>}
+          {hits.map((c, i) => (
+            <ChannelOption key={c.channelId} c={c} active={i === active} onHover={() => setActive(i)} onPick={() => addName(c.name)} />
+          ))}
+        </Floating>
+      )}
+      {values.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {values.map((v) => (
+            <span key={v} className="inline-flex items-center gap-1 rounded-full bg-row py-1 pr-1 pl-3 text-[13px] font-bold shadow-flat">
+              {v}
+              <button
+                type="button"
+                aria-label={`Remove ${v}`}
+                onClick={() => onChange(values.filter((x) => x !== v))}
+                className="grid size-5 place-items-center rounded-full hover:bg-bad-bg hover:text-bad"
+              >
+                <X size={12} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type ChannelHit = Awaited<ReturnType<typeof api.suggestChannels>>[number];
+type TopicNumbers = Awaited<ReturnType<typeof api.topicStats>>;
+
+/**
+ * The source box with suggestions while typing: YouTube channels (logo, @handle, subscribers) or topics people
+ * search for (with how many fresh videos it has and the views they get). Arrow keys + Enter work too.
+ */
+function SourceSearch({
+  kind,
+  text,
+  region,
+  days,
+  onText,
+  onEnter,
+  onPickChannel,
+  onPickTopic,
+}: {
+  kind: 'youtube_channel' | 'youtube_topic';
+  text: string;
+  region: string;
+  days: number;
+  onText: (v: string) => void;
+  onEnter: () => void;
+  onPickChannel: (c: ChannelHit) => void;
+  onPickTopic: (t: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [channels, setChannels] = useState<ChannelHit[]>([]);
+  const [topics, setTopics] = useState<string[]>([]);
+  const [stats, setStats] = useState<Record<string, TopicNumbers | 'loading' | 'error'>>({});
+  const [active, setActive] = useState(0);
+  const wrap = useRef<HTMLDivElement>(null);
+  const q = text.trim();
+  // a pasted link / UC id is resolved on "Add" — no need to search for it
+  const isLink = kind === 'youtube_channel' && (/youtube\.com|youtu\.be|^UC[\w-]{22}$/.test(q) || q.includes('/'));
+  const ideas = kind === 'youtube_topic' && q.length < 2;
+  const shownTopics = ideas ? TOPIC_IDEAS : topics;
+
+  useEffect(() => {
+    setActive(0);
+    if (q.length < 2 || isLink) {
+      setChannels([]);
+      setTopics([]);
+      return;
+    }
+    let live = true;
+    setLoading(true);
+    const t = setTimeout(() => {
+      const job = kind === 'youtube_channel' ? api.suggestChannels(q).then((r) => live && setChannels(r)) : api.suggestTopics(q, region).then((r) => live && setTopics(r));
+      job.catch(() => {}).finally(() => live && setLoading(false));
+    }, 280);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [q, kind, region, isLink]);
+
+  // numbers for the first few topic ideas (cached on the server, so cheap)
+  useEffect(() => {
+    if (kind !== 'youtube_topic') return;
+    for (const t of shownTopics.slice(0, 5)) {
+      const k = `${region}|${days}|${t}`;
+      if (stats[k]) continue;
+      setStats((s) => ({ ...s, [k]: 'loading' }));
+      api
+        .topicStats(t, region, days)
+        .then((r) => setStats((s) => ({ ...s, [k]: r })))
+        .catch(() => setStats((s) => ({ ...s, [k]: 'error' })));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topics, region, days, kind, ideas]);
+
+  const list = kind === 'youtube_channel' ? channels : shownTopics;
+  const show = open && !isLink && (ideas || (q.length >= 2 && (loading || list.length > 0)));
+  const pick = (i: number) => {
+    if (kind === 'youtube_channel' && channels[i]) onPickChannel(channels[i]);
+    else if (kind === 'youtube_topic' && shownTopics[i]) onPickTopic(shownTopics[i]);
+    setOpen(false);
+  };
+
+  return (
+    <div ref={wrap} className="relative min-w-56 flex-1">
+      <Input
+        className="w-full"
+        value={text}
+        role="combobox"
+        aria-expanded={show}
+        aria-autocomplete="list"
+        placeholder={kind === 'youtube_channel' ? 'Search a channel, or paste its link / @handle' : 'Topic, e.g. podcast funny moments'}
+        onChange={(e) => {
+          onText(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onKeyDown={(e) => {
+          if (show && e.key === 'ArrowDown') {
+            e.preventDefault();
+            setActive((a) => Math.min(list.length - 1, a + 1));
+          } else if (show && e.key === 'ArrowUp') {
+            e.preventDefault();
+            setActive((a) => Math.max(0, a - 1));
+          } else if (e.key === 'Escape') setOpen(false);
+          else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (show && list.length) pick(active);
+            else onEnter();
+          }
+        }}
+      />
+      {show && (
+        <Floating anchor={wrap}>
+          {ideas && <p className="px-3 pt-2 pb-1 text-[11.5px] font-black tracking-wider text-ink-3 uppercase">Ideas — or type your own</p>}
+          {loading && !list.length && <p className="px-3 py-3 text-[13px] text-ink-3">Searching YouTube…</p>}
+          {kind === 'youtube_channel'
+            ? channels.map((c, i) => <ChannelOption key={c.channelId} c={c} active={i === active} onHover={() => setActive(i)} onPick={() => pick(i)} />)
+            : shownTopics.map((t, i) => {
+                const st = stats[`${region}|${days}|${t}`];
+                const hot = st && typeof st === 'object' && (st.medianViews ?? 0) >= 100_000;
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    role="option"
+                    aria-selected={i === active}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onMouseEnter={() => setActive(i)}
+                    onClick={() => pick(i)}
+                    className={cn('flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left', i === active && 'bg-row')}
+                  >
+                    <Search size={15} className="shrink-0 text-ink-3" />
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <b className="truncate text-[14px]">{t}</b>
+                      <small className="text-[12px] text-ink-3">
+                        {!st || i >= 5
+                          ? '\u00a0'
+                          : st === 'loading'
+                            ? 'Checking YouTube…'
+                            : st === 'error'
+                              ? 'Couldn’t check right now'
+                              : st.videos
+                                ? `${st.videos} fresh video${st.videos > 1 ? 's' : ''} · typically ${compact(st.medianViews)} views${st.topViews ? ` · top ${compact(st.topViews)}` : ''}`
+                                : `No long videos in the last ${days} days`}
+                      </small>
+                    </span>
+                    {hot && <span className="rounded-full bg-orange-bg px-2 py-0.5 text-[11px] font-black text-orange-ink">🔥 Popular</span>}
+                  </button>
+                );
+              })}
+        </Floating>
+      )}
+    </div>
+  );
+}
+
+/** Starting points shown when the topic box is empty (clip-friendly niches). */
+const TOPIC_IDEAS = ['podcast', 'interview', 'motivational speech', 'business podcast', 'comedy podcast', 'stream highlights', 'tech review', 'sports talk show'];
+
+/**
+ * A dropdown drawn above the whole page (a portal), lined up under its input — so it never slides under the next
+ * card or gets cut off. Opens upward when there isn't room below.
+ */
+function Floating({ anchor, children }: { anchor: RefObject<HTMLElement>; children: ReactNode }) {
+  const [box, setBox] = useState<{ left: number; width: number; top?: number; bottom?: number; maxHeight: number } | null>(null);
+  useLayoutEffect(() => {
+    const place = () => {
+      const r = anchor.current?.getBoundingClientRect();
+      if (!r) return;
+      const below = window.innerHeight - r.bottom - 12;
+      const above = r.top - 12;
+      const up = below < 260 && above > below;
+      const width = Math.min(Math.max(r.width, 320), window.innerWidth - 24);
+      const left = Math.max(12, Math.min(r.left, window.innerWidth - width - 12));
+      setBox(up ? { left, width, bottom: window.innerHeight - r.top + 8, maxHeight: Math.min(380, above) } : { left, width, top: r.bottom + 8, maxHeight: Math.min(380, below) });
+    };
+    place();
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [anchor]);
+  if (!box) return null;
+  return createPortal(
+    <div
+      role="listbox"
+      style={{ position: 'fixed', left: box.left, width: box.width, top: box.top, bottom: box.bottom, maxHeight: box.maxHeight }}
+      className="z-[70] overflow-y-auto overscroll-contain rounded-[20px] bg-surface p-1.5 shadow-clay"
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
+/** One YouTube channel in a suggestion list. */
+function ChannelOption({ c, active, onHover, onPick }: { c: ChannelHit; active: boolean; onHover: () => void; onPick: () => void }) {
+  return (
+    <button
+      type="button"
+      role="option"
+      aria-selected={active}
+      onMouseDown={(e) => e.preventDefault()}
+      onMouseEnter={onHover}
+      onClick={onPick}
+      className={cn('flex w-full items-center gap-3 rounded-2xl px-2.5 py-2 text-left', active && 'bg-row')}
+    >
+      {c.avatar ? (
+        <img src={c.avatar} alt="" referrerPolicy="no-referrer" className="size-10 shrink-0 rounded-full object-cover" />
+      ) : (
+        <span className="grid size-10 shrink-0 place-items-center rounded-full bg-lilac/30 font-bold text-ink">{c.name[0]}</span>
+      )}
+      <span className="flex min-w-0 flex-1 flex-col">
+        <b className="truncate text-[14px]">{c.name}</b>
+        <small className="truncate text-[12px] text-ink-3">{[c.handle, c.subscribers != null ? `${compact(c.subscribers)} subscribers` : null].filter(Boolean).join(' · ')}</small>
+      </span>
+    </button>
+  );
+}
+
+/** Channel suggestions while typing (debounced), for any box that takes a channel name. */
+function useChannelSearch(q: string, enabled: boolean) {
+  const [hits, setHits] = useState<ChannelHit[]>([]);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    const query = q.trim();
+    if (!enabled || query.length < 2) {
+      setHits([]);
+      return;
+    }
+    let live = true;
+    setLoading(true);
+    const t = setTimeout(() => {
+      api
+        .suggestChannels(query)
+        .then((r) => live && setHits(r))
+        .catch(() => live && setHits([]))
+        .finally(() => live && setLoading(false));
+    }, 280);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [q, enabled]);
+  return { hits, loading };
 }

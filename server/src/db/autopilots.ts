@@ -1,6 +1,8 @@
 import { collection, COLLECTIONS, fromDoc, isDuplicate, newId, setFields, stamp, type Doc } from './connection.js';
 import type { ProjectOptions } from '../types.js';
 
+export type TopicSort = 'trending' | 'views' | 'date';
+
 export interface AutopilotSource {
   kind: 'youtube_channel' | 'youtube_topic';
   /** channel: the link/@handle the person typed; topic: the search words */
@@ -9,11 +11,24 @@ export interface AutopilotSource {
   channelId?: string | null;
   label?: string | null;
   region?: string | null;
+  /** topics: which videos to take — trending (gaining views fastest), most viewed, or newest. Default: most viewed */
+  sort?: TopicSort | null;
 }
 export interface AutopilotConfig {
   sources: AutopilotSource[];
   /** languages: spoken languages to keep (ISO codes like "en"); empty/missing = any language */
-  filters: { minViews: number; minMinutes: number; maxMinutes: number; maxAgeDays: number; waitHours: number; languages?: string[] };
+  filters: {
+    minViews: number;
+    minMinutes: number;
+    maxMinutes: number;
+    maxAgeDays: number;
+    waitHours: number;
+    languages?: string[];
+    /** skip videos whose title contains any of these words */
+    excludeWords?: string[];
+    /** never clip videos from these channels (names) */
+    blockChannels?: string[];
+  };
   options: ProjectOptions;
   clipsPerVideo: number;
   /** local times "HH:MM", one per daily post */

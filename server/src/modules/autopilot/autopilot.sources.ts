@@ -91,13 +91,19 @@ export async function channelVideos(channelId: string): Promise<FoundVideo[]> {
   return out;
 }
 
-/** Videos for a topic search, newest-first within the age limit, optionally for one country. */
-export async function topicVideos(query: string, region: string | null, maxAgeDays: number, language?: string | null): Promise<FoundVideo[]> {
-  const uploaded = maxAgeDays <= 1 ? 'today' : maxAgeDays <= 7 ? 'week' : maxAgeDays <= 31 ? 'month' : 'year';
-  const sp = ytSearchParam({ type: 'videos', duration: '', sort: 'views', uploaded });
+/**
+ * Videos for a topic search within the age limit, optionally for one country.
+ *  • views    — most viewed first (YouTube's own view sort)
+ *  • date     — newest first
+ *  • trending — fresh videos gaining views fastest (views per hour since upload), YouTube has no public trending
+ */
+export async function topicVideos(query: string, region: string | null, maxAgeDays: number, language?: string | null, sort: 'trending' | 'views' | 'date' = 'views'): Promise<FoundVideo[]> {
+  const days = sort === 'trending' ? Math.min(maxAgeDays, 7) : maxAgeDays;
+  const uploaded = days <= 1 ? 'today' : days <= 7 ? 'week' : days <= 31 ? 'month' : 'year';
+  const sp = ytSearchParam({ type: 'videos', duration: '', sort: sort === 'trending' ? '' : sort, uploaded });
   // one chosen language → ask YouTube to lean results toward it
   const items = await ytSearchWeb(query, sp, 10_000, region, language || 'en');
-  return items
+  const list: FoundVideo[] = items
     .filter((i) => i.kind === 'video' && !i.isLive)
     .map((i) => ({
       videoId: i.id,
@@ -109,6 +115,9 @@ export async function topicVideos(query: string, region: string | null, maxAgeDa
       duration: i.duration,
       publishedAt: i.uploaded ? Date.parse(i.uploaded) || null : null,
     }));
+  if (sort !== 'trending') return list;
+  const perHour = (v: FoundVideo) => (v.views ?? 0) / Math.max(1, (Date.now() - (v.publishedAt ?? Date.now() - 7 * 86400_000)) / 3600_000);
+  return list.sort((a, b) => perHour(b) - perHour(a));
 }
 
 /** Fresh numbers right before clipping: length, views, live or not, and whether the rewatch graph exists yet. */
@@ -120,4 +129,82 @@ export function uploadDateMs(v: WebVideo): number | null {
   const d = v.uploadDate;
   if (!d || !/^\d{8}$/.test(d)) return null;
   return Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8));
+}
+
+// ---------------- suggestions while typing (editor) ----------------
+
+/** Small in-memory cache so typing doesn't hit YouTube for every key press. */
+const cache = new Map<string, { at: number; value: unknown }>();
+async function cached<T>(key: string, ms: number, fn: () => Promise<T>): Promise<T> {
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.at < ms) return hit.value as T;
+  const value = await fn();
+  cache.set(key, { at: Date.now(), value });
+  if (cache.size > 500) for (const k of [...cache.keys()].slice(0, 100)) cache.delete(k);
+  return value;
+}
+
+export interface ChannelHit {
+  channelId: string;
+  name: string;
+  handle: string | null;
+  url: string;
+  avatar: string | null;
+  subscribers: number | null;
+}
+
+/** YouTube channels matching what's typed (name or @handle), with logo and subscriber count. */
+export async function searchChannels(q: string): Promise<ChannelHit[]> {
+  const query = q.trim().replace(/^@/, '');
+  if (query.length < 2) return [];
+  return cached(`ch|${query.toLowerCase()}`, 10 * 60_000, async () => {
+    const items = await ytSearchWeb(query, ytSearchParam({ type: 'channels', duration: '', sort: '', uploaded: '' }), 8000);
+    return items
+      .filter((i) => i.kind === 'channel' && i.channelId)
+      .slice(0, 8)
+      .map((i) => ({
+        channelId: i.channelId!,
+        name: i.title,
+        handle: i.url.match(/\/(@[\w.-]+)/)?.[1] ?? null,
+        url: i.url,
+        avatar: i.thumbnail,
+        subscribers: i.subscribers,
+      }));
+  });
+}
+
+/** What people search on YouTube starting with these words (YouTube's own autocomplete). */
+export async function suggestTopics(q: string, region: string | null): Promise<string[]> {
+  const query = q.trim();
+  if (query.length < 2) return [];
+  return cached(`tp|${region ?? ''}|${query.toLowerCase()}`, 30 * 60_000, async () => {
+    const url = `https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&hl=en${region ? `&gl=${encodeURIComponent(region)}` : ''}&q=${encodeURIComponent(query)}`;
+    const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(6000) });
+    if (!res.ok) throw new Error(`YouTube answered ${res.status}`);
+    const data = (await res.json()) as [string, string[]];
+    const list = Array.isArray(data?.[1]) ? data[1].map(String) : [];
+    return [...new Set([query, ...list])].slice(0, 8);
+  });
+}
+
+export interface TopicStats {
+  videos: number; // long videos found for it in the time window
+  medianViews: number | null;
+  topViews: number | null;
+}
+
+/** How busy a topic is right now: how many fresh long videos, and how many views they typically get. */
+export async function topicStats(q: string, region: string | null, maxAgeDays: number): Promise<TopicStats> {
+  return cached(`ts|${region ?? ''}|${maxAgeDays}|${q.trim().toLowerCase()}`, 30 * 60_000, async () => {
+    const found = (await topicVideos(q, region, maxAgeDays)).filter((v) => v.duration == null || v.duration > 180);
+    const views = found
+      .map((v) => v.views ?? 0)
+      .filter((n) => n > 0)
+      .sort((a, b) => a - b);
+    return {
+      videos: found.length,
+      medianViews: views.length ? views[Math.floor(views.length / 2)] : null,
+      topViews: views.length ? views[views.length - 1] : null,
+    };
+  });
 }

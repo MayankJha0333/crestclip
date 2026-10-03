@@ -60,6 +60,17 @@ async function captionFor(ap: AutopilotRow, clip: ClipRow) {
 /** clips waiting in line or already booked — what the autopilot has "in stock" */
 const stock = async (apId: string) => (await apClips.withStatus(apId, 'review')).length + (await apClips.withStatus(apId, 'ready')).length + (await apClips.withStatus(apId, 'scheduled')).length;
 
+/** The person's own skip rules: words in the title, channels they never want. Null = fine. */
+function blockedReason(f: AutopilotRow['config']['filters'], title: string | null, channel: string | null) {
+  const t = (title ?? '').toLowerCase();
+  const word = (f.excludeWords ?? []).find((w) => w && t.includes(w.toLowerCase()));
+  if (word) return `Title has “${word}”`;
+  const ch = (channel ?? '').trim().toLowerCase().replace(/^@/, '');
+  const blocked = ch ? (f.blockChannels ?? []).find((b) => b.trim().toLowerCase().replace(/^@/, '') === ch) : undefined;
+  if (blocked) return `From ${channel} — a channel you blocked`;
+  return null;
+}
+
 // ---------------- 1. scan ----------------
 async function scan(ap: AutopilotRow) {
   const f = ap.config.filters;
@@ -72,7 +83,7 @@ async function scan(ap: AutopilotRow) {
         if (!src.channelId) continue;
         found = await channelVideos(src.channelId);
       } else {
-        found = await topicVideos(src.value, src.region ?? null, f.maxAgeDays, f.languages?.length === 1 ? f.languages[0] : null);
+        found = await topicVideos(src.value, src.region ?? null, f.maxAgeDays, f.languages?.length === 1 ? f.languages[0] : null, src.sort ?? 'views');
       }
     } catch (e) {
       errors.push(`${src.label ?? src.value}: ${(e as Error).message}`);
@@ -86,6 +97,7 @@ async function scan(ap: AutopilotRow) {
       else if (v.duration != null && v.duration < f.minMinutes * 60) [status, reason] = ['skipped', v.duration <= 60 ? 'A Short' : `Shorter than ${f.minMinutes} min`];
       else if (v.duration != null && v.duration > f.maxMinutes * 60) [status, reason] = ['skipped', `Longer than ${f.maxMinutes} min`];
       else if (languageMismatch(f.languages, null, v.title)) [status, reason] = ['skipped', languageMismatch(f.languages, null, v.title)];
+      else if (blockedReason(f, v.title, v.channel)) [status, reason] = ['skipped', blockedReason(f, v.title, v.channel)];
       if (status === 'skipped' && !v.publishedAt) continue; // don't fill the list with junk from searches
       if (await apVideos.add({ autopilotId: ap.id, ...v, status, reason })) added++;
     }
@@ -144,6 +156,11 @@ async function startClipping(ap: AutopilotRow) {
     await apVideos.update(v.id, { views, duration: d.duration, title: d.title || v.title });
     if (d.isLive) {
       await apVideos.update(v.id, { status: 'skipped', reason: 'A live stream' });
+      continue;
+    }
+    const blocked = blockedReason(f, d.title || v.title, d.channel || v.channel);
+    if (blocked) {
+      await apVideos.update(v.id, { status: 'skipped', reason: blocked });
       continue;
     }
     const wrongLanguage = languageMismatch(f.languages, d.language, d.title || v.title || '');

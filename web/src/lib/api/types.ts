@@ -273,11 +273,24 @@ export interface AutopilotSource {
   channelId?: string | null;
   label?: string | null;
   region?: string | null;
+  /** topics: trending (gaining views fastest), most viewed, or newest */
+  sort?: 'trending' | 'views' | 'date' | null;
 }
 export interface AutopilotConfig {
   sources: AutopilotSource[];
   /** languages: spoken languages to keep ("en", "hi"…); empty = any */
-  filters: { minViews: number; minMinutes: number; maxMinutes: number; maxAgeDays: number; waitHours: number; languages?: string[] };
+  filters: {
+    minViews: number;
+    minMinutes: number;
+    maxMinutes: number;
+    maxAgeDays: number;
+    waitHours: number;
+    languages?: string[];
+    /** skip videos whose title has any of these words */
+    excludeWords?: string[];
+    /** never clip these channels (names) */
+    blockChannels?: string[];
+  };
   options: Partial<ProjectOptions>;
   clipsPerVideo: number;
   times: string[];

@@ -5,10 +5,35 @@ import { alternativesView, autopilotDetail, autopilotStatus, autopilotSummary } 
 import { autopilotSchema } from './autopilot.schemas.js';
 import { me } from '../auth/auth.middleware.js';
 import * as service from './autopilot.service.js';
+import { searchChannels, suggestTopics, topicStats } from './autopilot.sources.js';
+import { toHttpError } from '../../lib/http.js';
 
 export const autopilotRouter = Router();
 
 const formError = (issue: string | undefined) => issue ?? 'Check the form';
+
+// suggestions while typing a source in the editor
+autopilotRouter.get(
+  '/autopilot/suggest/channels',
+  asyncHandler(async (req, res) => {
+    res.json(await searchChannels(String(req.query.q ?? '')).catch(toHttpError(502)));
+  }),
+);
+autopilotRouter.get(
+  '/autopilot/suggest/topics',
+  asyncHandler(async (req, res) => {
+    const region = req.query.region ? String(req.query.region).slice(0, 4) : null;
+    res.json(await suggestTopics(String(req.query.q ?? ''), region).catch(toHttpError(502)));
+  }),
+);
+autopilotRouter.get(
+  '/autopilot/suggest/topic-stats',
+  asyncHandler(async (req, res) => {
+    const region = req.query.region ? String(req.query.region).slice(0, 4) : null;
+    const days = Math.min(365, Math.max(1, Number(req.query.days) || 14));
+    res.json(await topicStats(String(req.query.q ?? '').slice(0, 120), region, days).catch(toHttpError(502)));
+  }),
+);
 
 autopilotRouter.get('/autopilot/status', (_req, res) => {
   res.json(autopilotStatus());

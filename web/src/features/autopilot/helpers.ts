@@ -66,14 +66,16 @@ export const REGIONS: { code: string; label: string }[] = [
 ];
 const regionLabel = (c?: string | null) => REGIONS.find((r) => r.code === (c ?? ''))?.label ?? c ?? 'Anywhere';
 
-export const sourceText = (s: AutopilotSource) => (s.kind === 'youtube_channel' ? s.label || s.value : `“${s.value}”${s.region ? ` · ${regionLabel(s.region)}` : ''}`);
+const SORT_LABEL = { trending: '🔥 Trending', views: 'Most viewed', date: 'Newest' } as const;
+export const sourceText = (s: AutopilotSource) =>
+  s.kind === 'youtube_channel' ? s.label || s.value : `“${s.value}”${s.region ? ` · ${regionLabel(s.region)}` : ''}${s.sort && s.sort !== 'views' ? ` · ${SORT_LABEL[s.sort]}` : ''}`;
 
 const DEFAULT_CAPTION = '{title}\n\n{hashtags}\n\n🎥 Credit: {channel}';
 
 export const EMPTY_AUTOPILOT: AutopilotInput = {
   name: '',
   sources: [],
-  filters: { minViews: 10_000, minMinutes: 5, maxMinutes: 180, maxAgeDays: 14, waitHours: 24, languages: [] },
+  filters: { minViews: 10_000, minMinutes: 5, maxMinutes: 180, maxAgeDays: 14, waitHours: 24, languages: [], excludeWords: [], blockChannels: [] },
   options: { platform: 'reels', captionStyle: 'pop', motion: 'subtle', music: 'auto', length: 'auto', layout: 'auto', showHook: true },
   clipsPerVideo: 2,
   times: defaultTimes(3),

@@ -16,6 +16,7 @@ export const autopilotSchema = z.object({
         channelId: z.string().max(40).nullish(),
         label: z.string().max(200).nullish(),
         region: z.string().max(4).nullish(),
+        sort: z.enum(['trending', 'views', 'date']).nullish(),
       }),
     )
     .min(1, 'Add at least one source')
@@ -30,6 +31,8 @@ export const autopilotSchema = z.object({
       .array(z.string().regex(/^[a-z]{2,3}$/))
       .max(12)
       .default([]),
+    excludeWords: z.array(z.string().trim().min(1).max(40)).max(30).default([]),
+    blockChannels: z.array(z.string().trim().min(1).max(80)).max(30).default([]),
   }),
   options: z.preprocess(dropNulls, optionsFields.partial()).default({}),
   clipsPerVideo: z.coerce.number().int().min(1).max(5).default(2),
@@ -38,6 +41,8 @@ export const autopilotSchema = z.object({
   targets: z.array(z.object({ connectionId: z.string(), privacy: z.enum(['public', 'unlisted', 'private']).optional() })).min(1, 'Pick at least one account to post to'),
   mode: z.enum(['review', 'auto']).default('review'),
   caption: z.string().max(2200).default(DEFAULT_CAPTION),
+  /** on edit: true = put every booked post back in line and book again with the new settings; false = leave them */
+  replan: z.boolean().optional(),
   rightsConfirmed: z.literal(true, { errorMap: () => ({ message: 'Confirm you have the rights to clip and repost these videos' }) }),
 });
 export type AutopilotForm = z.infer<typeof autopilotSchema>;

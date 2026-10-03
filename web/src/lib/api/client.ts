@@ -90,13 +90,18 @@ export const api = {
   disconnect: (id: string) => req<{ ok: boolean }>(`/api/connections/${id}`, { method: 'DELETE' }),
   // autopilot
   schedulerStatus: () => req<SchedulerStatus>('/api/autopilot/status'),
+  suggestChannels: (q: string) =>
+    req<{ channelId: string; name: string; handle: string | null; url: string; avatar: string | null; subscribers: number | null }[]>(`/api/autopilot/suggest/channels?q=${encodeURIComponent(q)}`),
+  suggestTopics: (q: string, region: string) => req<string[]>(`/api/autopilot/suggest/topics?q=${encodeURIComponent(q)}&region=${encodeURIComponent(region)}`),
+  topicStats: (q: string, region: string, days: number) =>
+    req<{ videos: number; medianViews: number | null; topViews: number | null }>(`/api/autopilot/suggest/topic-stats?q=${encodeURIComponent(q)}&region=${encodeURIComponent(region)}&days=${days}`),
   resolveChannel: (input: string) => req<{ channelId: string; label: string; url: string }>('/api/autopilot/resolve-channel', json('POST', { input })),
   previewSource: (s: AutopilotSource & { maxAgeDays?: number }) =>
     req<{ count: number; newest: number | null; sample: { title: string; views: number | null }[] }>('/api/autopilot/preview-source', json('POST', s)),
   autopilots: () => req<AutopilotSummary[]>('/api/autopilots'),
   autopilot: (id: string) => req<AutopilotDetail>(`/api/autopilots/${id}`),
   createAutopilot: (body: AutopilotInput) => req<AutopilotSummary>('/api/autopilots', json('POST', body)),
-  updateAutopilot: (id: string, body: AutopilotInput) => req<AutopilotSummary>(`/api/autopilots/${id}`, json('PUT', body)),
+  updateAutopilot: (id: string, body: AutopilotInput & { replan?: boolean }) => req<AutopilotSummary>(`/api/autopilots/${id}`, json('PUT', body)),
   pauseAutopilot: (id: string) => req<AutopilotSummary>(`/api/autopilots/${id}/pause`, { method: 'POST' }),
   resumeAutopilot: (id: string) => req<AutopilotSummary>(`/api/autopilots/${id}/resume`, { method: 'POST' }),
   scanAutopilot: (id: string) => req<{ ok: boolean }>(`/api/autopilots/${id}/scan`, { method: 'POST' }),
