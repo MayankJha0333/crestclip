@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useCallback, useEffect, useState } from 'react';
 import { CalendarClock, Coins, Gift, History, Receipt, RotateCcw, ShoppingBag, Sparkles } from 'lucide-react';
 import { api, type BillingAccount, type CreditEvent, type Payment, type Plan, type PlanId, type PlansInfo } from '../../lib/api';
@@ -294,7 +295,12 @@ export function BillingPage() {
                       {shortDate(p.createdAt)} · {p.id}
                     </span>
                   </span>
-                  <b className="shrink-0 font-display tabular-nums">{p.amount != null && p.currency ? money(p.amount / 100, p.currency) : '—'}</b>
+                  <span className="flex shrink-0 items-center gap-3">
+                    <b className="font-display tabular-nums">{p.amount != null && p.currency ? money(p.amount / 100, p.currency) : '—'}</b>
+                    <Link to={`/receipt/${encodeURIComponent(p.id)}`} className="text-xs font-bold text-accent">
+                      Receipt
+                    </Link>
+                  </span>
                 </li>
               ))}
             </ul>

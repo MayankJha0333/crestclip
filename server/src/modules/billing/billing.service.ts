@@ -1,4 +1,5 @@
 import { config } from '../../config.js';
+import { site } from '../system/system.service.js';
 import { credits, NotEnoughCredits, payments, projects, users, type PlanId, type UserRow } from '../../db/index.js';
 import { HttpError } from '../../lib/http.js';
 import { CREDITS_PER_CLIP, creditsForClips, CURRENCY, PLAN_ORDER, PLANS, planOf, TOPUP, type Plan } from './plans.js';
@@ -126,6 +127,17 @@ export async function accountSummary(user: UserRow) {
 
 export const creditHistory = async (user: UserRow) => await credits.history(user.id);
 export const paymentHistory = async (user: UserRow) => await payments.forUser(user.id);
+
+/** A receipt for one of this user's payments: what was bought, by whom, from whom. */
+export async function receipt(user: UserRow, paymentId: string) {
+  const payment = await payments.get(user.id, paymentId);
+  if (!payment) throw new HttpError(404, 'We couldn’t find that payment on your account.');
+  const item =
+    payment.kind === 'topup'
+      ? `Credit top-up — ${TOPUP.credits} credits`
+      : `${planOf(payment.plan).name} plan — monthly subscription (${planOf(payment.plan).credits} credits)`;
+  return { payment, item, customer: { name: user.name, email: user.email }, seller: site() };
+}
 
 // ---------------- limits ----------------
 

@@ -13,7 +13,8 @@ import { SettingsPage } from '../features/settings/SettingsPage';
 import { AuthPage } from '../features/auth/AuthPage';
 import { RequireAuth } from '../features/auth/auth';
 import { BillingPage } from '../features/billing/BillingPage';
-import { AboutPage, ContactPage, PrivacyPage, RefundsPage, ShippingPage, TermsPage } from '../features/legal';
+import { AboutPage, ContactPage, PricingPage, PrivacyPage, RefundsPage, ShippingPage, TermsPage } from '../features/legal';
+import { ReceiptPage } from '../features/billing/ReceiptPage';
 
 export const router = createBrowserRouter([
   { path: '/', element: <LandingPage /> },
@@ -21,12 +22,22 @@ export const router = createBrowserRouter([
   { path: '/signup', element: <AuthPage mode="signup" /> },
   // company and policy pages (public — Razorpay and Google check them)
   { path: '/about', element: <AboutPage /> },
+  { path: '/pricing', element: <PricingPage /> },
   { path: '/contact', element: <ContactPage /> },
   { path: '/terms', element: <TermsPage /> },
   { path: '/privacy', element: <PrivacyPage /> },
   { path: '/refunds', element: <RefundsPage /> },
   { path: '/refund-policy', element: <Navigate to="/refunds" replace /> },
   { path: '/shipping', element: <ShippingPage /> },
+  // a printable receipt for one payment (outside the app frame so it prints cleanly)
+  {
+    path: '/receipt/:id',
+    element: (
+      <RequireAuth>
+        <ReceiptPage />
+      </RequireAuth>
+    ),
+  },
   {
     path: '/app',
     element: (

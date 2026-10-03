@@ -31,6 +31,14 @@ billingRouter.get(
   }),
 );
 
+billingRouter.get(
+  '/billing/payments/:id/receipt',
+  requireUser,
+  asyncHandler(async (req, res) => {
+    res.json(await service.receipt(me(req), String(req.params.id)));
+  }),
+);
+
 billingRouter.post(
   '/billing/subscribe',
   requireUser,

@@ -4,7 +4,7 @@ import { Logo } from './brand/Logo';
 /** The links every public page shows — Razorpay and Google check that these pages are easy to find. */
 export const LEGAL_LINKS = [
   { to: '/about', label: 'About' },
-  { to: '/#pricing', label: 'Pricing' },
+  { to: '/pricing', label: 'Pricing' },
   { to: '/contact', label: 'Contact' },
   { to: '/terms', label: 'Terms' },
   { to: '/privacy', label: 'Privacy' },

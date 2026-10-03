@@ -7,6 +7,7 @@ import type {
   Payment,
   PlanId,
   PlansInfo,
+  Receipt,
   SiteInfo,
   AutopilotDetail,
   AutopilotInput,
@@ -61,6 +62,7 @@ export const api = {
   buyTopup: () => req<CheckoutStart>('/api/billing/topup', { method: 'POST' }),
   confirmTopup: (body: { orderId: string; paymentId: string; signature: string }) => req<BillingAccount>('/api/billing/topup/confirm', json('POST', body)),
   cancelPlan: () => req<BillingAccount>('/api/billing/cancel', { method: 'POST' }),
+  receipt: (paymentId: string) => req<Receipt>(`/api/billing/payments/${encodeURIComponent(paymentId)}/receipt`),
   // admin
   adminUsers: () => req<AdminUser[]>('/api/admin/users'),
   adminSetPlan: (id: string, plan: PlanId) => req<AdminUser>(`/api/admin/users/${id}/plan`, json('POST', { plan })),

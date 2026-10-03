@@ -421,6 +421,13 @@ export interface Payment {
   currency: string | null;
   createdAt: number;
 }
+/** Everything a printable receipt shows. */
+export interface Receipt {
+  payment: Payment;
+  item: string;
+  customer: { name: string | null; email: string };
+  seller: SiteInfo;
+}
 export interface AdminUser {
   id: string;
   email: string;

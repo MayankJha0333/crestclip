@@ -219,6 +219,11 @@ export const payments = {
       { upsert: true },
     );
   },
+  /** One payment, only if it belongs to this user. */
+  async get(userId: string, id: string): Promise<Omit<PaymentRow, 'userId' | 'ref'> | null> {
+    const d = await paymentCol().findOne({ _id: id, userId }, { projection: { userId: 0, ref: 0 } });
+    return d ? fromDoc<PaymentRow>(d) : null;
+  },
   async forUser(userId: string): Promise<Omit<PaymentRow, 'userId' | 'ref'>[]> {
     const docs = await paymentCol()
       .find({ userId }, { projection: { userId: 0, ref: 0 } })

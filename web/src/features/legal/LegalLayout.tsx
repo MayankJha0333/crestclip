@@ -11,7 +11,7 @@ import type { Business } from './business';
 const POLICY_UPDATED = '3 October 2026';
 
 /** A public page: header, a readable column of text, and the footer with every policy link. */
-export function LegalLayout({ title, intro, policy, business, children }: { title: string; intro: ReactNode; policy?: boolean; business: Business; children: ReactNode }) {
+export function LegalLayout({ title, intro, policy, wide, business, children }: { title: string; intro: ReactNode; policy?: boolean; wide?: boolean; business: Business; children: ReactNode }) {
   const { me } = useAuth();
   useEffect(() => {
     document.title = `${title} — CrestClip`;
@@ -31,7 +31,7 @@ export function LegalLayout({ title, intro, policy, business, children }: { titl
         </Link>
       </header>
 
-      <main className="mx-auto mt-10 max-w-[760px]">
+      <main className={wide ? 'mx-auto mt-10 max-w-[1080px]' : 'mx-auto mt-10 max-w-[760px]'}>
         <Link to="/" className="inline-flex items-center gap-1.5 text-sm font-bold text-ink-3 no-underline hover:text-ink">
           <ArrowLeft size={16} /> Home
         </Link>
