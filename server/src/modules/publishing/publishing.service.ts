@@ -4,7 +4,7 @@ import { clips, connections, posts, projects, type ConnectionRow, type PostRow, 
 import { assertCanSchedule } from '../billing/billing.service.js';
 import { ensureLocal } from '../../infra/cloudStore.js';
 import { HttpError } from '../../lib/http.js';
-import { open, seal } from '../../lib/secrets.js';
+import { open, seal, sign, verify } from '../../lib/secrets.js';
 import type { CreatePosts } from './publishing.schemas.js';
 import { instagram, isConfigured, platformName, providers, youtube, type Platform, type Tokens } from './providers/index.js';
 
@@ -96,6 +96,27 @@ export function tokenExpiry(c: ConnectionRow): number | null {
 // ---------------- posting ----------------
 const running = new Set<string>();
 
+/**
+ * Instagram (with Instagram Login) can't take the video bytes directly — it downloads the video from a public link.
+ * Each post gets its own signed link that works for 2 hours and only while that post is uploading.
+ */
+const LINK_HOURS = 2;
+function videoLink(postId: string): string {
+  if (!config.publicUrl.startsWith('https://'))
+    throw new Error('Instagram downloads the clip from a public https link, so posting to Instagram only works when CrestClip runs on its real web address (PUBLIC_URL).');
+  const exp = Date.now() + LINK_HOURS * 3600_000;
+  return `${config.publicUrl}/v/${postId}/${exp}/${sign(`${postId}.${exp}`)}.mp4`;
+}
+
+/** The clip file behind a signed link, or null (bad signature, expired, or the post isn't uploading any more). */
+export async function videoForLink(postId: string, exp: string, sig: string): Promise<string | null> {
+  if (!verify(`${postId}.${exp}`, sig) || !(Number(exp) > Date.now())) return null;
+  const post = await posts.get(postId);
+  if (!post || post.status !== 'uploading') return null;
+  const clip = await clips.get(post.clipId);
+  return clip?.filePath && (await ensureLocal(clip.filePath)) ? clip.filePath : null;
+}
+
 export async function runPost(postId: string) {
   if (running.has(postId)) return;
   running.add(postId);
@@ -110,7 +131,7 @@ export async function runPost(postId: string) {
     await posts.update(post.id, { status: 'uploading', attempts: post.attempts + 1, error: null });
     const token = await accessToken(conn);
     const res: { id: string; url: string; note?: string } =
-      conn.platform === 'youtube' ? await youtube.publish(token, post, clip.filePath) : await instagram.publish(token, conn.accountId, post, clip.filePath);
+      conn.platform === 'youtube' ? await youtube.publish(token, post, clip.filePath) : await instagram.publish(token, conn.accountId, post, videoLink(post.id));
     // YouTube schedules are "published" to YouTube now and go live at publishAt; the UI shows them as scheduled until then
     await posts.update(post.id, { status: 'published', remoteId: res.id, remoteUrl: res.url, error: res.note ?? null });
   } catch (e) {

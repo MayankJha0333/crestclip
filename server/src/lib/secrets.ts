@@ -29,3 +29,15 @@ export function open<T>(sealed: string): T {
   d.setAuthTag(tag);
   return JSON.parse(Buffer.concat([d.update(enc), d.final()]).toString('utf8')) as T;
 }
+
+/** A signature for short text (e.g. a temporary download link), made with the same secret key. */
+export function sign(text: string): string {
+  return crypto.createHmac('sha256', key()).update(`link:${text}`).digest('base64url');
+}
+
+/** True when `sig` is sign(text) — compared in constant time. */
+export function verify(text: string, sig: string): boolean {
+  const want = Buffer.from(sign(text));
+  const got = Buffer.from(String(sig));
+  return want.length === got.length && crypto.timingSafeEqual(want, got);
+}

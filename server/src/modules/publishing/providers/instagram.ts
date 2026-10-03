@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import { config } from '../../../config.js';
 import type { PostRow } from '../../../db/index.js';
 import { jsonFetch, redirectUri, type Tokens } from './shared.js';
@@ -54,23 +53,17 @@ export const instagram = {
   async revoke() {
     /* Instagram has no token-revoke endpoint; removing it here is enough (users can also remove the app in Instagram settings) */
   },
-  /** Reel via resumable upload (no public video URL needed): container → upload bytes → wait → publish. */
-  async publish(token: string, accountId: string, post: PostRow, file: string): Promise<{ id: string; url: string }> {
-    const size = fs.statSync(file).size;
+  /**
+   * Reel from a public link: container (Instagram downloads the video from `videoUrl`) → wait → publish.
+   * (Uploading the bytes directly — "resumable upload" — only works with Facebook Login, not Instagram Login.)
+   */
+  async publish(token: string, accountId: string, post: PostRow, videoUrl: string): Promise<{ id: string; url: string }> {
     const caption = (post.caption || '').slice(0, 2200);
-    const container = await jsonFetch<{ id: string; uri?: string }>(ig(`/${accountId}/media`), {
+    const container = await jsonFetch<{ id: string }>(ig(`/${accountId}/media`), {
       method: 'POST',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ media_type: 'REELS', upload_type: 'resumable', caption, share_to_feed: true }),
+      body: JSON.stringify({ media_type: 'REELS', video_url: videoUrl, caption, share_to_feed: true }),
     });
-    const uploadUri = container.uri ?? `https://rupload.facebook.com/ig-api-upload/${config.instagramApiVersion}/${container.id}`;
-    const up = await fetch(uploadUri, {
-      method: 'POST',
-      headers: { authorization: `OAuth ${token}`, offset: '0', file_size: String(size), 'content-type': 'application/octet-stream' },
-      body: fs.readFileSync(file),
-      signal: AbortSignal.timeout(30 * 60_000),
-    });
-    if (!up.ok) throw new Error(`Instagram upload failed (${up.status}): ${(await up.text()).slice(0, 300)}`);
     // Instagram processes the video before it can be published
     const started = Date.now();
     for (;;) {

@@ -15,6 +15,7 @@ import { exploreRouter } from './modules/explore/explore.routes.js';
 import { musicRouter } from './modules/music/music.routes.js';
 import { projectsRouter } from './modules/projects/projects.routes.js';
 import { publishingRouter } from './modules/publishing/publishing.routes.js';
+import { videoForLink } from './modules/publishing/publishing.service.js';
 import { robotsTxt, sendAppPage, sitemapXml } from './modules/seo/seo.js';
 import { systemRouter } from './modules/system/system.routes.js';
 import { watermarkRouter } from './modules/watermark/watermark.routes.js';
@@ -74,6 +75,17 @@ export function createApp() {
   app.use('/api', autopilotRouter);
   app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Not found')));
 
+  // a clip that Instagram downloads while posting (signed, expires in 2 hours — see publishing.service.ts)
+  app.get(
+    '/v/:postId/:exp/:sig.mp4',
+    asyncMiddleware(async (req, res, next) => {
+      const file = await videoForLink(String(req.params.postId), String(req.params.exp), String(req.params.sig));
+      if (!file) return next(new HttpError(404, 'This link has expired.'));
+      res.setHeader('X-Robots-Tag', 'noindex');
+      res.setHeader('Cache-Control', 'private, max-age=0');
+      res.type('video/mp4').sendFile(path.resolve(file));
+    }),
+  );
   app.use('/media', mediaAccess, fromCloud, express.static(config.dataDir, { fallthrough: false, maxAge: '1h', index: false, dotfiles: 'deny' }));
   if (fs.existsSync(config.webDist)) {
     app.get('/robots.txt', robotsTxt);
