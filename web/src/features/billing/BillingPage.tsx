@@ -9,6 +9,7 @@ import { useAuth } from '../auth/auth';
 import { CheckoutClosed, openCheckout } from './checkout';
 import { money, shortDate } from './money';
 import { PlanCards } from './PlanCards';
+import { track } from '../../lib/analytics';
 
 const SOURCE: Record<BillingAccount['credits']['grants'][number]['source'], string> = { plan: 'Monthly credits', topup: 'Top-up', bonus: 'Bonus', refund: 'Refund' };
 const KIND_ICON: Record<CreditEvent['kind'], typeof Coins> = { grant: Gift, topup: ShoppingBag, spend: Coins, refund: RotateCcw, adjust: Sparkles };
@@ -55,8 +56,10 @@ export function BillingPage() {
   const subscribe = async (plan: Plan) => {
     if (!me) return;
     setBusy(plan.id);
+    const sale = { currency: 'USD', value: plan.price, plan: plan.id };
     try {
       const start = await api.subscribe(plan.id);
+      track('begin_checkout', sale);
       if (!('subscriptionId' in start)) throw new Error('Unexpected checkout');
       let r;
       try {
@@ -64,6 +67,7 @@ export function BillingPage() {
       } catch (e) {
         // closed early — maybe after paying (UPI): check before giving up
         if (e instanceof CheckoutClosed) {
+          track('checkout_closed', { plan: plan.id });
           await waitForPlan(plan, 2);
           return;
         }
@@ -72,6 +76,7 @@ export function BillingPage() {
       const res = await api
         .confirmSubscription({ paymentId: r.razorpay_payment_id, subscriptionId: r.razorpay_subscription_id ?? start.subscriptionId, signature: r.razorpay_signature })
         .catch(() => null);
+      track('purchase', { ...sale, transaction_id: r.razorpay_payment_id, kind: 'subscription' });
       if (res && !res.pending) return void (await after(`You’re on ${plan.name} — ${plan.clips.toLocaleString()} clips a month`));
       toast('Payment received — switching your plan…');
       if (!(await waitForPlan(plan, 12))) toast(`Your payment went through, but ${plan.name} isn’t active yet. It switches automatically within a few minutes — reopen this page to check.`, 'error');
@@ -88,8 +93,10 @@ export function BillingPage() {
     try {
       const start = await api.buyTopup();
       if (!('orderId' in start)) throw new Error('Unexpected checkout');
+      track('begin_checkout', { currency: 'USD', value: info.topup.price, plan: 'topup' });
       const r = await openCheckout(start, me.user);
       await api.confirmTopup({ orderId: r.razorpay_order_id ?? start.orderId, paymentId: r.razorpay_payment_id, signature: r.razorpay_signature });
+      track('purchase', { currency: 'USD', value: info.topup.price, plan: 'topup', transaction_id: r.razorpay_payment_id, kind: 'topup' });
       await after(`${info.topup.credits} credits added`);
     } catch (e) {
       if (!(e instanceof CheckoutClosed)) toast((e as Error).message, 'error');
@@ -102,6 +109,7 @@ export function BillingPage() {
     setBusy('cancel');
     try {
       await api.cancelPlan();
+      track('cancel_plan', { plan: me?.account.plan.id });
       setConfirmCancel(false);
       await after('Your plan won’t renew. It stays active until the end of this month.');
     } catch (e) {

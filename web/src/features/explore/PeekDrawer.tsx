@@ -9,6 +9,7 @@ import { toast } from '../../lib/toast';
 import { Badge, Button, buttonClass, Skeleton } from '../../components/ui';
 import { HeatChart, PickBar } from '../media/HeatChart';
 import { useAccount } from '../auth/auth';
+import { track } from '../../lib/analytics';
 
 const MAX_MINUTES = 240;
 
@@ -170,6 +171,7 @@ export function PeekDrawer({
     saveOptions(opts);
     try {
       const p = await api.createFromUrl(peek?.url ?? item.url, o);
+      track('create_clips', { source: 'explore_preview', videos: 1 });
       toast(msg);
       nav(`/app/p/${p.id}`);
     } catch (e) {

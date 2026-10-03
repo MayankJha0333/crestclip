@@ -89,12 +89,42 @@ ${nav()}`,
       priority: '0.5',
       body: `<h1>About ${NAME}</h1><p>${NAME} (formerly ${OLD_NAME}) turns long videos into short, ready-to-post clips — starting from the moments viewers actually rewatch.</p>${nav()}`,
     },
-    '/contact': { title: `Contact — ${NAME}`, description: `How to reach the ${NAME} team for support, billing and partnership questions.`, changefreq: 'yearly', priority: '0.4', body: `<h1>Contact ${NAME}</h1>${nav()}` },
+    '/contact': {
+      title: `Contact — ${NAME}`,
+      description: `How to reach the ${NAME} team for support, billing and partnership questions.`,
+      changefreq: 'yearly',
+      priority: '0.4',
+      body: `<h1>Contact ${NAME}</h1>${nav()}`,
+    },
     '/terms': { title: `Terms of service — ${NAME}`, description: `The terms for using ${NAME}.`, changefreq: 'yearly', priority: '0.2', body: `<h1>Terms of service</h1>${nav()}` },
-    '/privacy': { title: `Privacy policy — ${NAME}`, description: `How ${NAME} collects, uses and protects your data.`, changefreq: 'yearly', priority: '0.2', body: `<h1>Privacy policy</h1>${nav()}` },
-    '/refunds': { title: `Refunds & cancellation — ${NAME}`, description: `How refunds and cancelling a ${NAME} plan work.`, changefreq: 'yearly', priority: '0.2', body: `<h1>Refunds &amp; cancellation</h1>${nav()}` },
-    '/shipping': { title: `Shipping & delivery — ${NAME}`, description: `${NAME} is software delivered online — nothing is shipped.`, changefreq: 'yearly', priority: '0.2', body: `<h1>Shipping &amp; delivery</h1>${nav()}` },
-    '/signup': { title: `Start free — ${NAME}`, description: `Create a free ${NAME} account and turn your first long video into clips. No card needed.`, changefreq: 'yearly', priority: '0.6', body: `<h1>Start free with ${NAME}</h1>${nav()}` },
+    '/privacy': {
+      title: `Privacy policy — ${NAME}`,
+      description: `How ${NAME} collects, uses and protects your data.`,
+      changefreq: 'yearly',
+      priority: '0.2',
+      body: `<h1>Privacy policy</h1>${nav()}`,
+    },
+    '/refunds': {
+      title: `Refunds & cancellation — ${NAME}`,
+      description: `How refunds and cancelling a ${NAME} plan work.`,
+      changefreq: 'yearly',
+      priority: '0.2',
+      body: `<h1>Refunds &amp; cancellation</h1>${nav()}`,
+    },
+    '/shipping': {
+      title: `Shipping & delivery — ${NAME}`,
+      description: `${NAME} is software delivered online — nothing is shipped.`,
+      changefreq: 'yearly',
+      priority: '0.2',
+      body: `<h1>Shipping &amp; delivery</h1>${nav()}`,
+    },
+    '/signup': {
+      title: `Start free — ${NAME}`,
+      description: `Create a free ${NAME} account and turn your first long video into clips. No card needed.`,
+      changefreq: 'yearly',
+      priority: '0.6',
+      body: `<h1>Start free with ${NAME}</h1>${nav()}`,
+    },
     '/login': { title: `Log in — ${NAME}`, description: `Log in to ${NAME}.`, changefreq: 'yearly', priority: '0.3', body: `<h1>Log in to ${NAME}</h1>${nav()}` },
   };
 }
@@ -126,6 +156,14 @@ function structuredData(site: string) {
   ];
 }
 
+/** The tracker IDs for the browser (only well-formed ones, so nothing odd can be written into the page). */
+function analyticsTag() {
+  const ga = /^G-[A-Z0-9]{4,20}$/.test(config.analytics.gaId ?? '') ? config.analytics.gaId : undefined;
+  const clarity = /^[a-z0-9]{6,20}$/i.test(config.analytics.clarityId ?? '') ? config.analytics.clarityId : undefined;
+  if (!ga && !clarity) return '';
+  return `<script>window.__CC_ANALYTICS__=${JSON.stringify({ ga, clarity })}</script>`;
+}
+
 let template: string | null = null;
 const indexHtml = () => (template ??= fs.readFileSync(path.join(config.webDist, 'index.html'), 'utf8'));
 
@@ -143,7 +181,7 @@ export function sendAppPage(req: Request, res: Response) {
   // an address that isn't a page: say so (status 404), so search engines don't index it as a copy of the home page
   if (!page && !isPrivate) res.status(404);
 
-  let html = indexHtml();
+  let html = indexHtml().replace('</head>', `    ${analyticsTag()}\n  </head>`);
   res.setHeader('Cache-Control', 'no-cache');
   if (!page) {
     html = html.replace('</head>', '    <meta name="robots" content="noindex" />\n  </head>');
@@ -177,9 +215,9 @@ export function sendAppPage(req: Request, res: Response) {
 }
 
 export function robotsTxt(_req: Request, res: Response) {
-  res.type('text/plain').send(
-    ['User-agent: *', 'Allow: /', 'Disallow: /app', 'Disallow: /api/', 'Disallow: /media/', 'Disallow: /receipt/', '', `Sitemap: ${config.publicUrl}/sitemap.xml`, ''].join('\n'),
-  );
+  res
+    .type('text/plain')
+    .send(['User-agent: *', 'Allow: /', 'Disallow: /app', 'Disallow: /api/', 'Disallow: /media/', 'Disallow: /receipt/', '', `Sitemap: ${config.publicUrl}/sitemap.xml`, ''].join('\n'));
 }
 
 export function sitemapXml(_req: Request, res: Response) {

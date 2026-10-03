@@ -4,6 +4,7 @@ import { api, type Clip } from '../../lib/api';
 import { Button, Segmented } from '../../components/ui';
 import { ClipCard } from '../clips/ClipCard';
 import { ClipEditor } from '../clips/ClipEditor';
+import { track } from '../../lib/analytics';
 
 export type ClipSort = 'peak' | 'ai' | 'audience' | 'time' | 'video';
 
@@ -49,7 +50,14 @@ export function ClipList({
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <Segmented label="Sort clips" size="sm" value={sort} onChange={onSort} options={sorts} />
         {ready.length > 1 && (
-          <Button variant="ink" size="sm" onClick={() => ready.forEach((c, i) => setTimeout(() => window.open(api.downloadUrl(c.id), '_blank'), i * 400))}>
+          <Button
+            variant="ink"
+            size="sm"
+            onClick={() => {
+              track('download_all', { clips: ready.length });
+              ready.forEach((c, i) => setTimeout(() => window.open(api.downloadUrl(c.id), '_blank'), i * 400));
+            }}
+          >
             <Download size={16} /> Download all {ready.length}
           </Button>
         )}

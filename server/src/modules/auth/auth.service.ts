@@ -90,7 +90,7 @@ export function googleStartUrl(next: unknown): string {
 }
 
 /** Google sent the person back: find or make their account. Returns the account and where to go next. */
-export async function googleFinish(q: Record<string, unknown>): Promise<{ user: UserRow; next: string }> {
+export async function googleFinish(q: Record<string, unknown>): Promise<{ user: UserRow; next: string; isNew: boolean }> {
   const p = pending.get(String(q.state ?? ''));
   pending.delete(String(q.state ?? ''));
   if (q.error) throw new HttpError(400, String(q.error_description ?? q.error));
@@ -117,6 +117,7 @@ export async function googleFinish(q: Record<string, unknown>): Promise<{ user: 
   };
   if (!info.sub || !info.email || !info.email_verified) throw new HttpError(400, 'Google didn’t share a verified email for this account.');
   let user = await users.byGoogle(info.sub);
+  let isNew = false;
   if (!user) {
     const byEmail = await users.byEmail(info.email);
     if (byEmail) {
@@ -124,7 +125,8 @@ export async function googleFinish(q: Record<string, unknown>): Promise<{ user: 
       user = (await users.get(byEmail.id))!;
     } else {
       user = await createUser({ email: info.email, name: info.name ?? null, googleSub: info.sub, avatar: info.picture ?? null });
+      isNew = true;
     }
   }
-  return { user, next: p.next };
+  return { user, next: p.next, isNew };
 }

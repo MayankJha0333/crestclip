@@ -110,7 +110,8 @@ function AccountRow() {
       ) : (
         <span className="grid size-8 shrink-0 place-items-center rounded-full bg-lilac font-display text-sm font-bold text-[#2a1d63]">{label[0]?.toUpperCase()}</span>
       )}
-      <span className="min-w-0 flex-1 leading-tight">
+      {/* hidden from Clarity screen recordings: name and email */}
+      <span className="min-w-0 flex-1 leading-tight" data-clarity-mask="true">
         <b className="block truncate text-sm">{label}</b>
         {me.user.name && <span className="block truncate text-xs text-ink-3">{me.user.email}</span>}
       </span>

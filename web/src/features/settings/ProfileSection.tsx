@@ -42,8 +42,12 @@ export function ProfileSection() {
       />
       <div className="flex flex-wrap items-center gap-4">
         <div className="min-w-0 flex-1">
-          <b className="block truncate">{me.user.name || me.user.email}</b>
-          <span className="block truncate text-sm text-ink-3">{me.user.email}</span>
+          <b className="block truncate" data-clarity-mask="true">
+            {me.user.name || me.user.email}
+          </b>
+          <span className="block truncate text-sm text-ink-3" data-clarity-mask="true">
+            {me.user.email}
+          </span>
           <span className="mt-2 flex flex-wrap gap-1.5">
             <Badge tone="orange">{me.account.plan.name} plan</Badge>
             {me.user.google && <Badge>Google sign-in</Badge>}

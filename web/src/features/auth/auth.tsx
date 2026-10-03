@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { Navigate, useLocation } from 'react-router-dom';
 import { api, LOGGED_OUT, type Me } from '../../lib/api';
 import { Spinner } from '../../components/ui';
+import { identify } from '../../lib/analytics';
 
 interface AuthState {
   /** the signed-in person with their plan and credits; null = signed out; undefined = still checking */
@@ -22,6 +23,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setMe(null);
     }
   }, []);
+  // visits count per account, not per browser (random account ID only — never the email)
+  const userId = me?.user.id;
+  const plan = me?.account.plan.id;
+  useEffect(() => {
+    if (userId && plan) identify(userId, plan);
+  }, [userId, plan]);
   useEffect(() => {
     void refresh();
     const out = () => setMe(null);

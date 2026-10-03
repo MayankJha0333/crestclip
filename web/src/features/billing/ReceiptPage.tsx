@@ -52,7 +52,7 @@ export function ReceiptPage() {
         </Button>
       </div>
 
-      <article className="rounded-[28px] bg-white p-8 text-[15px] leading-relaxed text-[#1d1a17] shadow-clay print:rounded-none print:shadow-none sm:p-10">
+      <article data-clarity-mask="true" className="rounded-[28px] bg-white p-8 text-[15px] leading-relaxed text-[#1d1a17] shadow-clay print:rounded-none print:shadow-none sm:p-10">
         <header className="flex flex-wrap items-start justify-between gap-6">
           <Logo size={34} />
           <div className="text-right">
@@ -113,8 +113,8 @@ export function ReceiptPage() {
         </table>
 
         <p className="mt-10 text-sm text-[#6b625a]">
-          Thank you for using {s.name}. Questions about this payment? Write to {s.email ?? 'us'} and include the receipt number. Refunds follow our policy at{' '}
-          {s.url.replace(/^https?:\/\//, '')}/refunds.
+          Thank you for using {s.name}. Questions about this payment? Write to {s.email ?? 'us'} and include the receipt number. Refunds follow our policy at {s.url.replace(/^https?:\/\//, '')}
+          /refunds.
         </p>
       </article>
     </div>

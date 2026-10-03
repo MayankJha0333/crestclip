@@ -6,6 +6,7 @@ import { Logo } from '../../components/brand/Logo';
 import { Button, Card, Field, Input } from '../../components/ui';
 import { useAuth } from './auth';
 import { LEGAL_LINKS } from '../../components/SiteFooter';
+import { track } from '../../lib/analytics';
 
 /** Only go back to a page inside the app. */
 const safeNext = (n: string | null) => (n && /^\/app(\/|$|\?)/.test(n) ? n : '/app');
@@ -53,6 +54,7 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
     try {
       if (signup) await api.signUp({ email, password, name: name || undefined });
       else await api.logIn({ email, password });
+      track(signup ? 'sign_up' : 'login', { method: 'email' });
       await refresh();
       nav(next, { replace: true });
     } catch (err) {
@@ -83,6 +85,7 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
             <>
               <a
                 href={`/api/auth/google/start?next=${encodeURIComponent(next)}`}
+                onClick={() => track('google_sign_in_click', { page: signup ? 'signup' : 'login' })}
                 className="mt-6 flex h-12 w-full items-center justify-center gap-3 rounded-full bg-surface font-display font-semibold text-ink no-underline shadow-clay-sm transition-transform hover:-translate-y-0.5"
               >
                 <GoogleMark /> Continue with Google

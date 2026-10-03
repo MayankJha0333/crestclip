@@ -15,6 +15,7 @@ import { LinkList } from './LinkList';
 import { useAccount, useAuth } from '../auth/auth';
 import { UpgradeCallout } from '../billing/UpgradeCallout';
 import { LivePreview } from './LivePreview';
+import { track } from '../../lib/analytics';
 
 const MAX_MB = 4096;
 const VIDEO_FILE = /\.(mp4|m4v|mov|mkv|webm|avi|mpe?g|ts|mts|wmv|flv|3gp)$/i;
@@ -124,11 +125,13 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
         if (bad) throw new Error(bad.info?.error ? `${bad.info.label}: ${bad.info.error}` : `“${bad.url}” isn’t a video link`);
         if (many) {
           const r = await api.createFromUrls(links, send);
+          track('create_clips', { source: 'links', videos: r.projects.length });
           toast(`Clipping ${r.projects.length} videos into one project`);
           void refresh();
           return nav(`/app/p/${r.project.id}`);
         }
         const p = await api.createFromUrl(links[0], send);
+        track('create_clips', { source: 'link', videos: 1 });
         void refresh();
         return nav(`/app/p/${p.id}`);
       }
@@ -137,6 +140,7 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
       abort.current = new AbortController();
       setUpload({ pct: 0, loaded: 0, total: file.size, speed: 0 });
       const p = await api.upload(file, send, (pct, loaded, total) => setUpload({ pct, loaded, total, speed: loaded / Math.max(0.5, (Date.now() - started) / 1000) }), abort.current.signal);
+      track('create_clips', { source: 'upload', videos: 1 });
       void refresh();
       nav(`/app/p/${p.id}`);
     } catch (err) {

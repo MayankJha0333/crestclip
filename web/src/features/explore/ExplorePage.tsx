@@ -11,6 +11,7 @@ import { Badge, Button, Card, Chip, EmptyState, PageHeader, Segmented, Select, S
 import { ChannelCard, Rail, SkeletonCard, VideoCard } from './ExploreCards';
 import { parseLink } from './parseLink';
 import { PeekDrawer } from './PeekDrawer';
+import { track } from '../../lib/analytics';
 
 const YT_TYPES = [
   { value: 'videos', label: 'Videos' },
@@ -209,6 +210,7 @@ export function ExplorePage() {
     setClipping(it.url);
     try {
       const p = await api.createFromUrl(it.url, savedOptions());
+      track('create_clips', { source: 'explore', videos: 1 });
       toast('Clipping started — CrestClip is finding the peaks');
       nav(`/app/p/${p.id}`);
     } catch (e) {

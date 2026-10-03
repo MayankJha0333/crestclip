@@ -11,11 +11,16 @@ import '@fontsource/poppins/800.css';
 import './styles/index.css';
 import { router } from './app/router';
 import { AuthProvider } from './features/auth/auth';
+import { ConsentBanner } from './components/ConsentBanner';
+import { initAnalytics } from './lib/analytics';
+
+initAnalytics();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <AuthProvider>
       <RouterProvider router={router} />
+      <ConsentBanner />
     </AuthProvider>
   </React.StrictMode>,
 );

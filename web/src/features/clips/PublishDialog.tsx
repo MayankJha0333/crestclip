@@ -9,6 +9,7 @@ import { Button, buttonClass, Dialog, Field, FieldLabel, Input, Segmented, Texta
 import { SOCIAL } from '../schedule/postStatus';
 import { useAccount } from '../auth/auth';
 import { ClipVideo } from './ClipVideo';
+import { track } from '../../lib/analytics';
 
 const nextHour = () => {
   const d = new Date(Date.now() + 3600_000);
@@ -61,6 +62,7 @@ export function PublishDialog({ clip, onClose, onDone }: { clip: Clip; onClose: 
         targets: chosen.map((a) => ({ connectionId: a.id, ...(a.platform === 'youtube' ? { title, privacy } : {}), caption })),
         scheduledAt: scheduledMs,
       });
+      track(scheduledMs ? 'schedule_post' : 'post_clip', { accounts: chosen.length, platforms: [...new Set(chosen.map((a) => a.platform))].join(',') });
       toast(scheduledMs ? `Scheduled for ${new Date(scheduledMs).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}` : 'Posting… you can keep working');
       onDone();
       onClose();

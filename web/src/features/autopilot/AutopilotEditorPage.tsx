@@ -12,6 +12,7 @@ import { CaptionPicker } from '../clip-settings/CaptionPicker';
 import { MotionPicker } from '../clip-settings/MotionPicker';
 import { SOCIAL } from '../schedule/postStatus';
 import { allZones, compact, defaultTimes, EMPTY_AUTOPILOT, prettyTime, REGIONS, sourceText } from './helpers';
+import { track } from '../../lib/analytics';
 
 function Step({ n, title, hint, children }: { n: number; title: string; hint?: ReactNode; children: ReactNode }) {
   return (
@@ -139,6 +140,7 @@ export function AutopilotEditorPage() {
     try {
       const body = { ...f, times: [...f.times].sort() };
       const a = id ? await api.updateAutopilot(id, body) : await api.createAutopilot(body);
+      if (!id) track('create_autopilot');
       toast(id ? 'Saved — schedule updated' : 'Autopilot is running');
       nav(`/app/autopilot/${a.id}`);
     } catch (e) {

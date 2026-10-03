@@ -130,6 +130,11 @@ export const config = {
     /** the person who handles complaints (defaults to BUSINESS_LEGAL_NAME) */
     grievanceOfficer: env('GRIEVANCE_OFFICER'),
   },
+  /** visitor tracking (both optional): Google Analytics 4 "G-…" ID and Microsoft Clarity project ID */
+  analytics: {
+    gaId: env('GA_MEASUREMENT_ID'),
+    clarityId: env('CLARITY_PROJECT_ID'),
+  },
   sendVideoToGemini: env('GEMINI_SEND_VIDEO', 'true') !== 'false',
   fakeAi: env('CRESTCLIP_FAKE_AI') === '1',
 

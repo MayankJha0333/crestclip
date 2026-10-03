@@ -37,7 +37,9 @@ export function PrivacyPage() {
             <strong>Technical:</strong> your IP address (to keep accounts safe and limit abuse) and error logs.
           </li>
           <li>
-            <strong>Cookies:</strong> one cookie that keeps you signed in. No advertising or tracking cookies.
+            <strong>Cookies and usage:</strong> one cookie that keeps you signed in. If you accept on the cookie banner, Google Analytics and Microsoft Clarity also set cookies to measure visits —
+            which pages you open, what you click, roughly where you are (country/city), your device and browser — and Clarity records anonymised screen sessions and heatmaps. Text you type into forms
+            is hidden from those recordings. We link visits to a random account ID, never your email. No advertising cookies.
           </li>
         </ul>
       </Section>
@@ -67,6 +69,10 @@ export function PrivacyPage() {
           </li>
           <li>
             <strong>Razorpay</strong> — payments and subscriptions.
+          </li>
+          <li>
+            <strong>Google Analytics and Microsoft Clarity</strong> — visit statistics, recordings and heatmaps, only if you accept analytics cookies. You can change your mind any time by clearing
+            this site’s data in your browser; the banner then asks again.
           </li>
           <li>
             <strong>YouTube and Instagram</strong> — only the clips and text you choose to post, when you post them.

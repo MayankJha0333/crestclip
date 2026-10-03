@@ -10,6 +10,7 @@ import { postLabel, SOCIAL, TONE_BADGE } from '../schedule/postStatus';
 import { ClipVideo } from './ClipVideo';
 import { PublishDialog } from './PublishDialog';
 import { CATEGORY_TONE, RubricBars } from './scoreBits';
+import { track } from '../../lib/analytics';
 
 /**
  * One clip: the video, why it was picked, and what you can do with it.
@@ -157,7 +158,7 @@ export function ClipCard({
 
       <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3.5 sm:col-span-2">
         {ready && (
-          <a className={buttonClass('primary', 'sm')} href={api.downloadUrl(clip.id)}>
+          <a className={buttonClass('primary', 'sm')} href={api.downloadUrl(clip.id)} onClick={() => track('download_clip')}>
             <Download size={16} /> Download
           </a>
         )}
