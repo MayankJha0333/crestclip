@@ -200,6 +200,7 @@ async function getPost(id: string, user: UserRow): Promise<PostRow> {
 export async function retryPost(id: string, user: UserRow): Promise<PostRow> {
   const p = await getPost(id, user);
   if (p.status !== 'failed' && p.status !== 'canceled') throw new HttpError(409, 'Only failed or canceled posts can be retried.');
+  if (p.status === 'canceled' && p.autopilotId) throw new HttpError(409, 'This clip was removed from the Autopilot. Post it again from its project instead.');
   const keepTime = p.scheduledAt && p.scheduledAt > Date.now() + 60_000 ? p.scheduledAt : null;
   await posts.update(p.id, { status: 'scheduled', error: null, scheduledAt: keepTime });
   if (startsNow({ scheduledAt: keepTime, platform: p.platform })) void runPost(p.id);
@@ -211,6 +212,11 @@ export async function cancelPost(id: string, user: UserRow): Promise<PostRow> {
   if (p.status !== 'scheduled')
     throw new HttpError(409, p.platform === 'youtube' && p.status === 'published' ? 'Already on YouTube — change or delete it in YouTube Studio.' : 'This post already started.');
   await posts.update(p.id, { status: 'canceled' });
+  if (p.autopilotId) {
+    // tell the Autopilot now, so its page stops showing this clip at that time (loaded here to avoid an import loop)
+    const { postCanceled } = await import('../autopilot/autopilot.engine.js');
+    await postCanceled(p).catch((e) => console.warn('[posts] autopilot sync:', (e as Error).message));
+  }
   return (await posts.get(p.id))!;
 }
 

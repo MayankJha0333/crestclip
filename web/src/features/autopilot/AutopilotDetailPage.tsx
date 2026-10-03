@@ -10,6 +10,7 @@ import {
   ExternalLink,
   Eye,
   Film,
+  FolderOpen,
   Loader2,
   Pause,
   Pencil,
@@ -80,6 +81,10 @@ function SlotRow({
             <span className="text-xs text-ink-3">
               {s.clip.source?.channel ? `from ${s.clip.source.channel} · ` : ''}
               {s.clip.duration}s · score {s.clip.score}
+              {' · '}
+              <Link to={`/app/p/${s.clip.projectId}`} className="font-bold whitespace-nowrap text-ink-2 hover:text-ink">
+                <FolderOpen size={11} className="inline -translate-y-px" /> Open project
+              </Link>
             </span>
             <span className="mt-1 flex flex-wrap gap-1.5">
               {s.posts.map((p) => {

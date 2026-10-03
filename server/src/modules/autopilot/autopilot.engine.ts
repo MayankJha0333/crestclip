@@ -318,9 +318,8 @@ async function tidy(ap: AutopilotRow) {
     const list = (await posts.forSlot(ap.id, c.slotKey)).filter((p) => p.clipId === c.clipId);
     if (!list.length) continue;
     if (list.every((p) => p.status === 'canceled')) {
-      // cancelled from the Publishing page → treat as "skip that time", keep the clip for later
-      await apSkips.add(ap.id, c.slotKey);
-      await apClips.update(c.id, { status: 'ready', slotKey: null });
+      // cancelled from the Schedule page → the clip is taken off, the same as "Remove" on the Autopilot page
+      await apClips.update(c.id, { status: 'rejected', slotKey: null });
     } else if (list.every((p) => ['published', 'failed', 'canceled'].includes(p.status))) {
       await apClips.update(c.id, { status: list.some((p) => p.status === 'published') ? 'posted' : 'failed' });
     }
@@ -378,6 +377,20 @@ export async function skipSlot(apId: string, key: string) {
 }
 export async function restoreSlot(apId: string, key: string) {
   await apSkips.remove(apId, key);
+  await kick();
+}
+
+/**
+ * A post was cancelled on the Schedule page. Once the clip has no live post left at that time, the Autopilot drops
+ * it straight away (it won't come back at another time) and later clips move up — no waiting for the next tick.
+ */
+export async function postCanceled(post: PostRow) {
+  if (!post.autopilotId || !post.slotKey) return;
+  const live = (await posts.forSlot(post.autopilotId, post.slotKey)).filter((p) => p.clipId === post.clipId && p.status !== 'canceled');
+  if (live.length) return; // still posting to another account at that time
+  await postQueue?.remove(post.id).catch(() => {});
+  const item = await apClips.bySlot(post.autopilotId, post.slotKey);
+  if (item && item.clipId === post.clipId) await apClips.update(item.id, { status: 'rejected', slotKey: null });
   await kick();
 }
 

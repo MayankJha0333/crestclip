@@ -60,7 +60,7 @@ export function Dialog({
         role={role}
         aria-modal="true"
         aria-label={typeof title === 'string' ? title : undefined}
-        className={cn('flex max-h-[calc(100dvh-2rem)] w-full animate-pop-in flex-col rounded-[28px] bg-surface p-6 shadow-clay outline-none sm:p-7', width)}
+        className={cn('flex max-h-[calc(100dvh-2rem)] w-full min-w-0 animate-pop-in flex-col rounded-[28px] bg-surface p-6 shadow-clay outline-none sm:p-7', width)}
       >
         <header className="mb-5 flex shrink-0 items-start justify-between gap-4">
           <h2 className="min-w-0 text-2xl">{title}</h2>
