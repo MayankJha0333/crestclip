@@ -98,6 +98,8 @@ export const config = {
   // string has no user in it.
   mongoUri: mongoUri(env('MONGODB_URI'), env('MONGODB_USERNAME'), env('MONGODB_PASSWORD')),
   mongoDb: env('MONGODB_DB', 'crestclip'),
+  /** testing only: let pasted links point at this computer / the local network */
+  allowPrivateLinks: env('ALLOW_PRIVATE_LINKS') === '1',
   dataDir: path.resolve(REPO_ROOT, env('DATA_DIR', 'data')),
   fontsDir: path.join(SERVER_ROOT, 'assets', 'fonts'),
   webDist: path.join(REPO_ROOT, 'web', 'dist'),

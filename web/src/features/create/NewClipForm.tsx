@@ -162,7 +162,7 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
   return (
     <form
       onSubmit={submit}
-      className="relative grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_390px]"
+      className="relative grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_390px]"
       onDragOver={(e) => {
         if (busy || !e.dataTransfer.types.includes('Files')) return;
         e.preventDefault();

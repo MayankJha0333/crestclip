@@ -84,15 +84,19 @@ export async function transcribe(
     done++;
     onProgress(done, chunks.length);
     if (r.language && !lang) lang = r.language;
-    return (r.segments || [])
-      .filter((x) => x && typeof x.t === 'string' && x.t.trim())
-      .map((x) => ({
-        s: c.start + Math.max(0, Number(x.s) || 0),
-        e: c.start + Math.max(Number(x.e) || 0, (Number(x.s) || 0) + 0.2),
-        text: x.t.trim(),
-        speaker: x.sp,
-      }))
-      .filter((x) => x.s < c.start + c.dur);
+    return (
+      (r.segments || [])
+        .filter((x) => x && typeof x.t === 'string' && x.t.trim())
+        .map((x) => ({
+          s: c.start + Math.max(0, Number(x.s) || 0),
+          e: c.start + Math.max(Number(x.e) || 0, (Number(x.s) || 0) + 0.2),
+          text: x.t.trim(),
+          speaker: x.sp,
+        }))
+        .filter((x) => x.s < c.start + c.dur)
+        // a model stuck in a loop repeats one line over and over — keep at most two in a row
+        .filter((x, k, all) => !(k >= 2 && all[k - 1].text === x.text && all[k - 2].text === x.text))
+    );
   });
 
   const flat = results.flat().sort((a, b) => a.s - b.s);

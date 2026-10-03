@@ -5,7 +5,7 @@ export const splitLinks = (text: string) =>
       text
         .split(/[\s,]+/)
         .map((x) => x.trim())
-        .filter((x) => /^(https?:\/\/)?[\w-]+(\.[\w-]+)+\//i.test(x)),
+        .filter((x) => /^(https?:\/\/)?[\w-]+(\.[\w-]+)+(:\d{1,5})?\//i.test(x)), // host (+ optional port) then a path
     ),
   ].map((x) => (/^https?:\/\//i.test(x) ? x : `https://${x}`));
 

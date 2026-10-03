@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ChevronRight, Clapperboard, Download, ExternalLink, Film, Hourglass, Layers, ListChecks, RotateCcw, Trash2, Tv, XCircle } from 'lucide-react';
 import { api, type Project } from '../../lib/api';
@@ -12,6 +12,7 @@ import { ProcessingCard } from './ProcessingCard';
 import { ProjectHeader } from './ProjectHeader';
 import { isWorking } from './ProjectCard';
 import { canWatchSource, SourceTab, type SourceTabHandle } from './SourceTab';
+import { useAuth } from '../auth/auth';
 
 const fmtBytes = (b: number) => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(b / 1e6))} MB`);
 
@@ -37,6 +38,12 @@ export function ProjectPage() {
   );
   const busy = !p || isWorking(p) || Boolean(p.clips?.some((c) => c.status === 'pending' || c.status === 'rendering'));
   usePolling(load, busy ? 2000 : 30000);
+  // credits are taken once the video is read and given back for clips that don't come out: keep the meter in step
+  const { refresh } = useAuth();
+  const charged = p?.creditsCharged;
+  useEffect(() => {
+    if (charged !== undefined) void refresh();
+  }, [charged, busy, refresh]);
 
   if (err)
     return (

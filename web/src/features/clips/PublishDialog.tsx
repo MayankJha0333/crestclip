@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { hideBroken } from '../../lib/img';
 import { Link } from 'react-router-dom';
 import { CalendarClock, Send } from 'lucide-react';
 import { api, type Account, type Clip } from '../../lib/api';
@@ -131,7 +132,7 @@ export function PublishDialog({ clip, onClose, onDone }: { clip: Clip; onClose: 
                       <span className={cn('grid size-7 place-items-center rounded-lg text-white', P.color)}>
                         <P.Icon size={15} />
                       </span>
-                      {a.avatar && <img src={a.avatar} alt="" referrerPolicy="no-referrer" className="size-6 rounded-full" />}
+                      {a.avatar && <img src={a.avatar} alt="" referrerPolicy="no-referrer" className="size-6 rounded-full" onError={hideBroken} />}
                       <span className="truncate font-extrabold">{a.handle ?? a.name}</span>
                     </label>
                   );

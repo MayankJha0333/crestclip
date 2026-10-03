@@ -54,11 +54,11 @@ authRouter.post(
   }),
 );
 
-/** The signed-in person, their plan and credits (401 when nobody is signed in). */
+/** The signed-in person, their plan and credits — `{ user: null }` when nobody is signed in (not an error). */
 authRouter.get(
   '/auth/me',
-  requireUser,
   asyncHandler(async (req, res) => {
+    if (!req.user) return res.json({ user: null, account: null });
     // right after Checkout, a plan whose payment hasn't been confirmed yet is checked with Razorpay
     const signedIn = me(req);
     const user = await refreshAccount(signedIn.pendingSubscriptionId ? await reconcileSubscriptions(signedIn) : signedIn);

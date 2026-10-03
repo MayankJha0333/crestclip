@@ -57,6 +57,8 @@ interface JsonCall {
   lowMediaRes?: boolean;
   maxOutputTokens?: number;
   label?: string;
+  /** give up on one try after this long (default 5 min) — a call that never answers must not freeze a project */
+  timeoutMs?: number;
 }
 
 interface Usage {
@@ -87,6 +89,7 @@ export async function generateJson<T>(c: JsonCall): Promise<T> {
           ...(useThinking ? { thinkingConfig: { thinkingLevel: c.thinking as ThinkingLevel } } : {}),
           ...(c.audioTimestamp ? { audioTimestamp: true } : {}),
           ...(useMediaRes ? { mediaResolution: MediaResolution.MEDIA_RESOLUTION_LOW } : {}),
+          abortSignal: AbortSignal.timeout(c.timeoutMs ?? 5 * 60_000),
         },
       });
       usage.calls++;
@@ -94,11 +97,25 @@ export async function generateJson<T>(c: JsonCall): Promise<T> {
       usage.output += res.usageMetadata?.candidatesTokenCount ?? 0;
       const text = res.text ?? '';
       if (!text.trim()) throw new Error(`Gemini returned an empty response (${res.candidates?.[0]?.finishReason ?? 'unknown'})`);
-      return JSON.parse(stripFences(text)) as T;
+      try {
+        return JSON.parse(stripFences(text)) as T;
+      } catch (parseErr) {
+        // a cut-off or garbled answer: try again; on the last try keep what's complete rather than failing the video
+        if (attempt < 2) throw new Error(`Gemini returned broken JSON (${res.candidates?.[0]?.finishReason ?? 'unknown'}): ${(parseErr as Error).message}`);
+        const saved = salvageJson(stripFences(text));
+        if (saved === undefined) throw parseErr;
+        console.warn(`[gemini] ${c.label ?? 'call'}: answer was cut off or garbled — kept the complete part`);
+        return saved as T;
+      }
     } catch (e) {
       lastErr = e;
       const msg = String((e as Error)?.message ?? e);
       const status = (e as { status?: number })?.status;
+      // timed out: one more try could take just as long, so stop here (callers fall back, e.g. without the video)
+      if ((e as Error)?.name === 'TimeoutError' || (e as Error)?.name === 'AbortError') {
+        lastErr = new Error(`Gemini took too long to answer${c.label ? ` (${c.label})` : ''}. Please try again.`);
+        break;
+      }
       if (status === 400 || /INVALID_ARGUMENT/.test(msg)) {
         if (useThinking && /think/i.test(msg)) {
           useThinking = false;
@@ -113,12 +130,57 @@ export async function generateJson<T>(c: JsonCall): Promise<T> {
           continue;
         }
       }
-      const retryable = status === 429 || (status && status >= 500) || /RESOURCE_EXHAUSTED|UNAVAILABLE|DEADLINE|ECONNRESET|fetch failed|Unexpected end of JSON|Unterminated|empty response/i.test(msg);
+      const retryable =
+        status === 429 || (status && status >= 500) || /RESOURCE_EXHAUSTED|UNAVAILABLE|DEADLINE|ECONNRESET|fetch failed|broken JSON|Unexpected end of JSON|Unterminated|empty response/i.test(msg);
       if (!retryable || attempt >= 4) break;
       await sleep(2000 * 2 ** Math.min(attempt, 3) + Math.random() * 1000);
     }
   }
   throw explain(lastErr, model, c.label);
+}
+
+/**
+ * Rescue the complete part of a cut-off or slightly broken JSON answer: drop trailing commas, cut back to the last
+ * fully closed object/array and close whatever is still open. Returns undefined when nothing usable is left.
+ */
+export function salvageJson(text: string): unknown {
+  const s = text.replace(/,\s*([}\]])/g, '$1');
+  try {
+    return JSON.parse(s);
+  } catch {
+    /* repair below */
+  }
+  // remember every place where an object/array has just closed, with what is still open there
+  const cuts: { at: number; open: string }[] = [];
+  const stack: string[] = [];
+  let inStr = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) {
+      if (ch === '\\') i++;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === '{' || ch === '[') stack.push(ch);
+    else if (ch === '}' || ch === ']') {
+      stack.pop();
+      cuts.push({ at: i + 1, open: stack.join('') });
+    }
+  }
+  for (let k = cuts.length - 1; k >= 0 && k >= cuts.length - 50; k--) {
+    const { at, open } = cuts[k];
+    const closing = [...open]
+      .reverse()
+      .map((b) => (b === '{' ? '}' : ']'))
+      .join('');
+    try {
+      return JSON.parse(s.slice(0, at) + closing);
+    } catch {
+      /* try an earlier cut */
+    }
+  }
+  return undefined;
 }
 
 function stripFences(s: string) {
@@ -133,7 +195,12 @@ function explain(e: unknown, model: string, label?: string): Error {
   if (/PERMISSION_DENIED|403/i.test(msg)) return new Error(`Vertex AI said "permission denied"${where}. Enable aiplatform.googleapis.com and give your account the "Vertex AI User" role.`);
   if (/NOT_FOUND|404/i.test(msg) && /model/i.test(msg))
     return new Error(`Model "${model}" was not found in location "${config.gcpLocation}"${where}. Check GEMINI_MODEL / GOOGLE_CLOUD_LOCATION in .env.`);
-  return new Error(`Gemini error${where}: ${msg.slice(0, 400)}`);
+  // anything else: the full detail goes to the server log, the person gets something they can act on
+  console.warn(`[gemini] failed${where}: ${msg.slice(0, 600)}`);
+  if (/RESOURCE_EXHAUSTED|429|quota/i.test(msg)) return new Error('The AI is busy right now (too many requests). Please try again in a few minutes.');
+  if (/took too long/i.test(msg)) return new Error(msg);
+  const step = label ? ` while it was on “${label.replace(/ \d+\/\d+$/, '')}”` : '';
+  return new Error(`The AI had trouble with this video${step}. Press Try again — it usually works the second time.`);
 }
 
 export async function checkGemini(): Promise<{ ok: boolean; detail: string }> {

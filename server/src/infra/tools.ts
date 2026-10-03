@@ -197,10 +197,12 @@ export function ensureYtdlp(force = false): Promise<void> {
 /** Start-up + daily upkeep. */
 export function startToolUpkeep() {
   ensureFfmpeg().then(() => log(`ffmpeg: ${ffmpegSource()} → ${ffmpegPath()}`));
-  ensureYtdlp().then(() => ytStatus.version && log(`yt-dlp ${ytStatus.version} (${ytStatus.source})`));
-  const t = setInterval(() => {
-    ensureYtdlp();
-    if (ffStatus.state === 'error') ensureFfmpeg();
-  }, 6 * 3600_000);
-  t.unref();
+  void ensureYtdlp().then(() => ytStatus.version && log(`yt-dlp ${ytStatus.version} (${ytStatus.source})`));
+  // daily-ish update check
+  setInterval(() => void ensureYtdlp(), 6 * 3600_000).unref();
+  // a tool that failed (computer asleep, no internet, a slow first start) is tried again every 5 minutes, not hours later
+  setInterval(() => {
+    if (ytStatus.state === 'error') void ensureYtdlp();
+    if (ffStatus.state === 'error') void ensureFfmpeg();
+  }, 5 * 60_000).unref();
 }

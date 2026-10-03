@@ -61,6 +61,18 @@ export function VideoCard({
   const vertical = item.kind === 'short' || item.kind === 'clip';
   const [broken, setBroken] = useState(false);
   const canClip = item.kind !== 'live' && !item.isLive;
+  // Quick clip spends credits, so it takes a second click (a stray click on the card shouldn't start a job)
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = window.setTimeout(() => setArmed(false), 4000);
+    return () => window.clearTimeout(t);
+  }, [armed]);
+  const quickClip = () => {
+    if (!armed) return setArmed(true);
+    setArmed(false);
+    onQuickClip?.();
+  };
   const age = item.uploaded ? Date.parse(item.uploaded) : NaN;
   return (
     <article className={cn(CARD, 'animate-pop-in')} style={{ animationDelay: `${Math.min(index, 12) * 30}ms` }} aria-label={`Preview: ${item.title}`} {...clickable(onOpen)} {...warmPeek(item)}>
@@ -97,13 +109,24 @@ export function VideoCard({
             <Clock size={12} /> {fmtTime(item.duration)}
           </Badge>
         ) : null}
-        <div className="absolute inset-0 flex flex-wrap items-center justify-center gap-2 bg-ink/25 p-2.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 [@media(hover:none)]:hidden">
+        <div
+          className={cn(
+            'absolute inset-0 flex flex-wrap items-center justify-center gap-2 bg-ink/25 p-2.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 [@media(hover:none)]:hidden',
+            armed && 'opacity-100',
+          )}
+        >
           <span className={buttonClass('secondary', vertical ? 'sm' : 'md')}>
             <Eye size={16} /> Preview
           </span>
           {onQuickClip && canClip && (
-            <button type="button" className={buttonClass('primary', vertical ? 'sm' : 'md')} onClick={stop(onQuickClip)} disabled={busy} title="Start clipping now with your saved settings">
-              <Zap size={16} /> Quick clip
+            <button
+              type="button"
+              className={buttonClass('primary', vertical ? 'sm' : 'md')}
+              onClick={stop(quickClip)}
+              disabled={busy}
+              title="Start clipping now with your saved settings (uses credits)"
+            >
+              <Zap size={16} /> {armed ? 'Click again to clip' : 'Quick clip'}
             </button>
           )}
         </div>

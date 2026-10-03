@@ -38,8 +38,17 @@ export async function resolveChannel(input: string): Promise<{ channelId: string
   let url: string;
   if (direct && /^UC[\w-]{22}$/.test(raw)) url = `https://www.youtube.com/channel/${direct}`;
   else if (/^@[\w.-]+$/.test(raw)) url = `https://www.youtube.com/${raw}`;
-  else if (/youtube\.com|youtu\.be/.test(raw)) url = raw.startsWith('http') ? raw : `https://${raw}`;
-  else url = `https://www.youtube.com/@${raw.replace(/^@/, '')}`;
+  else if (/youtube\.com|youtu\.be/.test(raw)) {
+    url = raw.startsWith('http') ? raw : `https://${raw}`;
+    // only real YouTube addresses (not any link that merely mentions youtube.com)
+    let host = '';
+    try {
+      host = new URL(url).hostname.replace(/^(www|m)\./, '');
+    } catch {
+      /* not a link */
+    }
+    if (host !== 'youtube.com' && host !== 'youtu.be') throw new Error('Paste a YouTube channel link or @handle.');
+  } else url = `https://www.youtube.com/@${raw.replace(/^@/, '')}`;
   if (/youtube\.com\/(watch|shorts)/.test(url)) throw new Error('That’s a video link — paste the channel’s link (it looks like youtube.com/@name).');
 
   const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(10_000) });

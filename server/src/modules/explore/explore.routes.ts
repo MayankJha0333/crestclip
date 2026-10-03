@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { assertPublicUrl } from '../../lib/net.js';
 import { asyncHandler, HttpError, validate } from '../../lib/http.js';
 import { channelQuerySchema, searchQuerySchema } from './explore.schemas.js';
 import * as service from './explore.service.js';
@@ -24,6 +25,7 @@ exploreRouter.get(
   '/channel',
   asyncHandler(async (req, res) => {
     const q = validate(channelQuerySchema, req.query, 'Missing channel.');
+    if (/^https?:\/\//i.test(q.url)) await assertPublicUrl(q.url);
     res.json(await service.channel(q).catch(sourceFailed));
   }),
 );
@@ -32,6 +34,7 @@ exploreRouter.get(
   '/peek',
   asyncHandler(async (req, res) => {
     const url = validate(z.string().url(), req.query.url, 'Bad link');
+    await assertPublicUrl(url);
     res.json(await service.preview(url).catch(sourceFailed));
   }),
 );

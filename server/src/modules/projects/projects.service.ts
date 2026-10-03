@@ -6,6 +6,7 @@ import { enqueueJob, enqueueProject, enqueueRender } from '../../infra/queue.js'
 import { HttpError } from '../../lib/http.js';
 import { projectDir } from '../../lib/paths.js';
 import { classifyFileLink, fileLinkLabel } from '../../pipeline/filelink.js';
+import { assertPublicUrl } from '../../lib/net.js';
 import { applyInstructions } from '../../pipeline/instructions.js';
 import { createPickedClips, preparePickedClips } from '../../pipeline/process.js';
 import type { ProjectOptions, TimeRange } from '../../types.js';
@@ -31,6 +32,7 @@ export async function getProject(id: string, user: UserRow): Promise<ProjectRow>
 
 /** One project from one link. Drive / Dropbox / OneDrive / direct .mp4 are downloaded as plain files (like uploads). */
 async function projectFromLink(userId: string, url: string, options: ProjectOptions, parentId: string | null = null) {
+  await assertPublicUrl(url);
   const file = classifyFileLink(url);
   if (file && 'error' in file) throw new HttpError(400, file.error);
   const opts = { ...options };
@@ -55,6 +57,7 @@ export async function createFromLinks(user: UserRow, links: string[], options: P
   assertVideosPerProject(user, urls.length);
   await assertHasCredits(user, clipsAsked(options) * urls.length);
   for (const u of urls) {
+    await assertPublicUrl(u);
     const f = classifyFileLink(u);
     if (f && 'error' in f) throw new HttpError(400, `${u.slice(0, 60)}… — ${f.error}`);
   }

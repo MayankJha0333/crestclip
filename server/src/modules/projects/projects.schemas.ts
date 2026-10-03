@@ -1,7 +1,10 @@
 import { z } from 'zod';
 
+/** Settings saved earlier may hold `null` for "not set" — treat it like a missing field. */
+export const dropNulls = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).filter(([, x]) => x !== null)) : v);
+
 /** Clip settings for a new project (also used by Autopilot). */
-export const optionsSchema = z.object({
+export const optionsFields = z.object({
   platform: z.enum(['shorts', 'tiktok', 'reels']).default('shorts'),
   length: z.enum(['auto', 'short', 'medium', 'long']).default('auto'),
   clipCount: z.coerce.number().int().min(1).max(30).default(8),
@@ -23,6 +26,7 @@ export const optionsSchema = z.object({
   focus: z.string().max(600).default(''),
   instructions: z.string().max(6000).optional(),
 });
+export const optionsSchema = z.preprocess(dropNulls, optionsFields);
 
 export const createProjectSchema = z.object({ url: z.string().url(), options: optionsSchema.default({}) });
 

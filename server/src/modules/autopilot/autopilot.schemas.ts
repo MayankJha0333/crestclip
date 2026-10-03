@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { optionsSchema } from '../projects/projects.schemas.js';
+import { dropNulls, optionsFields } from '../projects/projects.schemas.js';
 import { DEFAULT_CAPTION } from './autopilot.engine.js';
 import { isValidZone } from './autopilot.time.js';
 
@@ -27,7 +27,7 @@ export const autopilotSchema = z.object({
     maxAgeDays: z.coerce.number().int().min(1).max(365).default(14),
     waitHours: z.coerce.number().min(0).max(240).default(24),
   }),
-  options: optionsSchema.partial().default({}),
+  options: z.preprocess(dropNulls, optionsFields.partial()).default({}),
   clipsPerVideo: z.coerce.number().int().min(1).max(5).default(2),
   times: z.array(z.string().regex(timeRe, 'Times look like 13:00')).min(1, 'Pick at least one posting time').max(12),
   timezone: z.string().refine(isValidZone, 'Unknown time zone'),

@@ -4,6 +4,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import { config } from '../config.js';
+import { publicFetch } from '../lib/net.js';
 
 /**
  * Links to a video FILE in cloud storage (not a video website):
@@ -113,7 +114,7 @@ const mb = (b: number) => (b >= 1e9 ? `${(b / 1e9).toFixed(2)} GB` : `${(b / 1e6
 /** Download the file into `dir`. Returns the saved path and the file's own name. */
 export async function downloadFileLink(link: FileLink, dir: string, onProgress: (pct: number, detail: string) => void): Promise<{ file: string; name: string }> {
   const where = fileLinkLabel[link.kind];
-  let res = await fetch(directUrl(link), { headers: { 'user-agent': UA }, redirect: 'follow' });
+  let res = await publicFetch(directUrl(link), { headers: { 'user-agent': UA } });
 
   // Google Drive: big files → confirmation page; private files → sign-in page
   if (link.kind === 'gdrive' && res.ok && /text\/html/i.test(res.headers.get('content-type') ?? '')) {
@@ -124,7 +125,7 @@ export async function downloadFileLink(link: FileLink, dir: string, onProgress: 
         throw new Error('This Google Drive file is private. In Drive, set sharing to “Anyone with the link”, then try again.');
       throw new Error('Google Drive didn’t send the video. Check the file is shared with “Anyone with the link”.');
     }
-    res = await fetch(next, { headers: { 'user-agent': UA }, redirect: 'follow' });
+    res = await publicFetch(next, { headers: { 'user-agent': UA } });
   }
 
   if (res.status === 401 || res.status === 403) throw new Error(`${where} refused the download — make sure the file is shared publicly (“Anyone with the link”).`);

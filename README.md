@@ -249,7 +249,7 @@ Every call needs a signed-in session (the `cc_session` cookie from `POST /api/au
 
 ```
 POST   /api/auth/signup | /api/auth/login | /api/auth/logout
-GET    /api/auth/me                you, your plan and credits
+GET    /api/auth/me                you, your plan and credits ({ user: null } when signed out)
 GET    /api/billing/plans          the pricing table
 GET    /api/billing/account        plan, credits, history, payments
 GET    /api/health                 setup status (Gemini, ffmpeg, yt-dlp)

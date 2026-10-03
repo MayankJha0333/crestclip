@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { hideBroken } from '../../lib/img';
 import { AlertTriangle, Check, ChevronDown, Copy, Link2, LogOut, ShieldCheck, UserPlus } from 'lucide-react';
 import { api, type Account, type Connections } from '../../lib/api';
 import { cn } from '../../lib/cn';
@@ -147,7 +148,7 @@ function PlatformCard({
           {accounts.map((a) => (
             <div key={a.id} className="flex items-center gap-3 rounded-2xl bg-surface py-2.5 pr-2.5 pl-3 shadow-flat">
               {a.avatar ? (
-                <img src={a.avatar} alt="" referrerPolicy="no-referrer" className="size-10 rounded-full object-cover" />
+                <img src={a.avatar} alt="" referrerPolicy="no-referrer" className="size-10 rounded-full object-cover" onError={hideBroken} />
               ) : (
                 <span className="grid size-10 place-items-center rounded-full bg-muted-bg font-black">{(a.name ?? '?')[0]}</span>
               )}

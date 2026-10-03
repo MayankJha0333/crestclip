@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { hideBroken } from '../lib/img';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { AlertTriangle, Bot, CalendarClock, Compass, LayoutGrid, LogOut, Plus, RefreshCw, Settings, X, type LucideIcon } from 'lucide-react';
 import { api } from '../lib/api';
@@ -105,7 +106,7 @@ function AccountRow() {
   return (
     <div className="flex items-center gap-2.5 border-t border-line px-1.5 pt-3">
       {me.user.avatar ? (
-        <img src={me.user.avatar} alt="" className="size-8 shrink-0 rounded-full" referrerPolicy="no-referrer" />
+        <img src={me.user.avatar} alt="" className="size-8 shrink-0 rounded-full" referrerPolicy="no-referrer" onError={hideBroken} />
       ) : (
         <span className="grid size-8 shrink-0 place-items-center rounded-full bg-lilac font-display text-sm font-bold text-[#2a1d63]">{label[0]?.toUpperCase()}</span>
       )}
