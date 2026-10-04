@@ -57,7 +57,7 @@ export function PrivacyPage() {
 
       <Section title="4. AI processing">
         <p>
-          Your videos’ audio, transcript and, for some videos, frames are sent to Google’s Gemini AI on Google Cloud Vertex AI to find moments and write titles and captions. Under Google Cloud’s
+          Your videos’ audio, transcript and, for some videos, frames are sent to AI services on Google Cloud to find moments and write titles and captions. Under Google Cloud’s
           terms, this data isn’t used to train Google’s models, and we don’t use your videos to train any AI either.
         </p>
       </Section>
@@ -65,7 +65,7 @@ export function PrivacyPage() {
       <Section title="5. Who we share it with">
         <ul>
           <li>
-            <strong>Google Cloud</strong> — hosting, file storage and Gemini AI.
+            <strong>Google Cloud</strong> — hosting, file storage and AI processing.
           </li>
           <li>
             <strong>Razorpay</strong> — payments and subscriptions.

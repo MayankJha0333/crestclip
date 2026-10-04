@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ChevronRight, Clapperboard, Download, ExternalLink, Film, Hourglass, Layers, ListChecks, RotateCcw, Trash2, Tv, XCircle } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Clapperboard, ExternalLink, Film, Hourglass, Layers, ListChecks, RotateCcw, Trash2, Tv, XCircle } from 'lucide-react';
 import { api, type Project } from '../../lib/api';
 import { deletesIn, fmtTime, fmtViews } from '../../lib/format';
 import { usePolling } from '../../lib/hooks';
@@ -13,8 +13,6 @@ import { ProjectHeader } from './ProjectHeader';
 import { isWorking } from './ProjectCard';
 import { canWatchSource, SourceTab, type SourceTabHandle } from './SourceTab';
 import { useAuth } from '../auth/auth';
-
-const fmtBytes = (b: number) => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(b / 1e6))} MB`);
 
 function BackLink({ to, label }: { to: string; label: string }) {
   return (
@@ -93,12 +91,6 @@ function SingleProject({ p, load }: { p: Project; load: () => void }) {
             {p.channel && <Badge>{p.channel}</Badge>}
             {p.duration ? <Badge>{fmtTime(p.duration)} long</Badge> : null}
             {p.viewCount ? <Badge>{fmtViews(p.viewCount)}</Badge> : null}
-            {p.download && (
-              <Badge tone="good" title="CrestClip downloaded the audio plus only the parts that became clips, not the whole video">
-                <Download size={12} /> {fmtBytes(p.download.downloaded)}
-                {p.download.full && p.download.full > p.download.downloaded ? ` instead of ~${fmtBytes(p.download.full)}` : ' downloaded'}
-              </Badge>
-            )}
             {p.sourceUrl && (
               <a href={p.sourceUrl} target="_blank" rel="noreferrer" className="no-underline">
                 <Badge>

@@ -11,7 +11,7 @@ const musicName = (t: string) => (t === 'none' ? 'no music' : t === 'auto' ? 'au
 /**
  * The less-used settings (pauses, motion, music, framing, hook, flash-forward, emoji, audience data): one summary row that opens a side panel,
  * so the page layout never jumps.
- * Length, clip count and captions live next to the live preview instead. The watermark is set once in Settings.
+ * Length, clip count, captions and the logo live next to the live preview instead.
  */
 export function ClipSettings({ value, onChange }: { value: ProjectOptions; onChange: (o: ProjectOptions) => void }) {
   const [open, setOpen] = useState(false);

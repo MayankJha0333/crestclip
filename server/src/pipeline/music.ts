@@ -234,9 +234,11 @@ export function generateMood(moodId: string, fresh = false): Promise<string> {
         lyriaStatus.ok = true;
         lyriaStatus.detail = '';
       } catch (e) {
+        // the raw reason names the provider and model: server log only
+        console.warn(`[music] AI track "${mood.id}" failed:`, (e as Error).message);
         lyriaStatus.ok = false;
-        lyriaStatus.detail = (e as Error).message;
-        throw new Error(`AI music isn’t available right now: ${(e as Error).message}`);
+        lyriaStatus.detail = 'the music AI didn’t answer — try again in a few minutes';
+        throw new Error('AI music isn’t available right now. Please try again in a few minutes.');
       }
       await extendTrack(wav, tmpOut);
       fs.rmSync(wav, { force: true });

@@ -134,6 +134,12 @@ export const api = {
     fd.append('file', file);
     return req<Watermark>('/api/watermark/logo', { method: 'POST', body: fd });
   },
+  async addLogo(file: File): Promise<Watermark & { added: string }> {
+    const fd = new FormData();
+    fd.append('file', file);
+    return req<Watermark & { added: string }>('/api/watermark/logos', { method: 'POST', body: fd });
+  },
+  removeLogo: (id: string) => req<Watermark>(`/api/watermark/logos/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   rerender: (id: string) => req<Clip>(`/api/clips/${id}/render`, { method: 'POST' }),
   variant: (id: string) => req<Clip>(`/api/clips/${id}/variant`, { method: 'POST' }),
   transcript: (id: string) => req<{ start: number; end: number; duration: number; segments: { s: number; e: number; text: string; speaker?: string }[] }>(`/api/clips/${id}/transcript`),

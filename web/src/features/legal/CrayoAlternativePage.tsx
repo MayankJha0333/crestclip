@@ -45,7 +45,7 @@ export function CrayoAlternativePage() {
               </tr>
               <tr>
                 <td className="font-bold text-ink">How moments are picked</td>
-                <td>YouTube’s “most replayed” graph, timestamped comments and audio energy, then Gemini AI</td>
+                <td>YouTube’s “most replayed” graph, timestamped comments and audio energy, then AI</td>
                 <td>AI (Auto Clip)</td>
               </tr>
               <tr>

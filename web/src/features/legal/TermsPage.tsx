@@ -29,7 +29,7 @@ export function TermsPage() {
 
       <Section title="3. What the service does">
         <p>
-          {b.name} takes a video you link to or upload, finds its strongest moments with AI (Google Gemini), and turns them into short vertical clips with captions that you can edit, download and post
+          {b.name} takes a video you link to or upload, finds its strongest moments with AI, and turns them into short vertical clips with captions that you can edit, download and post
           to YouTube or Instagram. We keep improving the service, so features may change.
         </p>
       </Section>
@@ -118,7 +118,7 @@ export function TermsPage() {
 
       <Section title="12. Services we rely on">
         <p>
-          {b.name} uses Google Cloud (hosting, storage and Gemini AI), Razorpay (payments), YouTube and Instagram. Their own terms apply to what they do, and we can’t control when they’re unavailable.
+          {b.name} uses Google Cloud (hosting, storage and AI), Razorpay (payments), YouTube and Instagram. Their own terms apply to what they do, and we can’t control when they’re unavailable.
         </p>
       </Section>
 

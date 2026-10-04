@@ -35,7 +35,7 @@ export function SiteFooter({ owner }: { owner?: string }) {
         </nav>
       </div>
       <p className="text-sm text-ink-3">
-        © {new Date().getFullYear()} {owner || 'CrestClip'} · Made for creators and clippers · AI by Gemini on Google Cloud
+        © {new Date().getFullYear()} {owner || 'CrestClip'} · Made for creators and clippers
       </p>
     </footer>
   );

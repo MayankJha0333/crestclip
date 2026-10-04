@@ -44,7 +44,7 @@ function SetupSteps({ platform, redirectUri, needsHttps }: { platform: SocialPla
     platform === 'youtube'
       ? [
           <>
-            In {link('https://console.cloud.google.com/apis/library/youtube.googleapis.com', 'Google Cloud')} (same project as Gemini), turn on <b>YouTube Data API v3</b>.
+            In {link('https://console.cloud.google.com/apis/library/youtube.googleapis.com', 'Google Cloud')} (the same project CrestClip runs on), turn on <b>YouTube Data API v3</b>.
           </>,
           <>
             Set up the {link('https://console.cloud.google.com/auth/overview', 'OAuth consent screen')} (External) and add your Google account as a <b>test user</b>.

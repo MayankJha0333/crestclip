@@ -25,6 +25,18 @@ export const optionsFields = z.object({
   useAudienceData: z.coerce.boolean().default(true),
   focus: z.string().max(600).default(''),
   instructions: z.string().max(6000).optional(),
+  logo: z
+    .object({
+      id: z
+        .string()
+        .regex(/^[a-f0-9]{8}$/)
+        .nullable(),
+      x: z.number().min(0).max(1),
+      y: z.number().min(0).max(1),
+      size: z.enum(['small', 'medium', 'large']),
+      opacity: z.number().int().min(20).max(100),
+    })
+    .optional(),
 });
 export const optionsSchema = z.preprocess(dropNulls, optionsFields);
 

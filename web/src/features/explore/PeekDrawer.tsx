@@ -319,8 +319,8 @@ export function PeekDrawer({
             <>
               <p className="text-sm text-ink-2">
                 {peek.isYouTube
-                  ? 'No “Most replayed” graph for this one — YouTube only shows it on popular videos a few days old. CrestClip finds the peaks with Gemini and audio energy instead.'
-                  : 'Twitch has no replay graph. CrestClip finds the peaks with Gemini and audio energy.'}
+                  ? 'No “Most replayed” graph for this one — YouTube only shows it on popular videos a few days old. CrestClip finds the peaks with its AI and audio energy instead.'
+                  : 'Twitch has no replay graph. CrestClip finds the peaks with its AI and audio energy.'}
               </p>
               {peek.duration && !live ? (
                 <>

@@ -56,7 +56,7 @@ function SystemSection() {
         <p className="text-ink-3">Checking…</p>
       ) : (
         <ul className="grid gap-2 sm:grid-cols-2">
-          <StatusRow ok={health.gemini.ok} label={health.gemini.ok ? (health.gemini.fake ? 'AI · demo mode (no real Gemini calls)' : `AI connected · ${health.gemini.model}`) : 'AI not connected'} />
+          <StatusRow ok={health.ai.ok} label={health.ai.ok ? (health.ai.fake ? 'AI · demo mode' : 'AI connected') : 'AI not connected'} />
           <StatusRow
             ok={Boolean(health.ffmpeg) && !ffSettingUp}
             pending={ffSettingUp}

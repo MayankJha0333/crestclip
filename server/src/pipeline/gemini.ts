@@ -113,7 +113,7 @@ export async function generateJson<T>(c: JsonCall): Promise<T> {
       const status = (e as { status?: number })?.status;
       // timed out: one more try could take just as long, so stop here (callers fall back, e.g. without the video)
       if ((e as Error)?.name === 'TimeoutError' || (e as Error)?.name === 'AbortError') {
-        lastErr = new Error(`Gemini took too long to answer${c.label ? ` (${c.label})` : ''}. Please try again.`);
+        lastErr = new Error(`The AI took too long to answer${c.label ? ` (${c.label})` : ''}. Please try again.`);
         break;
       }
       if (status === 400 || /INVALID_ARGUMENT/.test(msg)) {
@@ -187,15 +187,25 @@ function stripFences(s: string) {
   return s.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '');
 }
 
+/** Setup problems the server operator has to fix (read in the server log and `npm run doctor`, never shown in the app). */
+function setupProblem(msg: string, model: string, where: string): string | null {
+  if (/API key not valid|API_KEY_INVALID/i.test(msg)) return `The VERTEX_API_KEY in .env was rejected${where}.`;
+  if (/Could not load the default credentials|invalid_grant|UNAUTHENTICATED/i.test(msg)) return `Google Cloud login is missing${where}. Run: gcloud auth application-default login`;
+  if (/PERMISSION_DENIED|403/i.test(msg)) return `Vertex AI said "permission denied"${where}. Enable aiplatform.googleapis.com and give your account the "Vertex AI User" role.`;
+  if (/NOT_FOUND|404/i.test(msg) && /model/i.test(msg)) return `Model "${model}" was not found in location "${config.gcpLocation}"${where}. Check GEMINI_MODEL / GOOGLE_CLOUD_LOCATION in .env.`;
+  if (/GOOGLE_CLOUD_PROJECT/.test(msg)) return msg;
+  return null;
+}
+
+/** The people using the app never see which AI provider runs behind it — the detail goes to the server log. */
 function explain(e: unknown, model: string, label?: string): Error {
   const msg = String((e as Error)?.message ?? e);
   const where = label ? ` during "${label}"` : '';
-  if (/API key not valid|API_KEY_INVALID/i.test(msg)) return new Error(`The VERTEX_API_KEY in .env was rejected${where}.`);
-  if (/Could not load the default credentials|invalid_grant|UNAUTHENTICATED/i.test(msg)) return new Error(`Google Cloud login is missing${where}. Run: gcloud auth application-default login`);
-  if (/PERMISSION_DENIED|403/i.test(msg)) return new Error(`Vertex AI said "permission denied"${where}. Enable aiplatform.googleapis.com and give your account the "Vertex AI User" role.`);
-  if (/NOT_FOUND|404/i.test(msg) && /model/i.test(msg))
-    return new Error(`Model "${model}" was not found in location "${config.gcpLocation}"${where}. Check GEMINI_MODEL / GOOGLE_CLOUD_LOCATION in .env.`);
-  // anything else: the full detail goes to the server log, the person gets something they can act on
+  const setup = setupProblem(msg, model, where);
+  if (setup) {
+    console.error(`[gemini] ${setup}`);
+    return new Error('The AI isn’t set up correctly on the server yet. Please try again later.');
+  }
   console.warn(`[gemini] failed${where}: ${msg.slice(0, 600)}`);
   if (/RESOURCE_EXHAUSTED|429|quota/i.test(msg)) return new Error('The AI is busy right now (too many requests). Please try again in a few minutes.');
   if (/took too long/i.test(msg)) return new Error(msg);

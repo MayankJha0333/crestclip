@@ -22,9 +22,24 @@ function useFileUrl(file: File | null) {
 /**
  * A phone showing what a finished clip will look like: your video's own picture (YouTube thumbnail
  * or the uploaded file), the hook headline, the caption style you picked and your watermark. Updates as you change things.
- * `watermark` overrides the saved one (Settings shows unsaved slider moves).
+ * `watermark` overrides the saved one (Settings shows unsaved slider moves; New clips shows the logo picked for this video).
+ * With `onMoveLogo`, the logo can be dragged anywhere on the frame.
  */
-export function LivePreview({ opts, link, file, videoCount, watermark }: { opts: ProjectOptions; link: string | null; file: File | null; videoCount: number; watermark?: Watermark | null }) {
+export function LivePreview({
+  opts,
+  link,
+  file,
+  videoCount,
+  watermark,
+  onMoveLogo,
+}: {
+  opts: ProjectOptions;
+  link: string | null;
+  file: File | null;
+  videoCount: number;
+  watermark?: Watermark | null;
+  onMoveLogo?: (x: number, y: number) => void;
+}) {
   const saved = useWatermark();
   const ytId = youtubeIdOf(link);
   const fileUrl = useFileUrl(file);
@@ -67,7 +82,7 @@ export function LivePreview({ opts, link, file, videoCount, watermark }: { opts:
           )}
           <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,.35)_0%,transparent_22%,transparent_60%,rgba(0,0,0,.55)_100%)]" />
 
-          <WatermarkMark watermark={watermark === undefined ? saved : watermark} />
+          <WatermarkMark watermark={watermark === undefined ? saved : watermark} onMove={onMoveLogo} />
           {videoCount > 1 && (
             <span className="absolute top-2.5 right-2.5 inline-flex items-center gap-1 rounded-full bg-black/35 px-2 py-0.5 text-[9px] font-extrabold text-white backdrop-blur-sm">
               <Layers size={11} /> {videoCount}

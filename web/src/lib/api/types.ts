@@ -26,10 +26,25 @@ export interface Watermark {
   position: WatermarkPosition;
   size: WatermarkSize;
   opacity: number; // 20-100 (%)
+  /** a free spot (0-1 across / down the frame) instead of `position`'s corner — only on a project's own logo */
+  x?: number;
+  y?: number;
+  /** every uploaded logo (the Settings one included), to pick one per project */
+  logos: { id: string; name: string; url: string | null }[];
+  /** which of `logos` is the Settings one */
+  defaultLogoId: string | null;
   /** the plan doesn't include your own logo (Free clips carry the CrestClip mark) */
   locked: boolean;
 }
 export type WatermarkPatch = Partial<Pick<Watermark, 'enabled' | 'position' | 'size' | 'opacity'>>;
+/** A project's own logo, picked in New clips. id null = no logo on these clips. */
+export interface LogoChoice {
+  id: string | null;
+  x: number;
+  y: number;
+  size: WatermarkSize;
+  opacity: number;
+}
 
 export interface MusicLibrary {
   moods: { id: string; label: string; hint: string; ready: boolean; url: string | null }[];
@@ -58,6 +73,8 @@ export interface ProjectOptions {
   instructions?: string;
   /** set by the server after it reads the instructions */
   rules?: string[];
+  /** this project's logo; absent = the Settings watermark */
+  logo?: LogoChoice;
 }
 
 export interface Rubric {
@@ -137,8 +154,6 @@ export interface Project {
   status: 'queued' | 'processing' | 'done' | 'failed';
   stage: string | null;
   stageDetail: string | null;
-  /** Set when CrestClip downloaded only the audio + clip parts instead of the whole video. */
-  download?: { downloaded: number; full: number | null } | null;
   progress: number;
   error: string | null;
   /** set when the person can fix the failure by upgrading or buying credits */
@@ -203,7 +218,7 @@ export interface PostItem {
 
 export interface Health {
   ok: boolean;
-  gemini: { ok: boolean; detail: string; project: string | null; location: string; model: string; fastModel: string; fake: boolean };
+  ai: { ok: boolean; fake: boolean; checkedAt: number };
   gcsBucket: string | null;
   ffmpeg: string | null;
   ytdlp: string | null;

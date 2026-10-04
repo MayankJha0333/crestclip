@@ -224,7 +224,7 @@ export function MusicPicker({
           )}
         </>
       )}
-      {!compact && <p className="text-[13px] text-ink-3">AI tracks are instrumental, made with Google’s Lyria model on your Google Cloud credits, and reused for every clip.</p>}
+      {!compact && <p className="text-[13px] text-ink-3">AI tracks are instrumental, made just for your clips, and reused for every clip.</p>}
     </div>
   );
 }

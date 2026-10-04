@@ -169,7 +169,7 @@ export async function processProject(id: string) {
     // ---------- 3. transcribe (reuse a saved transcript on retry) ----------
     let segments = p.transcript;
     if (!segments?.length) {
-      stage(id, 'transcribe', 0, 'Listening with Gemini…');
+      stage(id, 'transcribe', 0, 'Listening to the video…');
       const tr = await transcribe(audio, duration, work, (d, t) => stage(id, 'transcribe', d / t, `Transcribing · part ${d} of ${t}`), sil);
       if (!tr.segments.length) throw new Error('No speech was found in this video.');
       segments = await withMeasuredTimes(tr.segments, info?.webpageUrl, dir);
@@ -208,7 +208,7 @@ export async function processProject(id: string) {
       }
     }
 
-    stage(id, 'moments', 0.35, 'Gemini is hunting for viral moments…');
+    stage(id, 'moments', 0.35, 'Hunting for viral moments…');
     const found = await findMoments({
       segments: tr.segments,
       duration,
@@ -223,7 +223,7 @@ export async function processProject(id: string) {
     });
     const { clips: cands, notes } = found;
     const final = finalizeClips(cands, tr.segments, sil, duration, signals, p.options).map((c) => ({ ...c, hashtags: withRequiredTags(c.hashtags, p.options) }));
-    if (!final.length) throw new Error('Gemini did not find any clip-worthy moments in this video.');
+    if (!final.length) throw new Error('No clip-worthy moments were found in this video.');
     const saved = await clipDb.replaceForProject(id, final, clipDefaults(p.options));
     await projects.update(id, { aiNotes: notes });
     await settleProject(id, saved.length, `Clipping “${(await projects.get(id))?.title ?? 'your video'}”`); // fewer clips than asked → credits back
@@ -234,14 +234,9 @@ export async function processProject(id: string) {
     await renderAll(id, saved);
     const used = { calls: usage.calls - startedUsage.calls, input: usage.input - startedUsage.input, output: usage.output - startedUsage.output };
     await progressSaved(id);
-    await projects.update(id, {
-      status: 'done',
-      stage: 'done',
-      progress: 100,
-      stageDetail: [savingsText(dir), used.calls ? `${used.calls} Gemini calls · ${(used.input / 1000).toFixed(0)}K in / ${(used.output / 1000).toFixed(1)}K out tokens` : '']
-        .filter(Boolean)
-        .join(' · '),
-    });
+    // AI usage and download savings are for the server log only — never shown in the app
+    if (used.calls) console.log(`[project ${id}] ${used.calls} AI calls · ${(used.input / 1000).toFixed(0)}K in / ${(used.output / 1000).toFixed(1)}K out tokens${savingsText(dir) ? ` · ${savingsText(dir)}` : ''}`);
+    await projects.update(id, { status: 'done', stage: 'done', progress: 100, stageDetail: '' });
     fs.rmSync(path.join(work, 'frames'), { recursive: true, force: true });
     for (const f of fs.readdirSync(work)) if (f.startsWith('chunk_')) fs.rmSync(path.join(work, f), { force: true });
   } catch (e) {
@@ -362,9 +357,9 @@ async function renderOnce(clipId: string) {
 
     const plans: ReframePlan[] = [];
     const files: string[] = [];
-    // the owner's plan decides the watermark (Free: the CrestClip mark; paid: their own logo, if set) and the export size
+    // the owner's plan decides the watermark (Free: the CrestClip mark; paid: the project's logo, else the Settings one) and the export size
     const rules = await renderRules(p!.userId);
-    const watermark = rules.crestclipWatermark ? crestclipMark() : rules.customLogo && p!.userId ? watermarkForRender(p!.userId) : null;
+    const watermark = rules.crestclipWatermark ? crestclipMark() : rules.customLogo && p!.userId ? watermarkForRender(p!.userId, p!.options?.logo) : null;
     const silences = c.pace !== 'off' ? silencesFor(p!.id) : [];
     const gentle = c.category === 'story' || c.category === 'emotional'; // let these breathe
     let hasVoice = false;
@@ -806,7 +801,7 @@ async function processPickedParts(id: string) {
 
   await renderAll(id, saved);
   await progressSaved(id);
-  await projects.update(id, { status: 'done', stage: 'done', progress: 100, stageDetail: savingsText(dir) });
+  await projects.update(id, { status: 'done', stage: 'done', progress: 100, stageDetail: '' });
 }
 
 /** Project page → "clip the parts I selected on the graph". Creates the clips now; `prepare` fills them in. */

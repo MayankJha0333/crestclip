@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { clips, projects, type ProjectRow } from '../../db/index.js';
 import { projectDir, toMediaUrl } from '../../lib/paths.js';
-import { footageSavings, readFootage } from '../../pipeline/footage.js';
+import { readFootage } from '../../pipeline/footage.js';
 import { publicClips } from '../clips/clips.presenter.js';
 
 /** The original video, if a full copy is on disk (uploads, short links). Long links only keep the clip parts. */
@@ -9,6 +9,16 @@ function sourceVideoUrl(p: ProjectRow): string | null {
   if (!p.mediaPath || !fs.existsSync(p.mediaPath) || /source-audio\./.test(p.mediaPath)) return null;
   if (readFootage(projectDir(p.id))) return null;
   return toMediaUrl(p.mediaPath);
+}
+
+/**
+ * Errors saved on older projects may name the AI provider or its settings ("Gemini did not find…", "Vertex AI said…").
+ * The app never shows those: setup problems become a plain message, any other mention becomes "the AI".
+ */
+export function publicError(e: string | null): string | null {
+  if (!e) return e;
+  if (/vertex|aiplatform|VERTEX_|GEMINI_|GOOGLE_CLOUD|gcloud/i.test(e)) return 'The AI had trouble with this video. Press Try again — it usually works the second time.';
+  return e.replace(/^Gemini\b/, 'The AI').replace(/\bGemini\b/g, 'the AI');
 }
 
 /** The project's own thumbnail, when its file is on this computer (projects made elsewhere may not have it here). */
@@ -39,9 +49,10 @@ export function publicProject(p: ProjectRow, withDetail = false) {
     viewCount: p.viewCount,
     status: p.status,
     stage: p.stage,
-    stageDetail: p.stageDetail,
+    // progress text only while working: finished projects saved before may hold download sizes and AI usage
+    stageDetail: p.status === 'queued' || p.status === 'processing' ? p.stageDetail : null,
     progress: p.progress,
-    error: p.error,
+    error: publicError(p.error),
     /** 'credits' | 'plan_limit' — the person can fix it by upgrading */
     errorCode: p.errorCode,
     creditsCharged: p.creditsCharged,
@@ -49,7 +60,6 @@ export function publicProject(p: ProjectRow, withDetail = false) {
     thumbUrl: ownThumbUrl(p),
     ...(withDetail
       ? {
-          download: footageSavings(projectDir(p.id)),
           aiNotes: p.aiNotes,
           signals: p.signals
             ? {
@@ -93,7 +103,7 @@ async function groupSummary(g: ProjectRow) {
         : failed
           ? 'All videos failed'
           : `${kids.length} videos`,
-      error: failed ? (kids[0]?.error ?? null) : null,
+      error: failed ? publicError(kids[0]?.error ?? null) : null,
       errorCode: kids.find((k) => k.status === 'failed' && k.errorCode)?.errorCode ?? null,
       creditsCharged: kids.reduce((a, k) => a + k.creditsCharged, 0),
       duration: kids.reduce((a, k) => a + (k.duration ?? 0), 0) || null,

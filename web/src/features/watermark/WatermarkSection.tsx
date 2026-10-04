@@ -7,6 +7,7 @@ import { Badge, Button, Card, CardHeader, Segmented, Skeleton, Toggle } from '..
 import { setWatermark, useWatermark } from './useWatermark';
 import { UpgradeCallout } from '../billing/UpgradeCallout';
 import { POSITIONS, WatermarkPhone } from './WatermarkPhone';
+import { checker } from './WatermarkMark';
 
 const SIZES: { value: WatermarkSize; label: string }[] = [
   { value: 'small', label: 'Small' },
@@ -17,9 +18,6 @@ const SCENES = [
   { value: 'light' as const, label: 'Bright video' },
   { value: 'dark' as const, label: 'Dark video' },
 ];
-
-/** A checkerboard, so a see-through logo is visible on any theme. */
-const checker = 'bg-[repeating-conic-gradient(var(--sunken)_0_25%,var(--surface)_0_50%)] bg-[length:14px_14px]';
 
 /** One setting in the list: label (+ hint) on the left, its control on the right — or below on narrow screens. */
 function Row({ label, hint, children, stack, nowrap }: { label: ReactNode; hint?: ReactNode; children: ReactNode; stack?: boolean; nowrap?: boolean }) {

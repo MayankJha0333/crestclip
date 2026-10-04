@@ -2,10 +2,11 @@ import { config } from '../config.js';
 import { generateJson, part } from './gemini.js';
 import { classifyFileLink } from './filelink.js';
 import type { ProjectOptions } from '../types.js';
+import { applyLogoAsk, type LogoAsk } from './watermark.js';
 
 /**
  * Turns clipping instructions (your own notes, or a campaign brief copied from e.g. Whop Content Rewards) into clear rules:
- * pay rate, platforms, clip length, required tags, do's and don'ts, and the source videos to clip.
+ * pay rate, platforms, clip length, required tags, do's and don'ts, the source videos to clip, and how the logo should look.
  * Gemini reads it; a simple text-based reader is the backup (and the demo-mode version).
  */
 
@@ -30,6 +31,17 @@ interface CampaignBrief {
   donts: string[];
   clipFocus: string;
   sourceLinks: { url: string; label: string }[];
+  logo?: LogoAsk | null;
+}
+
+type Spot = 'top-left' | 'top-center' | 'top-right' | 'middle-left' | 'center' | 'middle-right' | 'bottom-left' | 'bottom-center' | 'bottom-right';
+// 'unspecified' rather than nullable enums: with null not in the list, the model tends to guess a spot
+interface AiLogo {
+  wanted: boolean;
+  position?: Spot | 'unspecified';
+  size?: 'small' | 'medium' | 'large' | 'unspecified';
+  opacity?: number | null;
+  name?: string | null;
 }
 
 const schema = {
@@ -57,6 +69,22 @@ const schema = {
       type: 'array',
       items: { type: 'object', properties: { url: { type: 'string' }, label: { type: 'string' } }, required: ['url', 'label'] },
       description: 'links to the SOURCE videos/footage to clip (YouTube, Google Drive, Dropbox, Twitch, etc.). Not links to rules pages, Discord, or the brand website.',
+    },
+    logo: {
+      type: 'object',
+      description: 'how the creator wants THEIR logo/watermark stamped on the clips; leave out if the text does not say',
+      properties: {
+        wanted: { type: 'boolean', description: 'false only if the text says to leave the logo off' },
+        position: {
+          type: 'string',
+          enum: ['unspecified', 'top-left', 'top-center', 'top-right', 'middle-left', 'center', 'middle-right', 'bottom-left', 'bottom-center', 'bottom-right'],
+          description: 'where on the vertical video; unspecified if the text does not say',
+        },
+        size: { type: 'string', enum: ['unspecified', 'small', 'medium', 'large'], description: 'unspecified if the text does not say' },
+        opacity: { type: 'number', nullable: true, description: 'how visible, 20-100 (%), if stated; "faint"/"subtle" ≈ 50, "solid" = 100' },
+        name: { type: 'string', nullable: true, description: 'which logo, if the text names one (e.g. "nike" for "use the Nike logo")' },
+      },
+      required: ['wanted'],
     },
   },
   required: ['name', 'brand', 'summary', 'platforms', 'contentType', 'requiredHashtags', 'requiredMentions', 'rules', 'donts', 'clipFocus', 'sourceLinks'],
@@ -92,6 +120,76 @@ function videoLinks(text: string): { url: string; label: string }[] {
 
 const money = (s: string) => Number(s.replace(/,/g, ''));
 const uniq = (a: string[]) => [...new Set(a.map((x) => x.trim()).filter(Boolean))];
+
+const ARTICLE = String.raw`(?:(?:a|an|the|any|my|our|your)\s+)?`;
+const LOGO_NONE = new RegExp(
+  [
+    String.raw`\b(no|without)\s+${ARTICLE}(logo|watermark)`,
+    String.raw`\b(remove|skip|hide|drop)\s+${ARTICLE}(logo|watermark)`,
+    String.raw`\b(don'?t|do not|never)\s+(add|put|use|include|show|want|need)\s+${ARTICLE}(logo|watermark)`,
+    String.raw`\b(logo|watermark)\s*[:-]?\s*(off|none)\b`,
+  ].join('|'),
+);
+const clampOpacity = (n: number) => Math.min(100, Math.max(20, Math.round(n / 5) * 5));
+
+/**
+ * How the text asks for the logo: only sentences that mention the logo/watermark count, so "captions at the bottom"
+ * doesn't move it. null = the logo isn't mentioned.
+ */
+export function readLogoAsk(text: string): LogoAsk | null {
+  const lines = text.replace(/\r/g, '').split(/\n|(?<=[.!?;])\s+/);
+  const isLogo = (l = '') => /\b(logo|watermark)s?\b/i.test(l);
+  // "…the logo. Put it top left": the next sentence's "it" is the logo too
+  const said = lines.filter((l, i) => isLogo(l) || (isLogo(lines[i - 1]) && /\bit\b/i.test(l)));
+  if (!said.length) return null;
+  const t = said
+    .join(' ')
+    .toLowerCase()
+    .replace(/\bon top of\b/g, 'over');
+  if (LOGO_NONE.test(t)) return { none: true, hint: t };
+  const ask: LogoAsk = { hint: t };
+  const v = /\b(top|upper)\b/.test(t) ? 0 : /\b(bottom|lower)\b/.test(t) ? 1 : undefined;
+  const h = /\bleft\b/.test(t) ? 0 : /\bright\b/.test(t) ? 1 : undefined;
+  if (v !== undefined || h !== undefined || /\b(cent(er|re)|middle)\b/.test(t)) {
+    ask.x = h ?? 0.5;
+    ask.y = v ?? 0.5;
+  }
+  ask.size = /\b(tiny|small|smaller|mini)\b/.test(t) ? 'small' : /\b(big|bigger|large|larger|huge)\b/.test(t) ? 'large' : /\b(medium|normal|regular)\b/.test(t) ? 'medium' : undefined;
+  const pct = t.match(/(\d{1,3})\s*%\s*(opacity|opaque|visible|visibility|transparen\w*|see-?through)/);
+  const pct2 = t.match(/(opacity|visibility)\s*(?:of|at|to|:)?\s*(\d{1,3})\s*%/);
+  if (pct) ask.opacity = clampOpacity(/transparen|see/.test(pct[2]) ? 100 - Number(pct[1]) : Number(pct[1]));
+  else if (pct2) ask.opacity = clampOpacity(Number(pct2[2]));
+  else if (/\b(faint|subtle|faded|semi-?transparent|transparent|see-?through)\b/.test(t)) ask.opacity = 50;
+  else if (/\b(solid|opaque|fully visible|full opacity)\b/.test(t)) ask.opacity = 100;
+  return ask;
+}
+
+const SPOTS: Record<Spot, { x: number; y: number }> = {
+  'top-left': { x: 0, y: 0 },
+  'top-center': { x: 0.5, y: 0 },
+  'top-right': { x: 1, y: 0 },
+  'middle-left': { x: 0, y: 0.5 },
+  center: { x: 0.5, y: 0.5 },
+  'middle-right': { x: 1, y: 0.5 },
+  'bottom-left': { x: 0, y: 1 },
+  'bottom-center': { x: 0.5, y: 1 },
+  'bottom-right': { x: 1, y: 1 },
+};
+
+/** The plain reading wins where it found something (it's what New clips previews); Gemini fills the gaps. */
+function mergeLogo(plain: LogoAsk | null | undefined, ai: AiLogo | null | undefined): LogoAsk | null {
+  if (!plain) return null; // the logo isn't mentioned in so many words: don't let the AI guess
+  if (!ai || plain.none) return plain;
+  if (ai.wanted === false) return { none: true, hint: plain.hint };
+  const spot = ai.position && ai.position !== 'unspecified' ? SPOTS[ai.position] : undefined;
+  return {
+    hint: `${plain.hint} ${ai.name ?? ''}`,
+    x: plain.x ?? spot?.x,
+    y: plain.y ?? spot?.y,
+    size: plain.size ?? (ai.size && ai.size !== 'unspecified' ? ai.size : undefined),
+    opacity: plain.opacity ?? (ai.opacity ? clampOpacity(ai.opacity) : undefined),
+  };
+}
 
 /** The backup reader: patterns only, no AI. */
 function readBriefPlain(text: string): CampaignBrief {
@@ -142,6 +240,7 @@ function readBriefPlain(text: string): CampaignBrief {
     donts: uniq(donts).slice(0, 20),
     clipFocus: 'Pick the most engaging, self-contained moments that fit the campaign rules.',
     sourceLinks: videoLinks(t),
+    logo: readLogoAsk(t),
   };
 }
 
@@ -152,7 +251,7 @@ async function readBrief(text: string, url?: string | null): Promise<CampaignBri
   const plain = readBriefPlain(text);
   if (config.fakeAi || !config.gcpProject) return { ...plain, readBy: 'plain' };
   try {
-    const b = await generateJson<CampaignBrief>({
+    const b = await generateJson<Omit<CampaignBrief, 'logo'> & { logo?: AiLogo | null }>({
       model: config.fastModel,
       label: 'campaign brief',
       thinking: 'LOW',
@@ -175,6 +274,7 @@ async function readBrief(text: string, url?: string | null): Promise<CampaignBri
       sourceLinks: links.filter((l) => !seen.has(clean(l.url)) && seen.add(clean(l.url))).map((l) => ({ url: clean(l.url), label: l.label || 'Source video' })),
       minSeconds: b.minSeconds && b.minSeconds > 0 ? Math.round(b.minSeconds) : null,
       maxSeconds: b.maxSeconds && b.maxSeconds > 0 ? Math.round(b.maxSeconds) : null,
+      logo: mergeLogo(plain.logo, b.logo),
       readBy: 'ai',
     };
   } catch (e) {
@@ -187,9 +287,9 @@ const unique = (a: string[]) => [...new Set(a.map((x) => x.trim()).filter(Boolea
 
 /**
  * New clips → "Instructions for the AI": read them once and turn them into project options —
- * the length rule, what to look for, and tags every clip's caption must carry.
+ * the length rule, what to look for, tags every clip's caption must carry, and the owner's logo (needs `userId`).
  */
-export async function applyInstructions(options: ProjectOptions): Promise<ProjectOptions> {
+export async function applyInstructions(options: ProjectOptions, userId?: string): Promise<ProjectOptions> {
   const text = (options.instructions ?? '').trim();
   if (!text) return options;
   const b = await readBrief(text);
@@ -207,6 +307,7 @@ export async function applyInstructions(options: ProjectOptions): Promise<Projec
   const focus = [options.focus, b.readBy === 'ai' ? b.clipFocus : ''].filter(Boolean).join(' ');
   out.focus = focus.slice(0, 600);
   out.rules = unique([...(b.rules ?? []), ...(b.donts ?? []).map((d) => (/^(no|don|never|avoid)/i.test(d) ? d : `Not allowed: ${d}`))]).slice(0, 25);
+  if (b.logo && userId) out.logo = applyLogoAsk(userId, options.logo, b.logo);
   return out;
 }
 

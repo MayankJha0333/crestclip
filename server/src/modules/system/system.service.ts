@@ -15,7 +15,8 @@ export async function health(refresh: boolean) {
   const [ff, captions] = await Promise.all([ffmpegVersion(), hasLibass()]);
   return {
     ok: Boolean(ff) && geminiStatus.ok,
-    gemini: { ...geminiStatus, project: config.gcpProject || null, location: config.gcpLocation, model: config.model, fastModel: config.fastModel, fake: config.fakeAi },
+    // only whether the AI works: the app never names the provider, model or cloud project
+    ai: { ok: geminiStatus.ok, fake: config.fakeAi, checkedAt: geminiStatus.checkedAt },
     gcsBucket: config.gcsBucket || null,
     ffmpeg: ff,
     ffmpegSource: config.ffmpegSource,

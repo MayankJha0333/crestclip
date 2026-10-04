@@ -28,7 +28,7 @@ const SIGNALS = [
   { Icon: Flame, tint: 'clay-tangerine', t: 'Most replayed graph', d: '100 points of replay intensity from YouTube itself.' },
   { Icon: MessageSquareText, tint: 'clay-sky', t: 'Timestamp comments', d: '“23:10 I’m dying 😂” — weighted by likes.' },
   { Icon: AudioLines, tint: 'clay-mint', t: 'Audio energy', d: 'Laughter, raised voices and excitement spikes.' },
-  { Icon: Sparkles, tint: 'clay-lilac', t: 'Gemini’s 9-point rubric', d: 'Hook, stands alone, payoff, emotion, shareability…' },
+  { Icon: Sparkles, tint: 'clay-lilac', t: 'A 9-point AI rubric', d: 'Hook, stands alone, payoff, emotion, shareability…' },
 ];
 
 export function LandingPage() {
@@ -97,7 +97,7 @@ export function LandingPage() {
             rewatches.
           </h1>
           <p className="mt-6 max-w-xl text-xl text-ink-2">
-            Paste a long video. CrestClip finds the parts viewers already replay, has Gemini pick the ones that stand on their own, and hands you vertical clips with captions, a hook and a score.
+            Paste a long video. CrestClip finds the parts viewers already replay, has its AI pick the ones that stand on their own, and hands you vertical clips with captions, a hook and a score.
           </p>
           <form onSubmit={go} className="mt-8 flex max-w-xl flex-wrap items-center gap-2.5 rounded-[28px] bg-surface p-2 shadow-clay sm:flex-nowrap sm:rounded-full">
             <Link2 size={22} className="ml-2 shrink-0 text-ink-3" />
@@ -158,7 +158,7 @@ export function LandingPage() {
             }
           />
           <p className="mt-4 text-lg text-ink-2">
-            Short-video feeds reward one thing above all: people who stop, watch to the end, rewatch and share. So CrestClip stacks real audience signals under Gemini’s judgment.
+            Short-video feeds reward one thing above all: people who stop, watch to the end, rewatch and share. So CrestClip stacks real audience signals under its AI’s judgment.
           </p>
           <div className="mt-7 grid gap-3.5 sm:grid-cols-2">
             {SIGNALS.map(({ Icon, tint, t, d }) => (

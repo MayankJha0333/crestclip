@@ -15,6 +15,9 @@ import { LinkList } from './LinkList';
 import { useAccount, useAuth } from '../auth/auth';
 import { UpgradeCallout } from '../billing/UpgradeCallout';
 import { LivePreview } from './LivePreview';
+import { effectiveLogo, LogoPicker, previewOf } from '../watermark/LogoPicker';
+import { logoAskLabel, withLogoAsk } from '../watermark/logoAsk';
+import { useWatermark } from '../watermark/useWatermark';
 import { track } from '../../lib/analytics';
 
 const MAX_MB = 4096;
@@ -101,6 +104,11 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
   const newFromBrief = brief.links.filter((u) => !links.includes(u));
   const videoReady = mode === 'upload' ? Boolean(file) : links.length > 0 && linkInfos.every((l) => l.info && !l.info.error);
   const set = <K extends keyof ProjectOptions>(k: K, v: ProjectOptions[K]) => setOpts((o) => ({ ...o, [k]: v }));
+  const watermark = useWatermark();
+  // the instructions win over the picks for whatever they say about the logo
+  const textLogo = instructions.trim() && watermark && !watermark.locked ? brief.logo : null;
+  const textLogoLabel = logoAskLabel(watermark, textLogo);
+  const logo = watermark && !watermark.locked ? withLogoAsk(watermark, effectiveLogo(watermark, opts.logo), textLogo) : null;
 
   const pickFile = (f: File | null | undefined) => {
     setError(null);
@@ -308,7 +316,7 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
             value={instructions}
             maxLength={6000}
             onChange={(e) => setInstructions(e.target.value)}
-            placeholder={'For example: only the funny moments, 15–60 second clips, tag @brand and add #brand'}
+            placeholder={'For example: only the funny moments, 15–60 second clips, tag @brand and add #brand, small logo in the bottom left'}
             className="w-full resize-y rounded-[22px] bg-sunken px-4 py-3.5 text-[15px] leading-normal text-ink shadow-well outline-none placeholder:text-ink-3 focus-visible:shadow-[var(--shadow-well),0_0_0_3px_rgba(255,138,91,.4)]"
           />
           <div className="mt-3 flex flex-wrap gap-2">
@@ -330,10 +338,11 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
               );
             })}
           </div>
-          {instructions.trim() && (brief.length || brief.tags.length || newFromBrief.length > 0) && (
+          {instructions.trim() && (brief.length || brief.tags.length || textLogoLabel || newFromBrief.length > 0) && (
             <div className="mt-3 flex flex-wrap items-center gap-1.5 rounded-2xl bg-good-bg px-3 py-2.5 text-[13px] font-extrabold text-good-ink">
               <ListChecks size={14} /> Understood:
               {brief.length && <Badge tone="good">{brief.length} clips</Badge>}
+              {textLogoLabel && <Badge tone="info">Logo: {textLogoLabel}</Badge>}
               {brief.tags.map((t) => (
                 <Badge key={t} tone="info">
                   {t}
@@ -354,7 +363,14 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
         <h2 className="text-xl">Your clips</h2>
 
         <div className="grid grid-cols-[150px_minmax(0,1fr)] items-start gap-4">
-          <LivePreview opts={opts} link={mode === 'link' ? (links[0] ?? null) : null} file={mode === 'upload' ? file : null} videoCount={mode === 'link' ? links.length : 1} />
+          <LivePreview
+            opts={opts}
+            link={mode === 'link' ? (links[0] ?? null) : null}
+            file={mode === 'upload' ? file : null}
+            videoCount={mode === 'link' ? links.length : 1}
+            watermark={watermark && logo ? previewOf(watermark, logo) : undefined}
+            onMoveLogo={logo?.id && textLogo?.x == null ? (x, y) => set('logo', { ...logo, x, y }) : undefined}
+          />
           <div className="flex flex-col gap-4 pt-2">
             <div>
               <FieldLabel>Clips</FieldLabel>
@@ -395,6 +411,8 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
           <FieldLabel>Caption style</FieldLabel>
           <CaptionPicker compact value={opts.captionStyle} onChange={(v) => set('captionStyle', v)} />
         </div>
+
+        <LogoPicker value={opts.logo} onChange={(v) => set('logo', v)} ask={textLogo} />
 
         <ClipSettings value={opts} onChange={setOpts} />
 

@@ -35,7 +35,7 @@ const planLines = () => PLAN_ORDER.map((id) => PLANS[id]).map((p) => `<strong>${
 
 const FEATURES = [
   '<strong>“Most replayed” detection</strong> — reads the replay graph YouTube shows under popular videos and the timestamps viewers leave in comments.',
-  '<strong>AI virality score</strong> — Google Gemini scores every clip on hook, payoff, emotion, shareability and pacing, and explains why.',
+  '<strong>AI virality score</strong> — every clip is scored on hook, payoff, emotion, shareability and pacing, with the reasons why.',
   '<strong>Auto-reframe to 9:16</strong> — finds the speaker in every shot; two-person podcasts get a split screen.',
   '<strong>Word-by-word animated captions</strong> — five caption styles placed inside the TikTok, Reels and Shorts safe zones.',
   '<strong>AI hook headline</strong>, background music and smooth motion for every clip.',
@@ -54,7 +54,7 @@ function pages(): Record<string, Page> {
       body: `<h1>${NAME} — ${TAGLINE}</h1>
 <p>${NAME} (formerly ${OLD_NAME}) is an AI clip maker that turns long videos — podcasts, streams, interviews, webinars — into short vertical clips for YouTube Shorts, Instagram Reels and TikTok. Instead of guessing, it starts from the moments viewers already rewatch.</p>
 <h2>How it works</h2>
-${list(['<strong>Drop a video</strong> — paste a YouTube, Twitch, Vimeo or Google Drive link, or upload a file.', '<strong>We find the peaks</strong> — replay data, comments and audio energy show where viewers lean in; Gemini picks moments that stand on their own.', '<strong>Post the winners</strong> — 1080×1920 clips with captions, a hook and a score, ranked and ready to post or schedule.'])}
+${list(['<strong>Drop a video</strong> — paste a YouTube, Twitch, Vimeo or Google Drive link, or upload a file.', '<strong>We find the peaks</strong> — replay data, comments and audio energy show where viewers lean in; the AI picks moments that stand on their own.', '<strong>Post the winners</strong> — 1080×1920 clips with captions, a hook and a score, ranked and ready to post or schedule.'])}
 <h2>Features</h2>
 ${list(FEATURES)}
 <h2>Pricing</h2>

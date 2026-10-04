@@ -15,7 +15,7 @@ interface Issue {
 function issuesFrom(h: Health | null): Issue[] {
   if (!h) return [];
   const out: Issue[] = [];
-  if (!h.gemini.ok) out.push({ key: 'gemini', title: 'The AI isn’t connected', detail: 'CrestClip can’t reach Gemini right now, so new clips can’t be made. Browsing still works.' });
+  if (!h.ai.ok) out.push({ key: 'ai', title: 'The AI isn’t connected', detail: 'CrestClip can’t reach its AI right now, so new clips can’t be made. Browsing still works.' });
   const ffInstalling = h.ffmpegStatus?.state === 'installing';
   if (!h.ffmpeg && !ffInstalling) out.push({ key: 'ffmpeg', title: 'The video engine didn’t start', detail: h.ffmpegStatus?.detail || 'Rendering is unavailable right now.', action: 'retry-tools' });
   else if (h.captions === false && !ffInstalling)
@@ -66,7 +66,7 @@ export function HealthProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(t);
   }, [reload, settingUp]);
   const issues = issuesFrom(health);
-  const blocking = issues.some((i) => i.key === 'gemini' || i.key === 'ffmpeg');
+  const blocking = issues.some((i) => i.key === 'ai' || i.key === 'ffmpeg');
   const state: HealthState = !health ? 'checking' : blocking ? 'bad' : issues.length ? 'warn' : settingUp ? 'setup' : 'ok';
   return <HealthContext.Provider value={{ health, issues, state, reload }}>{children}</HealthContext.Provider>;
 }

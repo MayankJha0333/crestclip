@@ -3,6 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { config } from '../config.js';
 import { run } from '../lib/proc.js';
+import type { LogoChoice } from '../types.js';
 import { Resvg } from '@resvg/resvg-js';
 
 /**
@@ -19,6 +20,19 @@ export interface Watermark {
   position: WatermarkPosition;
   size: WatermarkSize;
   opacity: number; // 20-100 (%)
+  /** a free spot (0-1 across / down the frame's safe area) instead of `position`'s corner — set per project */
+  x?: number;
+  y?: number;
+}
+
+/** Every logo the person has uploaded (the Settings one included), so a project can pick a different one. */
+export interface LogoEntry {
+  id: string;
+  name: string;
+}
+
+interface Stored extends Watermark {
+  logos?: LogoEntry[];
 }
 
 /**
@@ -31,43 +45,88 @@ const TOP = 0.025; // gap from the top, share of height (48 px)
 const BOTTOM = 0.025; // gap from the bottom, share of height (48 px)
 
 const DEFAULTS: Watermark = { enabled: true, file: null, name: '', position: 'top-right', size: 'medium', opacity: 85 };
+const CORNERS: Record<WatermarkPosition, { x: number; y: number }> = {
+  'top-left': { x: 0, y: 0 },
+  'top-right': { x: 1, y: 0 },
+  'bottom-left': { x: 0, y: 1 },
+  'bottom-right': { x: 1, y: 1 },
+};
+const spotOf = (w: Watermark) => (w.x != null && w.y != null ? { x: w.x, y: w.y } : CORNERS[w.position]);
 
 /** Each person's watermark lives in <data>/brand/<userId>. */
 const dir = (userId: string) => path.join(config.dataDir, 'brand', userId.replace(/[^\w-]/g, ''));
 const settingsFile = (userId: string) => path.join(dir(userId), 'watermark.json');
+export const LOGO_ID = /^[a-f0-9]{8}$/;
+const logoFile = (userId: string, id: string) => path.join(dir(userId), `logo-${id}.png`);
+const idOf = (file: string) => /logo-([a-f0-9]{8})\.png$/.exec(file)?.[1] ?? null;
 
-export function readWatermark(userId: string): Watermark {
+function readStored(userId: string): Stored {
   try {
-    const w = { ...DEFAULTS, ...(JSON.parse(fs.readFileSync(settingsFile(userId), 'utf8')) as Partial<Watermark>) };
-    if (w.file && !fs.existsSync(w.file)) return { ...w, file: null, name: '' };
-    return w;
+    return { ...DEFAULTS, ...(JSON.parse(fs.readFileSync(settingsFile(userId), 'utf8')) as Partial<Stored>) };
   } catch {
     return { ...DEFAULTS };
   }
 }
 
-function writeWatermark(userId: string, w: Watermark) {
-  fs.mkdirSync(dir(userId), { recursive: true });
-  fs.writeFileSync(settingsFile(userId), JSON.stringify(w, null, 1));
+export function readWatermark(userId: string): Watermark {
+  const { logos: _l, ...w } = readStored(userId);
+  if (w.file && !fs.existsSync(w.file)) return { ...w, file: null, name: '' };
   return w;
+}
+
+/** The logo library, newest last. Logos saved before the library existed (the Settings one) are listed too. */
+export function listLogos(userId: string): (LogoEntry & { file: string })[] {
+  const s = readStored(userId);
+  const logos = [...(s.logos ?? [])];
+  const def = s.file ? idOf(s.file) : null;
+  if (def && !logos.some((l) => l.id === def)) logos.unshift({ id: def, name: s.name });
+  return logos.map((l) => ({ ...l, file: logoFile(userId, l.id) })).filter((l) => fs.existsSync(l.file));
+}
+
+/** Id of the Settings logo inside the library. */
+export const defaultLogoId = (w: Watermark) => (w.file ? idOf(w.file) : null);
+
+function writeStored(userId: string, w: Watermark, logos: LogoEntry[]) {
+  fs.mkdirSync(dir(userId), { recursive: true });
+  fs.writeFileSync(settingsFile(userId), JSON.stringify({ ...w, logos }, null, 1));
+  return w;
+}
+
+function writeWatermark(userId: string, w: Watermark) {
+  return writeStored(
+    userId,
+    w,
+    listLogos(userId).map(({ id, name }) => ({ id, name })),
+  );
 }
 
 export function updateWatermark(userId: string, patch: Partial<Pick<Watermark, 'enabled' | 'position' | 'size' | 'opacity'>>) {
   return writeWatermark(userId, { ...readWatermark(userId), ...patch });
 }
 
-/** Save an uploaded image as the logo: one frame, transparent PNG, at most 600px wide. Replaces the old logo. */
-export async function setWatermarkLogo(userId: string, tmpPath: string, originalName: string) {
+/** Turn an uploaded image into a library logo: one frame, transparent PNG, at most 600px wide. */
+async function saveLogoImage(userId: string, tmpPath: string, originalName: string): Promise<LogoEntry & { file: string }> {
   fs.mkdirSync(dir(userId), { recursive: true });
-  const file = path.join(dir(userId), `logo-${randomUUID().slice(0, 8)}.png`);
+  const id = randomUUID().replace(/-/g, '').slice(0, 8);
+  const file = logoFile(userId, id);
   try {
     await run(config.ffmpeg, ['-y', '-v', 'error', '-i', tmpPath, '-frames:v', '1', '-vf', "scale='min(600,iw)':-1:flags=lanczos,format=rgba", file], { timeoutMs: 60_000 });
   } finally {
     fs.rmSync(tmpPath, { force: true });
   }
+  return { id, name: originalName.slice(0, 80), file };
+}
+
+/** Save an uploaded image as the Settings logo. Replaces the old one (it leaves the library too). */
+export async function setWatermarkLogo(userId: string, tmpPath: string, originalName: string) {
+  const logo = await saveLogoImage(userId, tmpPath, originalName);
   const old = readWatermark(userId);
-  if (old.file && old.file !== file) fs.rmSync(old.file, { force: true });
-  return writeWatermark(userId, { ...old, file, name: originalName.slice(0, 80), enabled: true });
+  const oldId = defaultLogoId(old);
+  if (old.file && old.file !== logo.file) fs.rmSync(old.file, { force: true });
+  const logos = listLogos(userId)
+    .filter((l) => l.id !== oldId && l.id !== logo.id)
+    .map(({ id, name }) => ({ id, name }));
+  return writeStored(userId, { ...old, file: logo.file, name: logo.name, enabled: true }, [...logos, { id: logo.id, name: logo.name }]);
 }
 
 export function removeWatermarkLogo(userId: string) {
@@ -76,23 +135,100 @@ export function removeWatermarkLogo(userId: string) {
   return writeWatermark(userId, { ...w, file: null, name: '' });
 }
 
-/** Lowest point of a top-corner logo on the frame (px), so headlines can sit under it; null for bottom corners. */
-export const watermarkTopBottom = (w: Watermark) => (w.position.startsWith('top') ? Math.round(1920 * TOP + 1080 * WATERMARK_BOX[w.size]) : null);
+/** Add a logo to the library without touching the Settings one (picked for a single project). */
+export async function addLogo(userId: string, tmpPath: string, originalName: string) {
+  const logo = await saveLogoImage(userId, tmpPath, originalName);
+  const logos = listLogos(userId).map(({ id, name }) => ({ id, name }));
+  writeStored(userId, readWatermark(userId), [...logos.filter((l) => l.id !== logo.id), { id: logo.id, name: logo.name }]);
+  return logo;
+}
 
-/** What the renderer needs, or null when there's nothing to stamp. */
-export function watermarkForRender(userId: string): (Watermark & { file: string }) | null {
+/** Delete a library logo. Deleting the Settings logo clears it there too. */
+export function removeLogo(userId: string, id: string) {
+  if (!LOGO_ID.test(id)) return readWatermark(userId);
   const w = readWatermark(userId);
-  return w.enabled && w.file ? (w as Watermark & { file: string }) : null;
+  fs.rmSync(logoFile(userId, id), { force: true });
+  return writeWatermark(userId, defaultLogoId(w) === id ? { ...w, file: null, name: '' } : w);
+}
+
+/** How the instructions ask for the logo. Fields left out keep what was picked in the form (or Settings). */
+export interface LogoAsk {
+  none?: boolean;
+  x?: number;
+  y?: number;
+  size?: WatermarkSize;
+  opacity?: number;
+  /** the words about the logo, to find a library logo by name ("use the nike logo") */
+  hint: string;
+}
+
+const GENERIC = new Set(['logo', 'logos', 'watermark', 'brand', 'final', 'new', 'copy', 'white', 'black', 'transparent', 'icon', 'image', 'png', 'jpg', 'jpeg', 'webp']);
+const nameWords = (name: string) =>
+  name
+    .toLowerCase()
+    .replace(/\.[a-z0-9]+$/, '')
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 3 && !GENERIC.has(t) && !/^\d+$/.test(t));
+
+/** The library logo whose file name the words mention most (none on a tie or no mention). */
+export function matchLogo<T extends LogoEntry>(logos: T[], words: string): T | null {
+  const said = new Set(words.toLowerCase().split(/[^a-z0-9]+/));
+  const scored = logos.map((l) => ({ l, n: nameWords(l.name).filter((t) => said.has(t)).length })).sort((a, b) => b.n - a.n);
+  return scored[0]?.n && scored[0].n !== scored[1]?.n ? scored[0].l : null;
+}
+
+/**
+ * Apply what the instructions say about the logo on top of the form's pick (or, without one, the Settings logo in
+ * its corner). Asking for a logo when the pick was "none" uses the named logo, else the Settings one, else the newest.
+ */
+export function applyLogoAsk(userId: string, base: LogoChoice | undefined, ask: LogoAsk): LogoChoice | undefined {
+  const w = readWatermark(userId);
+  const start: LogoChoice = base ?? { id: w.enabled ? defaultLogoId(w) : null, ...CORNERS[w.position], size: w.size, opacity: w.opacity };
+  if (ask.none) return { ...start, id: null };
+  const logos = listLogos(userId);
+  const named = matchLogo(logos, ask.hint);
+  const touched = named || ask.x != null || ask.size || ask.opacity != null;
+  if (!touched) return base;
+  const id = named?.id ?? start.id ?? defaultLogoId(w) ?? logos.at(-1)?.id ?? null;
+  if (!id) return base; // nothing uploaded to place
+  return { id, x: ask.x ?? start.x, y: ask.y ?? start.y, size: ask.size ?? start.size, opacity: ask.opacity ?? start.opacity };
+}
+
+/** Lowest point of a logo in the top part of the frame (px), so headlines can sit under it; null when it sits lower. */
+export function watermarkTopBottom(w: Watermark) {
+  const box = 1080 * WATERMARK_BOX[w.size];
+  const top = 1920 * TOP + (1920 * (1 - TOP - BOTTOM) - box) * spotOf(w).y;
+  return top < 1920 * 0.3 ? Math.round(top + box) : null;
+}
+
+/**
+ * What the renderer needs, or null when there's nothing to stamp. `choice` is the project's own pick from New clips;
+ * without one, the Settings logo. A picked logo deleted since then falls back to the Settings one, in the picked spot.
+ */
+export function watermarkForRender(userId: string, choice?: LogoChoice | null): (Watermark & { file: string }) | null {
+  const w = readWatermark(userId);
+  if (!choice) return w.enabled && w.file ? (w as Watermark & { file: string }) : null;
+  if (choice.id === null) return null;
+  const file = LOGO_ID.test(choice.id) && fs.existsSync(logoFile(userId, choice.id)) ? logoFile(userId, choice.id) : w.file;
+  if (!file) return null;
+  return { ...w, enabled: true, file, size: choice.size, opacity: choice.opacity, x: choice.x, y: choice.y };
 }
 
 /**
  * ffmpeg filter that stamps the logo (input #`input`) on the video `inLabel` → `outLabel`.
  * Works on the final 1080×1920 frame, after reframing and zooms, under the captions.
+ * The spot is a share of the room left inside the edge gaps, so 0/1 are the corners and the logo never leaves the frame.
  */
 export function watermarkFilter(w: Watermark, input: number, inLabel: string, outLabel: string) {
   const box = Math.round(1080 * WATERMARK_BOX[w.size]);
-  const x = w.position.endsWith('left') ? `${Math.round(1080 * SIDE)}` : `W-w-${Math.round(1080 * SIDE)}`;
-  const y = w.position.startsWith('top') ? `${Math.round(1920 * TOP)}` : `H-h-${Math.round(1920 * BOTTOM)}`;
+  const side = Math.round(1080 * SIDE);
+  const top = Math.round(1920 * TOP);
+  const bottom = Math.round(1920 * BOTTOM);
+  const spot = spotOf(w);
+  const fx = Math.max(0, Math.min(1, spot.x)).toFixed(4);
+  const fy = Math.max(0, Math.min(1, spot.y)).toFixed(4);
+  const x = `${side}+(W-w-${2 * side})*${fx}`;
+  const y = `${top}+(H-h-${top + bottom})*${fy}`;
   const alpha = Math.max(0.2, Math.min(1, w.opacity / 100)).toFixed(2);
   return [
     `[${input}:v]format=rgba,scale=w=${box}:h=${box}:force_original_aspect_ratio=decrease:flags=lanczos,colorchannelmixer=aa=${alpha}[wm]`,

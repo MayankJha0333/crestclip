@@ -12,10 +12,10 @@ export const FEATURES: { icon: LucideIcon; tint: Tint; title: string; text: stri
   {
     icon: Sparkles,
     tint: 'clay-lilac',
-    title: 'Gemini virality score',
+    title: 'AI virality score',
     text: 'Every clip is scored on 9 things that drive views — hook, payoff, emotion, shareability, pacing and more. You see why, not just a number.',
   },
-  { icon: Crop, tint: 'clay-sky', title: 'Auto-reframe to 9:16', text: 'Gemini finds the speaker in every shot and the crop cuts between people like a human editor — no wobbly auto-pan.' },
+  { icon: Crop, tint: 'clay-sky', title: 'Auto-reframe to 9:16', text: 'CrestClip finds the speaker in every shot and the crop cuts between people like a human editor — no wobbly auto-pan.' },
   { icon: SplitSquareVertical, tint: 'clay-mint', title: 'Split-screen for two', text: 'Podcast with two hosts? Both faces stacked top and bottom automatically.' },
   { icon: Captions, tint: 'clay-butter', title: 'Word-by-word captions', text: 'Five burned-in styles with the spoken word highlighted, placed inside the TikTok / Reels / Shorts safe zones.' },
   { icon: Target, tint: 'clay-bubble', title: 'Hook headline', text: 'A punchy on-screen line for the first 3 seconds — the moment that decides if people swipe.' },
@@ -26,7 +26,7 @@ export const FEATURES: { icon: LucideIcon; tint: Tint; title: string; text: stri
 
 export const STEPS: { tint: Tint; title: string; text: string }[] = [
   { tint: 'clay-sky', title: 'Drop a video', text: 'Paste a YouTube, Twitch, Vimeo or Drive link — or upload a podcast, stream or webinar file.' },
-  { tint: 'clay-butter', title: 'We find the peaks', text: 'Replay data, comments and audio energy show where viewers lean in. Gemini picks moments that stand on their own.' },
+  { tint: 'clay-butter', title: 'We find the peaks', text: 'Replay data, comments and audio energy show where viewers lean in. Our AI picks moments that stand on their own.' },
   { tint: 'clay-mint', title: 'Post the winners', text: 'Get vertical 1080×1920 clips with captions, a hook and a score — ranked, editable, and ready to post or schedule.' },
 ];
 
@@ -41,15 +41,11 @@ export const FAQ = [
   },
   {
     q: 'How do you know which part is the most watched?',
-    a: 'For YouTube videos with enough views, YouTube publishes a “Most replayed” graph — 100 points showing where viewers rewind and rewatch. CrestClip reads it, adds timestamps viewers write in comments (“12:41 😂”), and mixes in audio energy (laughter, raised voices). New videos and uploads have no replay data, so CrestClip leans on Gemini and the audio instead — the chart tells you which one you’re looking at.',
-  },
-  {
-    q: 'Which AI does CrestClip use?',
-    a: 'Google Gemini on Google Cloud Vertex AI. Transcription, moment-finding, scoring and face finding all go through Gemini, so usage is billed to your Google Cloud account and credits.',
+    a: 'For YouTube videos with enough views, YouTube publishes a “Most replayed” graph — 100 points showing where viewers rewind and rewatch. CrestClip reads it, adds timestamps viewers write in comments (“12:41 😂”), and mixes in audio energy (laughter, raised voices). New videos and uploads have no replay data, so CrestClip leans on its AI and the audio instead — the chart tells you which one you’re looking at.',
   },
   {
     q: 'What does the Crest score mean?',
-    a: 'It blends the AI virality score (Gemini grading hook, payoff, emotion, shareability and more) with the audience score (how much more this moment is rewatched than the rest of the video). With no audience data, the AI score does most of the work.',
+    a: 'It blends the AI virality score (the AI grading hook, payoff, emotion, shareability and more) with the audience score (how much more this moment is rewatched than the rest of the video). With no audience data, the AI score does most of the work.',
   },
   {
     q: 'Can I post clips of other people’s videos?',

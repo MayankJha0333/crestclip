@@ -80,7 +80,7 @@ function Sidebar() {
         ))}
       </nav>
       <div className="mt-auto flex flex-col gap-2">
-        {health?.gemini.fake && <span className="rounded-full bg-good-bg px-3 py-1.5 text-center text-xs font-extrabold text-good-ink">Demo AI mode</span>}
+        {health?.ai.fake && <span className="rounded-full bg-good-bg px-3 py-1.5 text-center text-xs font-extrabold text-good-ink">Demo AI mode</span>}
         <CreditMeter />
         <NavLink
           to="/app/settings"
@@ -170,7 +170,7 @@ function IssueBanner() {
   });
   const [retrying, setRetrying] = useState(false);
   if (!issues.length || dismissed === key) return null;
-  const blocking = issues.some((i) => i.key === 'gemini' || i.key === 'ffmpeg');
+  const blocking = issues.some((i) => i.key === 'ai' || i.key === 'ffmpeg');
   const retry = async () => {
     setRetrying(true);
     try {

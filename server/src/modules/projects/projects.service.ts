@@ -20,7 +20,7 @@ const clipsAsked = (o: ProjectOptions) => (o.ranges?.length ? (o.joinRanges ? 1 
 
 /** New projects need Gemini. */
 function requireAi() {
-  if (!aiReady()) throw new HttpError(400, 'Gemini is not configured yet. Set VERTEX_API_KEY or GOOGLE_CLOUD_PROJECT in .env and restart.');
+  if (!aiReady()) throw new HttpError(400, 'The AI isn’t set up on this server yet, so new clips can’t be made. Please try again later.');
 }
 
 /** A project the person owns (404 otherwise — never reveal that someone else's exists). */
@@ -45,7 +45,7 @@ async function projectFromLink(userId: string, url: string, options: ProjectOpti
 export async function createFromLink(user: UserRow, url: string, options: ProjectOptions) {
   requireAi();
   await assertHasCredits(user, clipsAsked(options));
-  const p = await projectFromLink(user.id, url, await applyInstructions(options));
+  const p = await projectFromLink(user.id, url, await applyInstructions(options, user.id));
   enqueueProject(p.id);
   return p;
 }
@@ -61,7 +61,7 @@ export async function createFromLinks(user: UserRow, links: string[], options: P
     const f = classifyFileLink(u);
     if (f && 'error' in f) throw new HttpError(400, `${u.slice(0, 60)}… — ${f.error}`);
   }
-  const understood = await applyInstructions(options); // read the instructions once for all links
+  const understood = await applyInstructions(options, user.id); // read the instructions once for all links
   // each video in a group is still clipped on its own
   const group = urls.length > 1 ? await projects.create({ userId: user.id, sourceType: 'group', options: understood }) : null;
   const made: ProjectRow[] = [];
@@ -86,7 +86,7 @@ export async function createFromUpload(user: UserRow, file: { path: string; orig
     fs.rmSync(file.path, { force: true });
     throw e;
   });
-  const options = await applyInstructions(chosen);
+  const options = await applyInstructions(chosen, user.id);
   const title = file.originalname
     .replace(/\.[^.]+$/, '')
     .replace(/[_-]+/g, ' ')

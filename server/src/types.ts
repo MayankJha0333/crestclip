@@ -24,6 +24,15 @@ export interface MusicSettings {
   duck: boolean; // lower the music while people talk
 }
 
+/** A project's own logo, picked in New clips: a library logo, anywhere on the frame (0-1 across / down). id null = no logo. */
+export interface LogoChoice {
+  id: string | null;
+  x: number;
+  y: number;
+  size: 'small' | 'medium' | 'large';
+  opacity: number; // 20-100 (%)
+}
+
 export interface ProjectOptions {
   platform: Platform;
   length: LengthPref;
@@ -52,6 +61,8 @@ export interface ProjectOptions {
   requiredHashtags?: string[];
   requiredMentions?: string[];
   requiredCaptionText?: string | null;
+  /** this project's logo; absent = the Settings watermark */
+  logo?: LogoChoice;
 }
 
 export interface Word {
