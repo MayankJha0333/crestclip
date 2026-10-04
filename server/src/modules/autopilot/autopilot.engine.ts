@@ -10,6 +10,7 @@ import type { ProjectOptions } from '../../types.js';
 import { channelVideos, topicVideos, uploadDateMs, videoDetails, type FoundVideo } from './autopilot.sources.js';
 import { upcomingSlots, type Slot } from './autopilot.time.js';
 import { languageMismatch } from '../../pipeline/language.js';
+import { purgeProject } from '../projects/retention.js';
 
 /**
  * Autopilot, step by step (every few minutes, for each active autopilot):
@@ -76,6 +77,11 @@ async function scan(ap: AutopilotRow) {
   const f = ap.config.filters;
   const errors: string[] = [];
   let added = 0;
+  // the person's other autopilots that post to at least one of the same accounts: the same video must not be clipped
+  // twice for one account (double credits, and near-identical posts)
+  const mine = new Set(ap.config.targets.map((t) => t.connectionId));
+  const siblings = ap.userId ? (await autopilots.list(ap.userId)).filter((o) => o.id !== ap.id && o.config.targets.some((t) => mine.has(t.connectionId))) : [];
+  const siblingName = new Map(siblings.map((o) => [o.id, o.name]));
   for (const src of ap.config.sources) {
     let found: FoundVideo[] = [];
     try {
@@ -98,6 +104,10 @@ async function scan(ap: AutopilotRow) {
       else if (v.duration != null && v.duration > f.maxMinutes * 60) [status, reason] = ['skipped', `Longer than ${f.maxMinutes} min`];
       else if (languageMismatch(f.languages, null, v.title)) [status, reason] = ['skipped', languageMismatch(f.languages, null, v.title)];
       else if (blockedReason(f, v.title, v.channel)) [status, reason] = ['skipped', blockedReason(f, v.title, v.channel)];
+      else {
+        const taken = await apVideos.takenBy(v.videoId, [...siblingName.keys()]);
+        if (taken) [status, reason] = ['skipped', `Already used by your autopilot “${siblingName.get(taken.autopilotId)}” (same account)`];
+      }
       if (status === 'skipped' && !v.publishedAt) continue; // don't fill the list with junk from searches
       if (await apVideos.add({ autopilotId: ap.id, ...v, status, reason })) added++;
     }
@@ -113,6 +123,14 @@ async function harvest(ap: AutopilotRow) {
     const p = v.projectId ? await projects.get(v.projectId) : null;
     if (!p) {
       await apVideos.update(v.id, { status: 'failed', reason: 'The clipping project was deleted' });
+      continue;
+    }
+    if (p.status === 'failed' && p.errorCode === 'credits') {
+      // credits ran out between the check and the start (e.g. another autopilot or a manual project took them):
+      // not the video's fault — put it back and try again once credits are added
+      await purgeProject(p).catch(() => projects.remove(p.id));
+      await apVideos.update(v.id, { status: 'waiting', projectId: null, reason: 'Waiting for credits — tries again when credits are added' });
+      await autopilots.update(ap.id, { lastError: 'Out of credits: clipping is paused. It continues by itself when credits are added (top-up or next month). Booked posts still go out.' });
       continue;
     }
     if (p.status === 'failed') {
@@ -141,6 +159,24 @@ async function startClipping(ap: AutopilotRow) {
   if ((await apVideos.startedSince(ap.id, hoursAgo(24))) >= budget && !(await emptySlotSoon(ap))) return;
 
   const f = ap.config.filters;
+  const owner = ap.userId ? await users.get(ap.userId) : null;
+  if (!owner) return;
+  // the plan's video-length limit wins over the autopilot's own max (longer videos would fail when clipping starts)
+  const planMax = planOf(owner.plan).maxVideoMinutes;
+  const maxMinutes = Math.min(f.maxMinutes, planMax);
+  // the owner pays in credits: wait (don't fail) until there's enough. Credits already promised to projects that
+  // haven't been charged yet (other autopilots, manual clipping) don't count as free. Checked before opening any
+  // video, so an autopilot without credits doesn't keep asking YouTube every few minutes.
+  const fresh = await refreshAccount(owner);
+  const clipCount = Math.min(10, ap.config.clipsPerVideo + 1);
+  const need = creditsForClips(clipCount);
+  const free = (await credits.balance(fresh.id)) - creditsForClips(await projects.unchargedClips(fresh.id));
+  if (free < need) {
+    await autopilots.update(ap.id, {
+      lastError: `Out of credits: the next video needs ${need} and ${Math.max(0, free)} are free. Clipping continues by itself when credits are added (top-up or next month). Booked posts still go out.`,
+    });
+    return;
+  }
   for (const v of await apVideos.withStatus(ap.id, 'waiting')) {
     if (v.publishedAt && v.publishedAt > hoursAgo(f.waitHours)) continue; // give YouTube time to build the rewatch graph
     if (v.updatedAt > Date.now() - RECHECK_EVERY && v.reason) continue; // checked recently and not good enough yet
@@ -168,8 +204,12 @@ async function startClipping(ap: AutopilotRow) {
       await apVideos.update(v.id, { status: 'skipped', reason: wrongLanguage });
       continue;
     }
-    if (d.duration < f.minMinutes * 60 || d.duration > f.maxMinutes * 60) {
-      await apVideos.update(v.id, { status: 'skipped', reason: `${Math.round(d.duration / 60)} min long — outside ${f.minMinutes}–${f.maxMinutes} min` });
+    if (d.duration > planMax * 60 && d.duration <= f.maxMinutes * 60) {
+      await apVideos.update(v.id, { status: 'skipped', reason: `${Math.round(d.duration / 60)} min long — your plan clips videos up to ${planMax} min` });
+      continue;
+    }
+    if (d.duration < f.minMinutes * 60 || d.duration > maxMinutes * 60) {
+      await apVideos.update(v.id, { status: 'skipped', reason: `${Math.round(d.duration / 60)} min long — outside ${f.minMinutes}–${maxMinutes} min` });
       continue;
     }
     if (published && published < Date.now() - f.maxAgeDays * 86400_000) {
@@ -180,20 +220,11 @@ async function startClipping(ap: AutopilotRow) {
       await apVideos.update(v.id, { reason: `${(views ?? 0).toLocaleString('en-US')} views so far — waiting for ${f.minViews.toLocaleString('en-US')}` });
       continue;
     }
-    // the owner pays for it in credits: wait (don't fail) until they have enough
-    const owner = ap.userId ? await refreshAccount((await users.get(ap.userId))!) : null;
-    const clipCount = Math.min(10, ap.config.clipsPerVideo + 1);
-    const need = creditsForClips(clipCount);
-    if (!owner || (await credits.balance(owner.id)) < need) {
-      await autopilots.update(ap.id, { lastError: `Out of credits: “${d.title || v.title}” needs ${need}. Clipping continues when credits are added (top-up or next month).` });
-      return;
-    }
     if (ap.lastError?.startsWith('Out of credits')) await autopilots.update(ap.id, { lastError: null });
     // good to go → a normal CrestClip project with this autopilot's style
     const options: ProjectOptions = { ...ap.config.options, clipCount, useAudienceData: true };
     delete options.ranges;
-    if (!ap.userId) return;
-    const p = await projects.create({ userId: ap.userId, sourceType: 'url', sourceUrl: v.url, title: d.title || v.title || undefined, options });
+    const p = await projects.create({ userId: owner.id, sourceType: 'url', sourceUrl: v.url, title: d.title || v.title || undefined, options });
     await apVideos.update(v.id, { status: 'clipping', projectId: p.id, reason: d.heatmap?.length ? 'Clipping (rewatch graph found)' : 'Clipping (no rewatch graph yet — AI picks)' });
     enqueueProject(p.id);
     log(`${ap.name}: clipping “${d.title}”`);
@@ -366,11 +397,20 @@ async function tidy(ap: AutopilotRow) {
 
 // ---------------- the tick ----------------
 let ticking = false;
+let again = false; // a kick arrived while a tick was running → run once more right after
 async function tickAll() {
-  if (ticking) return;
+  if (ticking) {
+    again = true;
+    return;
+  }
   ticking = true;
   try {
-    for (const ap of await autopilots.active()) {
+    // emptiest stock first: when a person's credits are short, the autopilot that's about to run dry gets them
+    const list = await autopilots.active();
+    const need = new Map<string, number>();
+    for (const ap of list) need.set(ap.id, (await stock(ap.id)) / Math.max(1, ap.config.times.length * 2));
+    list.sort((a, b) => need.get(a.id)! - need.get(b.id)!);
+    for (const ap of list) {
       try {
         // Autopilot is a Pro feature: if the owner's plan changed, stop it (nothing is lost — it can be turned back on)
         const owner = ap.userId ? await users.get(ap.userId) : null;
@@ -391,6 +431,10 @@ async function tickAll() {
     }
   } finally {
     ticking = false;
+    if (again) {
+      again = false;
+      void tickAll();
+    }
   }
 }
 

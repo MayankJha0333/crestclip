@@ -117,6 +117,16 @@ export const projects = {
     const d = await col().findOne({ _id: id });
     return d ? toProject(d) : null;
   },
+  /**
+   * Credits this person has promised but not paid yet: projects waiting in the queue or just started, not charged so
+   * far (they pay once the video is opened). Counted so two Autopilots can't both start on the same last credits.
+   */
+  async unchargedClips(userId: string): Promise<number> {
+    const rows = await col()
+      .find({ userId, status: { $in: ['queued', 'processing'] }, creditsCharged: { $lte: 0 }, sourceType: { $ne: 'group' } }, { projection: { 'options.clipCount': 1 } })
+      .toArray();
+    return rows.reduce((n, r) => n + Math.max(1, r.options?.clipCount ?? 1), 0);
+  },
   /** One person's projects (newest first) with their clip counts and best score. */
   async list(userId: string): Promise<(ProjectRow & { clipCount: number; readyCount: number; bestScore: number | null })[]> {
     const rows = (await col().find({ userId, parentId: null }, { projection: LIST_FIELDS }).sort({ createdAt: -1 }).toArray()).map((d) => ({

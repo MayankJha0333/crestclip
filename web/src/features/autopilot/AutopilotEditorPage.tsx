@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { useAccount } from '../auth/auth';
 import { UpgradeCallout } from '../billing/UpgradeCallout';
-import { api, type Account, type AutopilotConfig, type AutopilotInput, type AutopilotSource, type CaptionStyle, type Motion } from '../../lib/api';
+import { api, type Account, type AutopilotConfig, type AutopilotInput, type AutopilotSource, type AutopilotSummary, type CaptionStyle, type Motion } from '../../lib/api';
 import { cn } from '../../lib/cn';
 import { timeAgo } from '../../lib/format';
 import { toast } from '../../lib/toast';
@@ -295,6 +295,23 @@ export function AutopilotEditorPage() {
   };
 
   const dupTimes = new Set(f.times.filter((t, i) => f.times.indexOf(t) !== i));
+  // the person's other running autopilots — to warn when two would post to one account at nearly the same time
+  const [others, setOthers] = useState<AutopilotSummary[]>([]);
+  useEffect(() => {
+    api
+      .autopilots()
+      .then((l) => setOthers(l.filter((a) => a.id !== id && a.status === 'active')))
+      .catch(() => {});
+  }, [id]);
+  const clashes = others.flatMap((o) => {
+    if (o.config.timezone !== f.timezone) return [];
+    const shared = o.config.targets.filter((t) => f.targets.some((x) => x.connectionId === t.connectionId));
+    if (!shared.length) return [];
+    const near = o.config.times.filter((u) => f.times.some((t) => gapMinutes(t, u) < 30));
+    if (!near.length) return [];
+    const names = shared.map((t) => accounts?.find((a) => a.id === t.connectionId)).map((a) => (a ? (a.handle ?? a.name) : 'the same account'));
+    return [{ id: o.id, name: o.name, accounts: [...new Set(names)], times: [...near].sort() }];
+  });
   const problems = [
     !f.name.trim() && 'Give it a name',
     !f.sources.length && 'Add at least one source',
@@ -739,6 +756,19 @@ export function AutopilotEditorPage() {
                         ))}
                       </Select>
                     </Field>
+                    {clashes.length > 0 && (
+                      <div className="flex items-start gap-2 rounded-2xl bg-warn-bg px-3.5 py-2.5 text-[13px] leading-snug text-warn-ink md:col-span-2">
+                        <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+                        <span>
+                          {clashes.map((c) => (
+                            <span key={c.id} className="block">
+                              Your autopilot <b>{c.name}</b> also posts to {c.accounts.join(', ')} at {c.times.map(prettyTime).join(', ')}.
+                            </span>
+                          ))}
+                          Posts less than 30 min apart on one account take views from each other. Move a time a little.
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   <div aria-label="Your day" className="mt-6 rounded-[20px] bg-sunken px-4.5 pt-8 pb-2.5 shadow-well">
@@ -939,6 +969,13 @@ export function AutopilotEditorPage() {
     </div>
   );
 }
+
+/** Minutes between two "HH:MM" times of day (going round midnight). */
+const gapMinutes = (a: string, b: string) => {
+  const m = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  const d = Math.abs(m(a) - m(b));
+  return Math.min(d, 1440 - d);
+};
 
 /** What decides when and where posts go — if this changed, re-planning booked posts is the natural choice. */
 const planKey = (c: Pick<AutopilotConfig, 'times' | 'timezone' | 'targets' | 'caption'>) =>

@@ -131,6 +131,12 @@ export const apVideos = {
     const d = await vidCol().findOne({ _id: id });
     return d ? toApVideo(d) : null;
   },
+  /** The first of these autopilots that already took this video (found and not skipped), or null. */
+  async takenBy(videoId: string, autopilotIds: string[]): Promise<ApVideoRow | null> {
+    if (!autopilotIds.length) return null;
+    const d = await vidCol().findOne({ videoId, autopilotId: { $in: autopilotIds }, status: { $ne: 'skipped' } });
+    return d ? toApVideo(d) : null;
+  },
   async has(autopilotId: string, videoId: string): Promise<boolean> {
     return Boolean(await vidCol().findOne({ autopilotId, videoId }, { projection: { _id: 1 } }));
   },
