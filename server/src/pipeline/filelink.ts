@@ -31,7 +31,7 @@ export function classifyFileLink(raw: string): FileLink | { error: string } | nu
   const host = u.hostname.replace(/^www\./, '');
 
   if (host === 'drive.google.com' || host === 'docs.google.com' || host === 'drive.usercontent.google.com') {
-    if (/\/folders\//.test(u.pathname)) return { error: 'That’s a Google Drive folder. Open the video inside it and copy that file’s link.' };
+    if (/\/folders\//.test(u.pathname)) return { error: 'That’s a Google Drive folder. Paste it on its own — CrestClip reads the whole folder and picks the videos to clip.' };
     if (/\/(document|spreadsheets|presentation|forms)\//.test(u.pathname)) return { error: 'That Google link isn’t a video file. Share the video file itself.' };
     const id = u.pathname.match(/\/(?:file\/)?d\/([\w-]{10,})/)?.[1] ?? u.searchParams.get('id') ?? undefined;
     if (!id) return { error: 'Couldn’t find the file in that Google Drive link. Use “Share → Copy link” on the video file.' };

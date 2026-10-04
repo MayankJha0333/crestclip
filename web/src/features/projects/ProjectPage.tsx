@@ -219,6 +219,13 @@ function GroupProject({ p, load }: { p: Project; load: () => void }) {
               <Layers size={12} /> {parts.length} videos
             </Badge>
             {p.duration ? <Badge>{fmtTime(p.duration)} in total</Badge> : null}
+            {p.sourceUrl && (
+              <a href={p.sourceUrl} target="_blank" rel="noreferrer" className="no-underline">
+                <Badge>
+                  <ExternalLink size={12} /> Drive folder
+                </Badge>
+              </a>
+            )}
             {working && <Badge tone="warn">{p.stageDetail}</Badge>}
             <KeptUntil expiresAt={p.expiresAt} />
           </>
@@ -239,6 +246,8 @@ function GroupProject({ p, load }: { p: Project; load: () => void }) {
         }
       />
       <DeleteProjectDialog project={deleting ? { ...p, clipCount: clips.length } : null} onCancel={() => setDeleting(false)} onDeleted={() => nav('/app/projects')} />
+
+      {p.aiNotes && <p className="mt-4 max-w-3xl px-1 text-[15px] text-ink-2">🤖 {p.aiNotes}</p>}
 
       {rules.length > 0 && (
         <div className="mt-4 flex flex-wrap items-center gap-1.5 px-1">

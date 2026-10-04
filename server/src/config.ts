@@ -108,6 +108,8 @@ export const config = {
   gcpProject: env('GOOGLE_CLOUD_PROJECT'),
   // Vertex AI API key (bound to a service account). Alternative to gcloud login / key files.
   vertexApiKey: env('VERTEX_API_KEY'),
+  /** optional: Drive API key for reading shared Drive folders (without it, the public folder view is read) */
+  driveApiKey: env('GOOGLE_DRIVE_API_KEY'),
   gcpLocation: env('GOOGLE_CLOUD_LOCATION', 'global'),
   model: env('GEMINI_MODEL', 'gemini-3.8-flash'),
   fastModel: env('GEMINI_FAST_MODEL', 'gemini-3.5-flash-lite'),

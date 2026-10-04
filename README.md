@@ -274,6 +274,8 @@ GET    /api/billing/account        plan, credits, history, payments
 GET    /api/health                 setup status (Gemini, ffmpeg, yt-dlp)
 POST   /api/projects               { url, options }        → start from a link
 POST   /api/projects/upload        multipart: file, options → start from a file
+POST   /api/projects/folder/preview { url }               → what's inside a shared Google Drive folder
+POST   /api/projects/folder        { url, options }        → AI reads the folder (briefs, names), picks the videos, clips them
 GET    /api/projects               list
 GET    /api/projects/:id           project + signals + clips
 POST   /api/projects/:id/retry

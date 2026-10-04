@@ -12,6 +12,7 @@ import { LENGTHS } from '../clip-settings/options';
 import { fmtBytes, previewInstructions, splitLinks } from './instructions';
 import { detectLink } from './links';
 import { LinkList } from './LinkList';
+import { FolderSummary, useFolderPreview } from './FolderSummary';
 import { useAccount, useAuth } from '../auth/auth';
 import { UpgradeCallout } from '../billing/UpgradeCallout';
 import { LivePreview } from './LivePreview';
@@ -97,12 +98,18 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
   // links in the list, plus one still being typed (counts too, so Enter isn't required)
   const links = [...new Set([...items, ...splitLinks(draft)])].slice(0, MAX_VIDEOS);
   const many = links.length > 1;
-  const videos = mode === 'upload' ? 1 : Math.max(1, links.length);
+  // a Google Drive folder: read on its own, the AI picks the videos inside
+  const folderLink = mode === 'link' ? (links.find((u) => detectLink(u)?.folder) ?? null) : null;
+  const folderMixed = Boolean(folderLink && links.length > 1);
+  const folder = useFolderPreview(folderMixed ? null : folderLink);
+  const folderVideos = folder.status === 'ready' ? folder.data.willClip : 0;
+  const videos = mode === 'upload' ? 1 : folderLink ? Math.max(1, folderVideos) : Math.max(1, links.length);
   const cost = opts.clipCount * perClip * videos;
   const linkInfos = links.map((u) => ({ url: u, info: detectLink(u) }));
   const brief = previewInstructions(instructions);
   const newFromBrief = brief.links.filter((u) => !links.includes(u));
-  const videoReady = mode === 'upload' ? Boolean(file) : links.length > 0 && linkInfos.every((l) => l.info && !l.info.error);
+  const videoReady =
+    mode === 'upload' ? Boolean(file) : folderLink ? !folderMixed && folderVideos > 0 : links.length > 0 && linkInfos.every((l) => l.info && !l.info.error);
   const set = <K extends keyof ProjectOptions>(k: K, v: ProjectOptions[K]) => setOpts((o) => ({ ...o, [k]: v }));
   const watermark = useWatermark();
   // the instructions win over the picks for whatever they say about the logo
@@ -131,6 +138,15 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
         if (!links.length) throw new Error('Paste a full video link first (YouTube, Twitch, Google Drive, Dropbox…)');
         const bad = linkInfos.find((l) => !l.info || l.info.error);
         if (bad) throw new Error(bad.info?.error ? `${bad.info.label}: ${bad.info.error}` : `“${bad.url}” isn’t a video link`);
+        if (folderLink) {
+          if (folderMixed) throw new Error('A Drive folder link goes on its own — remove the other links, or clip them in a separate project.');
+          if (folder.status === 'error') throw new Error(folder.message);
+          const r = await api.createFromFolder(folderLink, send);
+          track('create_clips', { source: 'drive_folder', videos: r.projects.length });
+          toast(`Clipping ${r.projects.length} of ${r.folder.videos} video${r.folder.videos === 1 ? '' : 's'} from “${r.folder.name}”`);
+          void refresh();
+          return nav(`/app/p/${r.project.id}`);
+        }
         if (many) {
           const r = await api.createFromUrls(links, send);
           track('create_clips', { source: 'links', videos: r.projects.length });
@@ -164,11 +180,15 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
   const submitLabel = upload
     ? `Uploading ${Math.round(upload.pct)}%`
     : busy
-      ? instructions.trim()
+      ? folderLink
+        ? 'Reading your folder…'
+        : instructions.trim()
         ? 'Reading your instructions…'
         : 'Starting…'
-      : many
-        ? `Clip ${links.length} videos`
+      : folderLink && folderVideos
+        ? `Clip ${folderVideos === 1 ? '1 video' : `up to ${folderVideos} videos`} from the folder`
+        : many
+          ? `Clip ${links.length} videos`
         : 'Find the best moments';
 
   return (
@@ -201,10 +221,12 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
         <Step
           n={1}
           done={videoReady}
-          title={mode === 'upload' ? 'Upload your video' : links.length > 1 ? `Your videos · ${links.length}` : 'Add your videos'}
+          title={mode === 'upload' ? 'Upload your video' : folderLink && !folderMixed ? 'Your Drive folder' : links.length > 1 ? `Your videos · ${links.length}` : 'Add your videos'}
           hint={
             <span className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-              {mode === 'upload' ? 'One file at a time — or drop it anywhere on this card.' : `One link or many (up to ${MAX_VIDEOS}) — they all go into one project.`}
+              {mode === 'upload'
+                ? 'One file at a time — or drop it anywhere on this card.'
+                : `One link or many (up to ${MAX_VIDEOS}) — they all go into one project. A Google Drive folder works too.`}
               <Segmented
                 label="Source"
                 size="sm"
@@ -233,16 +255,19 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
           }
         >
           {mode === 'link' ? (
-            <LinkList
-              max={MAX_VIDEOS}
-              upgradeHint={plan.id === 'free' ? 'Creator and Pro hold up to 15.' : null}
-              items={items}
-              onItems={setItems}
-              draft={draft}
-              onDraft={setDraft}
-              onFile={pickFile}
-              onSubmit={() => submit()}
-            />
+            <>
+              <LinkList
+                max={MAX_VIDEOS}
+                upgradeHint={plan.id === 'free' ? 'Creator and Pro hold up to 15.' : null}
+                items={items}
+                onItems={setItems}
+                draft={draft}
+                onDraft={setDraft}
+                onFile={pickFile}
+                onSubmit={() => submit()}
+              />
+              {folderLink && <FolderSummary state={folder} mixed={folderMixed} />}
+            </>
           ) : (
             <div
               role="button"
@@ -439,11 +464,14 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
             </Button>
             <p className="mt-2.5 text-center text-xs text-ink-3">
               Uses up to {cost.toLocaleString()} credits ({perClip} per clip) · you have {balance.toLocaleString()}
-              {cost > balance && (
-                <b className="mt-1 block text-warn-ink">
-                  Enough for {Math.floor(balance / perClip)} clip{Math.floor(balance / perClip) === 1 ? '' : 's'} — ask for fewer, or top up first.
-                </b>
-              )}
+              {cost > balance &&
+                (folderLink ? (
+                  <b className="mt-1 block text-warn-ink">The AI will pick only as many videos as your credits cover.</b>
+                ) : (
+                  <b className="mt-1 block text-warn-ink">
+                    Enough for {Math.floor(balance / perClip)} clip{Math.floor(balance / perClip) === 1 ? '' : 's'} — ask for fewer, or top up first.
+                  </b>
+                ))}
             </p>
           </div>
         )}

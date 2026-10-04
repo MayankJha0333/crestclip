@@ -109,6 +109,8 @@ async function groupSummary(g: ProjectRow) {
       duration: kids.reduce((a, k) => a + (k.duration ?? 0), 0) || null,
       thumbUrl,
       videoCount: kids.length,
+      /** a Drive-folder project: what the AI understood and which videos it picked */
+      aiNotes: g.aiNotes ?? null,
       clipCount: all.length,
       readyCount: all.filter((c) => c.status === 'ready').length,
       bestScore: all.length ? Math.max(...all.map((c) => c.peakScore)) : null,

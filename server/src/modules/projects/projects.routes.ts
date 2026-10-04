@@ -8,7 +8,7 @@ import { uploadTmpDir } from '../../lib/paths.js';
 import type { ProjectOptions } from '../../types.js';
 import { publicClips } from '../clips/clips.presenter.js';
 import { publicGroupSummary, publicProject, publicProjectDetail, publicProjectListItem } from './projects.presenter.js';
-import { createBatchSchema, createProjectSchema, pickClipsSchema } from './projects.schemas.js';
+import { createBatchSchema, createFolderSchema, createProjectSchema, folderPreviewSchema, pickClipsSchema } from './projects.schemas.js';
 import { me } from '../auth/auth.middleware.js';
 import * as service from './projects.service.js';
 
@@ -45,6 +45,34 @@ projectsRouter.post(
     res.status(201).json({
       project: group ? await publicGroupSummary(group) : publicProject(made[0]),
       projects: made.map((p) => publicProject(p)),
+      understood: {
+        minSeconds: options.minSeconds ?? null,
+        maxSeconds: options.maxSeconds ?? null,
+        tags: [...(options.requiredMentions ?? []), ...(options.requiredHashtags ?? [])],
+        rules: options.rules ?? [],
+      },
+    });
+  }),
+);
+
+/** A shared Google Drive folder: preview what's inside, then clip the videos the AI picks from it. */
+projectsRouter.post(
+  '/projects/folder/preview',
+  asyncHandler(async (req, res) => {
+    const body = validate(folderPreviewSchema, req.body, 'Paste a Google Drive folder link (https://drive.google.com/drive/folders/…).');
+    res.json(await service.previewFolder(me(req), body.url));
+  }),
+);
+
+projectsRouter.post(
+  '/projects/folder',
+  asyncHandler(async (req, res) => {
+    const body = validate(createFolderSchema, req.body, 'Paste a Google Drive folder link (https://drive.google.com/drive/folders/…).');
+    const { group, made, options, folder } = await service.createFromFolder(me(req), body.url, body.options as ProjectOptions);
+    res.status(201).json({
+      project: group ? await publicGroupSummary(group) : publicProject(made[0]),
+      projects: made.map((p) => publicProject(p)),
+      folder,
       understood: {
         minSeconds: options.minSeconds ?? null,
         maxSeconds: options.maxSeconds ?? null,

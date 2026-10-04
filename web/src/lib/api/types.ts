@@ -77,6 +77,36 @@ export interface ProjectOptions {
   logo?: LogoChoice;
 }
 
+/** New clips → a Google Drive folder link: what's inside (nothing is spent yet). */
+export interface FolderPreview {
+  name: string;
+  /** videos found, one per take (copies of the same video counted once) */
+  videos: number;
+  duplicates: number;
+  /** brief files the AI will read (Google Docs, PDFs, text) */
+  docs: string[];
+  images: number;
+  other: number;
+  subfolders: string[];
+  sample: string[];
+  /** the most videos the AI can pick: the plan's videos-per-project limit */
+  willClip: number;
+  max: number;
+  truncated: boolean;
+}
+
+/** What happened when a Drive folder was clipped. */
+export interface FolderResult {
+  name: string;
+  videos: number;
+  duplicates: number;
+  picked: { title: string; folder: string; reason: string }[];
+  docsRead: string[];
+  summary: string;
+  limitedBy: 'credits' | 'plan' | null;
+  readBy: 'ai' | 'plain';
+}
+
 export interface Rubric {
   hook: number;
   standalone: number;

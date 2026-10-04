@@ -1,4 +1,6 @@
 import type {
+  FolderPreview,
+  FolderResult,
   ApAlternative,
   AdminUser,
   BillingAccount,
@@ -78,6 +80,12 @@ export const api = {
     req<{ project: Project; projects: Project[]; understood: { minSeconds: number | null; maxSeconds: number | null; tags: string[]; rules: string[] } }>(
       '/api/projects/batch',
       json('POST', { urls, options }),
+    ),
+  folderPreview: (url: string, signal?: AbortSignal) => req<FolderPreview>('/api/projects/folder/preview', { ...json('POST', { url }), signal }),
+  createFromFolder: (url: string, options: ProjectOptions) =>
+    req<{ project: Project; projects: Project[]; folder: FolderResult; understood: { minSeconds: number | null; maxSeconds: number | null; tags: string[]; rules: string[] } }>(
+      '/api/projects/folder',
+      json('POST', { url, options }),
     ),
   retry: (id: string) => req<{ ok: boolean }>(`/api/projects/${id}/retry`, { method: 'POST' }),
   remove: (id: string) => req<{ ok: boolean }>(`/api/projects/${id}`, { method: 'DELETE' }),

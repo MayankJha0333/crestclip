@@ -8,10 +8,13 @@ import { projectDir } from '../../lib/paths.js';
 import { classifyFileLink, fileLinkLabel } from '../../pipeline/filelink.js';
 import { assertPublicUrl } from '../../lib/net.js';
 import { applyInstructions } from '../../pipeline/instructions.js';
+import { driveFileUrl, driveFolderId, listDriveFolderCached, readDriveDocs, type DriveFolder } from '../../pipeline/drivefolder.js';
+import { dedupeVideos, planFolder, type FolderPlan } from '../../pipeline/folderplan.js';
+import { rangeFor } from '../../pipeline/moments.js';
 import { createPickedClips, preparePickedClips } from '../../pipeline/process.js';
 import type { ProjectOptions, TimeRange } from '../../types.js';
 import { assertHasCredits, assertVideosPerProject, chargeClips } from '../billing/billing.service.js';
-import { creditsForClips } from '../billing/plans.js';
+import { creditsForClips, planOf } from '../billing/plans.js';
 import { optionsSchema } from './projects.schemas.js';
 import { purgeProject } from './retention.js';
 
@@ -68,6 +71,110 @@ export async function createFromLinks(user: UserRow, links: string[], options: P
   for (const u of urls) made.push(await projectFromLink(user.id, u, understood, group?.id ?? null)); // in the order given
   for (const p of made) enqueueProject(p.id);
   return { group: group ? (await projects.get(group.id))! : null, made, options: understood };
+}
+
+/** Open a shared Drive folder for New clips; problems come back as a 400 the person can act on. */
+async function openFolder(url: string): Promise<DriveFolder> {
+  const id = driveFolderId(url);
+  if (!id) throw new HttpError(400, 'That isn’t a Google Drive folder link. Use “Share → Copy link” on the folder.');
+  try {
+    return await listDriveFolderCached(id);
+  } catch (e) {
+    throw new HttpError(400, (e as Error).message);
+  }
+}
+
+const cleanTitle = (name: string) =>
+  name
+    .replace(/\.[^.]+$/, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
+
+/** New clips → a Drive folder link: what's inside, before anything is spent (no AI, no credits). */
+export async function previewFolder(user: UserRow, url: string) {
+  const folder = await openFolder(url);
+  const { videos, duplicates } = dedupeVideos(folder.files);
+  const count = (k: string) => folder.files.filter((f) => f.kind === k).length;
+  const max = planOf(user.plan).maxVideosPerProject;
+  return {
+    name: folder.name,
+    videos: videos.length,
+    duplicates,
+    docs: folder.files.filter((f) => f.kind === 'doc').map((f) => (f.folder ? `${f.folder}/${f.name}` : f.name)),
+    images: count('image'),
+    other: count('other'),
+    subfolders: [...new Set(folder.files.map((f) => f.folder.split('/')[0]).filter(Boolean))],
+    sample: videos.slice(0, 6).map((f) => cleanTitle(f.name)),
+    willClip: Math.min(videos.length, max),
+    max,
+    truncated: folder.truncated,
+  };
+}
+
+/**
+ * A shared Drive folder → one project. The AI reads the whole folder (subfolders, brief docs, PDFs, file names) with
+ * the person's instructions, then picks which videos to clip (no duplicates, nothing off-brief) — up to the plan's
+ * videos-per-project limit and what the credits cover. Each picked video is downloaded and clipped like a Drive file link.
+ */
+export async function createFromFolder(user: UserRow, url: string, options: ProjectOptions) {
+  requireAi();
+  const folder = await openFolder(url);
+  const perVideo = clipsAsked(options);
+  await assertHasCredits(user, perVideo); // at least one video's worth (also refreshes monthly credits)
+  const planMax = planOf(user.plan).maxVideosPerProject;
+  const byCredits = Math.floor((await credits.balance(user.id)) / creditsForClips(perVideo));
+  const max = Math.max(1, Math.min(planMax, byCredits));
+
+  const docs = await readDriveDocs(folder.files);
+  let plan: FolderPlan;
+  try {
+    plan = await planFolder({ folder, docs, instructions: options.instructions ?? '', max, lengthHint: rangeFor(options).label });
+  } catch (e) {
+    throw new HttpError(400, (e as Error).message);
+  }
+
+  // the person's own words first, then whatever the brief files say; the folder summary guides the moment finder
+  const instructions = [options.instructions?.trim(), plan.brief.trim() && `From the brief in the Drive folder:\n${plan.brief.trim()}`].filter(Boolean).join('\n\n');
+  const understood = await applyInstructions({ ...options, instructions: instructions || undefined, focus: [options.focus, plan.summary].filter(Boolean).join(' ').slice(0, 600) }, user.id);
+  delete understood.ranges;
+
+  const limitedBy = plan.picks.length < plan.videos && plan.picks.length === max ? (byCredits < planMax ? 'credits' : 'plan') : null;
+  const notes = [
+    plan.summary,
+    `Picked ${plan.picks.length} of ${plan.videos} video${plan.videos === 1 ? '' : 's'} from “${folder.name}”${plan.duplicates ? ` (${plan.duplicates} extra cop${plan.duplicates === 1 ? 'y' : 'ies'} of the same take left out)` : ''}.`,
+    limitedBy === 'credits' ? 'Your credits covered this many — top up to clip more.' : limitedBy === 'plan' ? `That’s your plan’s limit per project.` : '',
+    docs.length ? `Read: ${docs.map((d) => d.file.name).join(', ')}.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .slice(0, 900);
+
+  const group =
+    plan.picks.length > 1 ? await projects.create({ userId: user.id, sourceType: 'group', sourceUrl: url, title: folder.name.slice(0, 120), options: understood }) : null;
+  if (group) await projects.update(group.id, { aiNotes: notes });
+  const made: ProjectRow[] = [];
+  for (const p of plan.picks)
+    made.push(
+      await projects.create({ userId: user.id, sourceType: 'upload', sourceUrl: driveFileUrl(p.file.id), title: cleanTitle(p.file.name), options: understood, parentId: group?.id ?? null }),
+    );
+  for (const p of made) enqueueProject(p.id);
+  return {
+    group: group ? (await projects.get(group.id))! : null,
+    made,
+    options: understood,
+    folder: {
+      name: folder.name,
+      videos: plan.videos,
+      duplicates: plan.duplicates,
+      picked: plan.picks.map((p) => ({ title: cleanTitle(p.file.name), folder: p.file.folder, reason: p.reason })),
+      docsRead: docs.map((d) => d.file.name),
+      summary: plan.summary,
+      limitedBy,
+      readBy: plan.readBy,
+    },
+  };
 }
 
 /** An uploaded file (already saved to a temp path by multer). Bad options fall back to the defaults. */

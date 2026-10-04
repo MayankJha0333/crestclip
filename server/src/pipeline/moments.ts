@@ -18,7 +18,7 @@ export const RUBRIC_WEIGHTS: Rubric = {
 };
 
 /** The length rule for a project: an exact min/max (campaign briefs) wins over the general preference. */
-function rangeFor(o: Pick<ProjectOptions, 'length' | 'minSeconds' | 'maxSeconds'>) {
+export function rangeFor(o: Pick<ProjectOptions, 'length' | 'minSeconds' | 'maxSeconds'>) {
   if (o.minSeconds && o.maxSeconds && o.maxSeconds > o.minSeconds) return { min: o.minSeconds, max: o.maxSeconds, label: `${o.minSeconds}–${o.maxSeconds} seconds (required by the campaign)` };
   return lengthRange(o.length);
 }

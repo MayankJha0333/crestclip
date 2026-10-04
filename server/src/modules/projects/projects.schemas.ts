@@ -42,6 +42,8 @@ export const optionsSchema = z.preprocess(dropNulls, optionsFields);
 
 export const createProjectSchema = z.object({ url: z.string().url(), options: optionsSchema.default({}) });
 
+export const createFolderSchema = z.object({ url: z.string().url(), options: optionsSchema.default({}) });
+export const folderPreviewSchema = z.object({ url: z.string().url() });
 export const createBatchSchema = z.object({ urls: z.array(z.string().url()).min(1).max(15), options: optionsSchema.default({}) });
 
 export const pickClipsSchema = z.object({

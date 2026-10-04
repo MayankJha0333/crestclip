@@ -5,6 +5,8 @@ export interface LinkInfo {
   label: string;
   hint: string;
   error?: string;
+  /** a Google Drive folder: the whole folder is read and the AI picks the videos */
+  folder?: boolean;
 }
 
 const VIDEO_EXT = /\.(mp4|m4v|mov|mkv|webm|avi|mpe?g|ts|mts|m2ts|wmv|flv|3gp)$/i;
@@ -23,7 +25,8 @@ export function detectLink(raw: string): LinkInfo | null {
   if (/(^|\.)youtube\.com$|^youtu\.be$/.test(host)) return { kind: 'youtube', label: 'YouTube', hint: 'Uses the “Most replayed” graph · long videos download only the parts that become clips' };
   if (/(^|\.)twitch\.tv$/.test(host)) return { kind: 'twitch', label: 'Twitch', hint: 'Past broadcasts, highlights and clips work · live streams can be clipped after they end' };
   if (host === 'drive.google.com' || host === 'docs.google.com' || host === 'drive.usercontent.google.com') {
-    if (/\/folders\//.test(u.pathname)) return { kind: 'gdrive', label: 'Google Drive', hint: '', error: 'That’s a folder — open the video and copy the link of the file itself.' };
+    if (/\/folders\/[\w-]{10,}/.test(u.pathname) || u.pathname === '/embeddedfolderview')
+      return { kind: 'gdrive', label: 'Google Drive folder', hint: 'The AI reads everything inside and picks the videos to clip', folder: true };
     if (/\/(document|spreadsheets|presentation|forms)\//.test(u.pathname)) return { kind: 'gdrive', label: 'Google Drive', hint: '', error: 'That Google link isn’t a video file.' };
     return { kind: 'gdrive', label: 'Google Drive', hint: 'Make sure sharing is set to “Anyone with the link”' };
   }
