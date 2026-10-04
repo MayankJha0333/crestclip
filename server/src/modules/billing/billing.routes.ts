@@ -3,13 +3,12 @@ import { z } from 'zod';
 import { asyncHandler, validate } from '../../lib/http.js';
 import { me, requireUser } from '../auth/auth.middleware.js';
 import * as service from './billing.service.js';
-import { CREDITS_PER_CLIP, CURRENCY, PLAN_ORDER, PLANS, TOPUP } from './plans.js';
 
 export const billingRouter = Router();
 
 /** Public: the pricing table (landing page + Plan page). */
 billingRouter.get('/billing/plans', (_req, res) => {
-  res.json({ currency: CURRENCY, creditsPerClip: CREDITS_PER_CLIP, plans: PLAN_ORDER.map((id) => service.publicPlan(PLANS[id])), topup: TOPUP });
+  res.json(service.plansInfo());
 });
 
 /** Razorpay calls this on renewals and payments (signature-checked, no login). */

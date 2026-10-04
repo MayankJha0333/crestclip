@@ -6,3 +6,4 @@ data/
 .DS_Store
 credentials/
 *-key.json
+web/dist-server/

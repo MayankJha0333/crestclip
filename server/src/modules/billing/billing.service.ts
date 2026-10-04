@@ -105,6 +105,8 @@ async function downgrade(user: UserRow, why: string) {
 
 /** A plan as the app shows it (price in US dollars, and how many clips its credits make). */
 export const publicPlan = (p: Plan) => ({ ...p, currency: CURRENCY, clips: Math.floor(p.credits / CREDITS_PER_CLIP) });
+/** The public pricing table (landing page, pricing page, Plan page). */
+export const plansInfo = () => ({ currency: CURRENCY, creditsPerClip: CREDITS_PER_CLIP, plans: PLAN_ORDER.map((id) => publicPlan(PLANS[id])), topup: TOPUP });
 
 export async function accountSummary(user: UserRow) {
   const plan = planOf(user.plan);

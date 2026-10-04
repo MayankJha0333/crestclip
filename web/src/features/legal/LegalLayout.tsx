@@ -13,12 +13,9 @@ const POLICY_UPDATED = '3 October 2026';
 /** A public page: header, a readable column of text, and the footer with every policy link. */
 export function LegalLayout({ title, intro, policy, wide, business, children }: { title: string; intro: ReactNode; policy?: boolean; wide?: boolean; business: Business; children: ReactNode }) {
   const { me } = useAuth();
+  // (the browser tab title comes from the server's list in seo.ts — see main.tsx)
   useEffect(() => {
-    document.title = `${title} — CrestClip`;
     window.scrollTo(0, 0);
-    return () => {
-      document.title = 'CrestClip — clip the moment everyone rewatches';
-    };
   }, [title]);
   return (
     <div className="mx-auto max-w-[1080px] px-4 pt-3 pb-8 sm:px-6 sm:pt-5">

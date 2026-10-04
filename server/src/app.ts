@@ -4,7 +4,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { config } from './config.js';
 import { projects } from './db/index.js';
 import { fetchFromCloud } from './infra/cloudStore.js';
-import { asyncMiddleware, errorHandler, HttpError } from './lib/http.js';
+import { asyncHandler, asyncMiddleware, errorHandler, HttpError } from './lib/http.js';
 import { adminRouter } from './modules/admin/admin.routes.js';
 import { attachUser, requireUser } from './modules/auth/auth.middleware.js';
 import { authRouter } from './modules/auth/auth.routes.js';
@@ -90,9 +90,11 @@ export function createApp() {
   if (fs.existsSync(config.webDist)) {
     app.get('/robots.txt', robotsTxt);
     app.get('/sitemap.xml', sitemapXml);
+    // files in /assets have their content's fingerprint in the name, so browsers can keep them for a year
+    app.use('/assets', express.static(path.join(config.webDist, 'assets'), { index: false, maxAge: '1y', immutable: true }));
     app.use(express.static(config.webDist, { index: false, maxAge: '1h' }));
-    // every other address gets the app page, with its own title, tags and search-engine text (see seo.ts)
-    app.get(/^\/(?!api|media).*/, sendAppPage);
+    // every other address gets the app page, with its own title, tags and the page built into HTML (see seo.ts)
+    app.get(/^\/(?!api|media).*/, asyncHandler(sendAppPage));
   }
 
   app.use(errorHandler);

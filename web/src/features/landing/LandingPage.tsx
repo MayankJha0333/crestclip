@@ -10,6 +10,7 @@ import { CaptionSample } from '../clip-settings/CaptionPicker';
 import { CurveSvg, HeroArt } from './art';
 import { FAQ, FEATURES, SAMPLE_CLIPS, STEPS } from './content';
 import { useAuth } from '../auth/auth';
+import { initialPlans } from '../../lib/initialData';
 import { money } from '../billing/money';
 import { PlanCards } from '../billing/PlanCards';
 import { SiteFooter } from '../../components/SiteFooter';
@@ -35,7 +36,7 @@ export function LandingPage() {
   const nav = useNavigate();
   const { me } = useAuth();
   const [url, setUrl] = useState('');
-  const [pricing, setPricing] = useState<PlansInfo | null>(null);
+  const [pricing, setPricing] = useState<PlansInfo | null>(initialPlans);
   useEffect(() => {
     api
       .plans()

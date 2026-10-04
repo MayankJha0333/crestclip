@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, type SiteInfo } from '../../lib/api';
+import { initialSite } from '../../lib/initialData';
 
 /**
  * Who runs CrestClip and the numbers the policy pages quote — from the server (.env BUSINESS_* / SUPPORT_* and the
@@ -19,7 +20,7 @@ export interface Business {
 }
 
 export function useBusiness(): Business {
-  const [site, setSite] = useState<SiteInfo | null>(null);
+  const [site, setSite] = useState<SiteInfo | null>(initialSite);
   useEffect(() => {
     api
       .site()

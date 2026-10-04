@@ -1,14 +1,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Request, Response } from 'express';
+import { pathToFileURL } from 'node:url';
 import { config } from '../../config.js';
+import { plansInfo } from '../billing/billing.service.js';
+import { site as siteInfo } from '../system/system.service.js';
 import { CREDITS_PER_CLIP, PLAN_ORDER, PLANS } from '../billing/plans.js';
 
 /**
- * What Google sees. The site is a React app (an empty page until JavaScript runs), so for every public address the
- * server fills in the page title, description, share-preview tags and a plain-HTML copy of the main text before
- * sending it. React replaces that text as soon as it starts, so people never see it — search engines and link
- * previews do. Signed-in pages (/app, /receipt) are marked "noindex" so they never show up in search.
+ * What Google (and every visitor) sees first. For every public address the server fills in the page title,
+ * description and share-preview tags, and builds the real page into HTML (web/src/entry-server.tsx) — so the page
+ * shows up finished straight away, and Google reads exactly what people see. React then takes the page over in the
+ * browser without redrawing it. Signed-in pages (/app, /receipt) are marked "noindex" so they never show up in search.
+ *
+ * If the built page isn't there (an old build), a short plain-HTML summary (`body` below) is sent instead.
  */
 
 const NAME = 'CrestClip';
@@ -18,7 +23,7 @@ const TAGLINE = 'clip the moment everyone rewatches';
 interface Page {
   title: string;
   description: string;
-  /** plain HTML shown to search engines inside the app's root element */
+  /** plain-HTML summary, used only when the server-built page isn't available */
   body: string;
   /** "monthly" etc. for the sitemap */
   changefreq: string;
@@ -167,21 +172,67 @@ function analyticsTag() {
 let template: string | null = null;
 const indexHtml = () => (template ??= fs.readFileSync(path.join(config.webDist, 'index.html'), 'utf8'));
 
+/** JSON that is safe to put inside a <script> tag */
+const scriptJson = (v: unknown) => JSON.stringify(v).replace(/</g, '\\u003c');
+
+/** The page builder from the web build (web/dist-server), loaded once. null = not built. */
+type Renderer = (path: string, data: unknown) => Promise<string | null>;
+let renderer: Promise<Renderer | null> | null = null;
+function loadRenderer() {
+  renderer ??= (async () => {
+    const file = path.join(path.dirname(config.webDist), 'dist-server', 'entry-server.js');
+    if (!fs.existsSync(file)) {
+      console.warn('[seo] web/dist-server is missing — run "npm run build -w web". Pages are sent without the built HTML.');
+      return null;
+    }
+    const mod = (await import(pathToFileURL(file).href)) as { render: Renderer };
+    return mod.render;
+  })().catch((e) => {
+    console.warn('[seo] could not load the page builder:', (e as Error).message);
+    return null;
+  });
+  return renderer;
+}
+
+/** Built pages, kept in memory (they only change when the app is redeployed). Addresses with ?query aren't kept. */
+const built = new Map<string, string | null>();
+async function buildPage(url: string, data: unknown) {
+  const keep = !url.includes('?');
+  if (keep && built.has(url)) return built.get(url)!;
+  const render = await loadRenderer();
+  if (!render) return null;
+  try {
+    const html = await render(url, data);
+    if (keep) built.set(url, html);
+    return html;
+  } catch (e) {
+    console.warn(`[seo] could not build ${url}:`, (e as Error).message);
+    return null;
+  }
+}
+
 /** Paths React handles that are private (signed in) — served, but never indexed. */
 const PRIVATE = /^\/(app|receipt)(\/|$)/;
 const REDIRECTS: Record<string, string> = { '/refund-policy': '/refunds' };
 
 /** Sends the app page for any non-API address, with the right title, tags and search-engine text filled in. */
-export function sendAppPage(req: Request, res: Response) {
+export async function sendAppPage(req: Request, res: Response) {
   const site = config.publicUrl;
   const p = req.path.length > 1 ? req.path.replace(/\/+$/, '') : '/';
   if (REDIRECTS[p]) return res.redirect(301, REDIRECTS[p]);
-  const page = pages()[p];
+  const all = pages();
+  const page = all[p];
   const isPrivate = PRIVATE.test(p);
   // an address that isn't a page: say so (status 404), so search engines don't index it as a copy of the home page
   if (!page && !isPrivate) res.status(404);
 
-  let html = indexHtml().replace('</head>', `    ${analyticsTag()}\n  </head>`);
+  // prices, business details and every page's title go along, so the browser draws exactly what the server built
+  const data = {
+    plans: plansInfo(),
+    site: siteInfo(),
+    pages: Object.fromEntries(Object.entries(all).map(([k, v]) => [k, { title: v.title, description: v.description }])),
+  };
+  let html = indexHtml().replace('</head>', () => `    ${analyticsTag()}\n    <script>window.__CC_DATA__=${scriptJson(data)}</script>\n  </head>`);
   res.setHeader('Cache-Control', 'no-cache');
   if (!page) {
     html = html.replace('</head>', '    <meta name="robots" content="noindex" />\n  </head>');
@@ -204,13 +255,19 @@ export function sendAppPage(req: Request, res: Response) {
     `<meta name="twitter:title" content="${esc(page.title)}" />`,
     `<meta name="twitter:description" content="${esc(page.description)}" />`,
     `<meta name="twitter:image" content="${image}" />`,
-    ...(p === '/' ? [`<script type="application/ld+json">${JSON.stringify(structuredData(site)).replace(/</g, '\\u003c')}</script>`] : []),
+    ...(p === '/' ? [`<script type="application/ld+json">${scriptJson(structuredData(site))}</script>`] : []),
   ];
   html = html
     .replace(/<title>[^<]*<\/title>/, `<title>${esc(page.title)}</title>`)
     .replace(/<meta name="description" content="[^"]*"\s*\/?>/, `<meta name="description" content="${esc(page.description)}" />`)
-    .replace('</head>', `    ${tags.join('\n    ')}\n  </head>`)
-    .replace('<div id="root"></div>', `<div id="root"><main style="max-width:760px;margin:40px auto;padding:0 16px;font-family:system-ui,sans-serif">${page.body}</main></div>`);
+    .replace('</head>', `    ${tags.join('\n    ')}\n  </head>`);
+
+  // the real page, built here
+  const query = req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '';
+  const pageHtml = await buildPage(p + query, data);
+  html = pageHtml
+    ? html.replace('<div id="root"></div>', () => `<div id="root" data-ssr="1">${pageHtml}</div>`)
+    : html.replace('<div id="root"></div>', () => `<div id="root"><main style="max-width:760px;margin:40px auto;padding:0 16px;font-family:system-ui,sans-serif">${page.body}</main></div>`);
   res.type('html').send(html);
 }
 

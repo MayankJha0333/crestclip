@@ -5,12 +5,13 @@ import { buttonClass } from '../../components/ui';
 import { PlanCards } from '../billing/PlanCards';
 import { money } from '../billing/money';
 import { useBusiness } from './business';
+import { initialPlans } from '../../lib/initialData';
 import { ContactDetails, LegalLayout, Section } from './LegalLayout';
 
 /** Public pricing page: every plan and the top-up in US dollars, plus how billing works (Razorpay checks this page). */
 export function PricingPage() {
   const b = useBusiness();
-  const [pricing, setPricing] = useState<PlansInfo | null>(null);
+  const [pricing, setPricing] = useState<PlansInfo | null>(initialPlans);
   useEffect(() => {
     api
       .plans()
