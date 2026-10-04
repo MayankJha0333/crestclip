@@ -34,6 +34,8 @@ export interface ProjectRow {
   options: ProjectOptions;
   signals: Signals | null;
   transcript: Segment[] | null;
+  /** which transcription method made `transcript` (older ones are redone, see TRANSCRIPT_REV) */
+  transcriptRev?: number | null;
   mediaPath: string | null;
   thumbPath: string | null;
   aiNotes: string | null;
@@ -63,6 +65,7 @@ const UPDATABLE = [
   'options',
   'signals',
   'transcript',
+  'transcriptRev',
   'mediaPath',
   'thumbPath',
   'aiNotes',

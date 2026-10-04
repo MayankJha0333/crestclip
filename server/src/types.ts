@@ -66,6 +66,8 @@ export interface Segment {
   text: string;
   speaker?: string;
   words: Word[];
+  /** word times taken from measured ones (the site's speech recognition), not estimated from the phrase */
+  timed?: boolean;
 }
 
 export interface HeatPoint {

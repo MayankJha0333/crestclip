@@ -3,6 +3,7 @@ import path from 'node:path';
 import { config } from '../config.js';
 import { run } from '../lib/proc.js';
 import type { Motion, ReframePlan, Word } from '../types.js';
+import { probe } from './media.js';
 import { MAX_BAND_ZOOM } from './reframe.js';
 import { watermarkFilter, type Watermark } from './watermark.js';
 
@@ -169,7 +170,10 @@ export async function renderClip(opts: {
   fs.mkdirSync(workDir, { recursive: true });
   const dur = Math.max(0.5, opts.end - opts.start);
   const keep = opts.keep?.length ? opts.keep : null;
-  const outDur = keep ? keep.reduce((a, k) => a + k.e - k.s, 0) : dur;
+  // the clip is a whole number of frames, and the sound is made exactly that long too — so parts joined later
+  // (flash-forward, several ranges, music) line up to the millisecond
+  const frames = Math.max(1, Math.round((keep ? keep.reduce((a, k) => a + k.e - k.s, 0) : dur) * 30));
+  const outDur = frames / 30;
 
   const motion = opts.motion ?? 'none';
   let graph = buildVideoGraph(opts.plan, opts.width, opts.height, motion !== 'none');
@@ -233,8 +237,9 @@ export async function renderClip(opts: {
     vOut = `[ve${j}]`;
   });
   const h = opts.exportHeight && opts.exportHeight < 1920 ? opts.exportHeight : null;
-  graph += `;${vOut}fps=30,${h ? `scale=${Math.round((h * 9) / 32) * 2}:${h}:flags=lanczos,` : ''}format=yuv420p[v]`;
-  if (opts.hasAudio) graph += `;${aIn}loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[a]`;
+  graph += `;${vOut}fps=30,tpad=stop_mode=clone:stop_duration=1,trim=end_frame=${frames},${h ? `scale=${Math.round((h * 9) / 32) * 2}:${h}:flags=lanczos,` : ''}format=yuv420p[v]`;
+  if (opts.hasAudio)
+    graph += `;${aIn}loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,apad=whole_dur=${outDur.toFixed(4)},atrim=end=${outDur.toFixed(4)}[a]`;
 
   const tmp = path.join(workDir, `render_${Date.now()}.mp4`);
   const args = [
@@ -299,11 +304,37 @@ export async function renderClip(opts: {
   fs.renameSync(tmp, opts.out);
 }
 
-/** Join rendered parts (same size/codec) into one clip. */
+/**
+ * Join rendered parts (same size/codec) into one clip. The picture is copied as is; the sound is decoded and joined
+ * sample-exact (copying AAC across files shifts it by its start-up padding at every join — the sound would run a
+ * few dozen ms behind the picture after a flash-forward).
+ */
 export async function concatParts(files: string[], out: string, workDir: string) {
+  const withSound = (await Promise.all(files.map((f) => probe(f).then((x) => x.hasAudio).catch(() => false)))).every(Boolean);
+  // picture-only copies first: when a file still has sound, the joiner shifts its picture by the sound's padding too
+  const pictures = withSound
+    ? await Promise.all(
+        files.map(async (f, i) => {
+          const v = path.join(workDir, `join_v${i}.mp4`);
+          await run(config.ffmpeg, ['-y', '-v', 'error', '-i', f, '-map', '0:v', '-c', 'copy', '-an', v], { timeoutMs: 5 * 60 * 1000 });
+          return v;
+        }),
+      )
+    : files;
   const list = path.join(workDir, 'parts.txt');
-  fs.writeFileSync(list, files.map((f) => `file '${f.replace(/'/g, "'\\''")}'`).join('\n'));
-  await run(config.ffmpeg, ['-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-movflags', '+faststart', out], { timeoutMs: 10 * 60 * 1000 });
+  fs.writeFileSync(list, pictures.map((f) => `file '${f.replace(/'/g, "'\\''")}'`).join('\n'));
+  // each part's sound cut to its picture's length (the encoder pads the last bit of sound, which would add up)
+  const lens = withSound ? await Promise.all(pictures.map((v) => probe(v).then((x) => x.duration))) : [];
+  const args = withSound
+    ? [
+        ...['-f', 'concat', '-safe', '0', '-i', list],
+        ...files.flatMap((f) => ['-i', f]),
+        '-filter_complex',
+        `${files.map((_, i) => `[${i + 1}:a]atrim=end=${lens[i].toFixed(4)},asetpts=PTS-STARTPTS[j${i}]`).join(';')};${files.map((_, i) => `[j${i}]`).join('')}concat=n=${files.length}:v=0:a=1[a]`,
+        ...['-map', '0:v', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '160k'],
+      ]
+    : ['-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy'];
+  await run(config.ffmpeg, ['-y', '-v', 'error', ...args, '-movflags', '+faststart', out], { timeoutMs: 10 * 60 * 1000 });
 }
 
 /**
@@ -315,7 +346,7 @@ export async function mixMusic(opts: { input: string; music: string; volume: num
   const gain = Math.max(0, Math.min(2, (opts.volume / 100) * 1.6));
   const fadeOut = Math.min(1.8, D / 4);
   const m = `[1:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,atrim=0:${D.toFixed(3)},asetpts=PTS-STARTPTS,volume=${gain.toFixed(3)},afade=t=in:st=0:d=0.8,afade=t=out:st=${(D - fadeOut).toFixed(3)}:d=${fadeOut.toFixed(3)}[m]`;
-  const tail = 'alimiter=limit=0.95:level=disabled,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[a]';
+  const tail = 'alimiter=limit=0.95:level=disabled:latency=1,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[a]';
   let graph: string;
   if (!opts.hasVoice) graph = `${m};[m]${tail}`;
   else if (opts.duck)

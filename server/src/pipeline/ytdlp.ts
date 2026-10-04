@@ -288,6 +288,60 @@ export async function downloadSections(
   return out;
 }
 
+export interface TimedWord {
+  w: string;
+  s: number;
+  e: number;
+}
+
+/**
+ * When each word is said, from the site's own speech recognition (YouTube's automatic captions, original language):
+ * timed to within ~0.1 s, where Gemini's transcript timestamps are often a second or more off. Null when the video has
+ * none. The text is not used — only the timing.
+ */
+export async function fetchWordTimings(url: string, dir: string, infoJson: string): Promise<TimedWord[] | null> {
+  let auto: Record<string, { ext?: string; url?: string }[]> = {};
+  let lang: string | null = null;
+  try {
+    const j = JSON.parse(fs.readFileSync(infoJson, 'utf8'));
+    auto = j.automatic_captions ?? {};
+    lang = j.language ?? null;
+  } catch {
+    return null;
+  }
+  // the track in the spoken language ("en-orig"); the others are machine translations of it
+  const track = Object.keys(auto).find((k) => k.endsWith('-orig')) ?? (lang && auto[lang] ? lang : null);
+  if (!track) return null;
+  type Json3 = { events?: { tStartMs?: number; dDurationMs?: number; segs?: { utf8?: string; tOffsetMs?: number }[] }[] };
+  let data: Json3 | null = null;
+  // the link in the saved page info is enough (a fraction of a second); yt-dlp only if that fails (expired, blocked)
+  const link = auto[track]?.find((f) => f.ext === 'json3')?.url;
+  if (link) data = await fetch(link, { signal: AbortSignal.timeout(30_000) }).then((r) => (r.ok ? (r.json() as Promise<Json3>) : null)).catch(() => null);
+  if (!data?.events) {
+    fs.mkdirSync(dir, { recursive: true });
+    const fresh = Date.now() - fs.statSync(infoJson).mtimeMs < 4 * 3600_000;
+    await ytdlp(['--skip-download', '--write-auto-subs', '--sub-langs', track, '--sub-format', 'json3', '-o', path.join(dir, 'asr'), ...(fresh ? ['--load-info-json', infoJson] : [url])], { timeoutMs: 120_000 });
+    const file = fs.readdirSync(dir).find((f) => f.startsWith('asr.') && f.endsWith('.json3'));
+    if (!file) return null;
+    data = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8')) as Json3;
+    fs.rmSync(path.join(dir, file), { force: true });
+  }
+  const events = data.events ?? [];
+  const words: TimedWord[] = [];
+  for (const ev of events) {
+    const end = ((ev.tStartMs ?? 0) + (ev.dDurationMs ?? 0)) / 1000;
+    for (const sg of ev.segs ?? []) {
+      const w = (sg.utf8 ?? '').trim();
+      if (!w || /^\[.*\]$/.test(w)) continue; // [Music], [Applause]
+      words.push({ w, s: ((ev.tStartMs ?? 0) + (sg.tOffsetMs ?? 0)) / 1000, e: end });
+    }
+  }
+  words.sort((a, b) => a.s - b.s);
+  // only starts are given: a word lasts until the next one starts (at most 0.8 s, so it doesn't run through a pause)
+  for (let i = 0; i < words.length; i++) words[i].e = Math.max(words[i].s + 0.05, Math.min(words[i].e, words[i + 1]?.s ?? Infinity, words[i].s + 0.8));
+  return words.length ? words : null;
+}
+
 /** Run yt-dlp and parse its JSON output (used by Explore for search / channel listings). */
 export async function ytdlpJson<T = Record<string, unknown>>(args: string[], timeoutMs = 60_000): Promise<T> {
   const { stdout } = await ytdlp(['-J', ...args], { timeoutMs });

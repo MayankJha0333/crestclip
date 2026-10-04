@@ -13,13 +13,14 @@ import { aiScore, describeClips, findMoments, finalizeClips, snapRange } from '.
 import { contentBand, planReframe } from './reframe.js';
 import { concatParts, faceOnFrame, mixMusic, planZooms, renderClip } from './render.js';
 import { emojiPng } from './emoji.js';
-import { cutTimes, keptLength, planKeep, retimeWords, silencesIn } from './pace.js';
+import { cutTimes, keptLength, planKeep, retimeWords, silencesIn, snapKeep, toFrame } from './pace.js';
+import { alignPhrases, phrasesInRange, retimeToWords, speechGaps } from './align.js';
 import { crestclipMark, watermarkForRender, watermarkTopBottom } from './watermark.js';
 import { BillingError, chargeProject, refundProject, renderRules, settleProject } from '../modules/billing/billing.service.js';
 import { resolveMusic } from './music.js';
 import { buildSignals, rangeScore } from './signals.js';
 import { transcribe } from './transcribe.js';
-import { download, downloadAudio, fetchComments, fetchInfo, type Comment, type SourceInfo } from './ytdlp.js';
+import { download, downloadAudio, fetchComments, fetchInfo, fetchWordTimings, type Comment, type SourceInfo } from './ytdlp.js';
 import { endSectionMode, footageFor, footageSavings, infoJsonPath, prefetchFootage, readFootage, startSectionMode } from './footage.js';
 import { classifyFileLink, downloadFileLink, fileLinkLabel } from './filelink.js';
 import type { CaptionStyle, Layout, ProjectOptions, ReframePlan, Segment, Signals, TimeRange, Word } from '../types.js';
@@ -61,7 +62,8 @@ export async function processProject(id: string) {
     // Resume: moments already found → only (re)render what's missing.
     const existing = await clipDb.forProject(id);
     if (p.transcript && p.signals && existing.length && p.mediaPath && fs.existsSync(p.mediaPath)) {
-      const todo = existing.filter((c) => c.status !== 'ready');
+      await refreshTranscript(id).catch((e) => console.error(`[project ${id}] transcribing again failed:`, e));
+      const todo = (await clipDb.forProject(id)).filter((c) => c.status !== 'ready');
       await fetchClipFootage(id, todo);
       await renderAll(id, todo);
       await progressSaved(id);
@@ -170,8 +172,8 @@ export async function processProject(id: string) {
       stage(id, 'transcribe', 0, 'Listening with Gemini…');
       const tr = await transcribe(audio, duration, work, (d, t) => stage(id, 'transcribe', d / t, `Transcribing · part ${d} of ${t}`), sil);
       if (!tr.segments.length) throw new Error('No speech was found in this video.');
-      segments = tr.segments;
-      await projects.update(id, { transcript: segments });
+      segments = await withMeasuredTimes(tr.segments, info?.webpageUrl, dir);
+      await projects.update(id, { transcript: segments, transcriptRev: TRANSCRIPT_REV });
     }
     const tr = { segments };
 
@@ -337,8 +339,11 @@ function shiftPlan(plan: ReframePlan, by: number): ReframePlan {
 export const clipParts = (c: Pick<ClipRow, 'start' | 'end' | 'segments'>): TimeRange[] => (c.segments?.length ? c.segments : [{ start: c.start, end: c.end }]);
 
 async function renderOnce(clipId: string) {
-  const c = await clipDb.get(clipId);
-  if (!c) return;
+  const asked = await clipDb.get(clipId);
+  if (!asked) return;
+  const moved = await refreshTranscript(asked.projectId).catch((e) => (console.error(`[project ${asked.projectId}] transcribing again failed:`, e), [] as string[]));
+  for (const id of moved) if (id !== clipId) void renderClipJob(id);
+  const c = (await clipDb.get(clipId))!;
   const p = await projects.get(c.projectId);
   if (!p?.mediaPath && !readFootage(projectDir(c.projectId))) return;
   await clipDb.update(clipId, { status: 'rendering', error: null });
@@ -384,7 +389,7 @@ async function renderOnce(clipId: string) {
       plans.push(plan);
 
       const dur = seg.end - seg.start;
-      const words = wordsInRange(p!.transcript ?? [], seg.start, seg.end);
+      const words = await captionWords(p!.transcript ?? [], foot.src, ls, seg.start, seg.end);
       const first = i === 0;
       const hookY = watermark && watermarkTopBottom(watermark) ? watermarkTopBottom(watermark)! + 30 : undefined;
       // captions go under the face: a bit lower when the face sits low in the frame, never into the apps' bottom area
@@ -402,9 +407,11 @@ async function renderOnce(clipId: string) {
 
       // flash-forward: the tease line rendered as its own short piece, punched in, played before the story
       if (first && c.flashForward && c.teaser && c.teaser.start >= seg.start && c.teaser.end <= seg.end) {
-        const t0 = c.teaser.start - seg.start;
-        const tLen = c.teaser.end - c.teaser.start;
-        const tWords = wordsInRange(p!.transcript ?? [], c.teaser.start, c.teaser.end);
+        // on the frame grid, so the tease and the story join without the sound slipping
+        const t0 = toFrame(c.teaser.start - seg.start);
+        const tLen = Math.max(1 / 30, toFrame(c.teaser.end - c.teaser.start));
+        const tAbs = seg.start + t0;
+        const tWords = await captionWords(p!.transcript ?? [], foot.src, ls + t0, tAbs, tAbs + tLen);
         const tCap = captions(tWords, tLen, false);
         const teaserOut = path.join(work, 'teaser.mp4');
         await renderClip({
@@ -430,8 +437,8 @@ async function renderOnce(clipId: string) {
       }
 
       // pieces to keep: long pauses shortened (and a lone "um" between pauses dropped)
-      const keep = planKeep({ dur, silences: silencesIn(silences, seg), words, pace: c.pace, gentle });
-      const cut = keep.length > 1 || keep[0].s > 0 || keep[0].e < dur;
+      const keep = snapKeep(planKeep({ dur, silences: silencesIn(silences, seg), words, pace: c.pace, gentle }), dur);
+      const cut = keep.length > 1 || keep[0].s > 0 || keep[0].e < toFrame(dur) - 1e-6;
       const outWords = cut ? retimeWords(words, keep) : words;
       const outDur = cut ? keptLength(keep) : dur;
       const cap = captions(outWords, outDur, first);
@@ -458,7 +465,7 @@ async function renderOnce(clipId: string) {
       });
       files.push(partOut);
       hasVoice ||= foot.hasAudio;
-      total += outDur;
+      total += Math.round(outDur * 30) / 30; // the rendered part is a whole number of frames
     }
 
     let current = files[0];
@@ -548,6 +555,114 @@ function readCovered(dir: string): TimeRange[] | null {
   }
 }
 
+/** Bumped when older transcripts can't be trusted: before 2 they were made from 8-minute chunks and drifted seconds
+ *  (up to minutes) away from the voice. */
+const TRANSCRIPT_REV = 2;
+const transcriptCurrent = (p: ProjectRow) => (p.transcriptRev ?? 0) >= TRANSCRIPT_REV || Boolean(p.transcript?.some((s) => s.timed));
+const MOVE_BAND = 180; // seconds: how far an old transcript's times may be off
+
+const refreshing = new Map<string, Promise<string[]>>();
+/**
+ * A project transcribed the old way: transcribe it again, and move its AI clips onto the corrected times.
+ * Runs once per project however many clips ask; the first caller gets the clips that now need rendering again.
+ */
+function refreshTranscript(projectId: string): Promise<string[]> {
+  const cur = refreshing.get(projectId);
+  if (cur) return cur.then(() => []);
+  const job = redoTranscript(projectId).finally(() => refreshing.delete(projectId));
+  refreshing.set(projectId, job);
+  return job;
+}
+
+async function redoTranscript(projectId: string): Promise<string[]> {
+  const p = await projects.get(projectId);
+  if (!p?.transcript?.length || transcriptCurrent(p) || !p.duration) return [];
+  console.log(`[project ${projectId}] transcript made the old way — transcribing again`);
+  const dir = projectDir(projectId);
+  const work = path.join(dir, 'work');
+  const old = p.transcript;
+  let segs: Segment[];
+  const covered = readCovered(dir);
+  if (covered) {
+    // picked parts: only those were transcribed — do the same parts again
+    fs.writeFileSync(coveredPath(dir), '[]');
+    await projects.update(projectId, { transcript: [] });
+    segs = await ensureTranscript(projectId, covered);
+  } else {
+    const audio = path.join(work, 'audio.mp3');
+    if (!fs.existsSync(audio)) {
+      if (!p.mediaPath || !fs.existsSync(p.mediaPath)) return [];
+      fs.mkdirSync(work, { recursive: true });
+      await extractAudio(p.mediaPath, audio);
+    }
+    const tr = await transcribe(audio, p.duration, work, () => {}, silencesFor(projectId));
+    for (const f of fs.readdirSync(work)) if (f.startsWith('chunk_')) fs.rmSync(path.join(work, f), { force: true });
+    if (!tr.segments.length) return [];
+    segs = await withMeasuredTimes(tr.segments, p.sourceUrl, dir);
+    await projects.update(projectId, { transcript: segs, transcriptRev: TRANSCRIPT_REV });
+  }
+
+  // AI clips were cut on the old transcript's clock (so were trims made against its lines); picked parts were not
+  const sil = silencesFor(projectId);
+  const again: string[] = [];
+  for (const c of await clipDb.forProject(projectId)) {
+    if (c.source === 'ai') {
+      const parts = clipParts(c).map((r) => {
+        const m = moveRange(r, old, segs);
+        return m ? snapRange(m.start, m.end, segs, sil, p.duration!) : r;
+      });
+      const t = c.teaser && moveRange(c.teaser, old, segs);
+      await clipDb.update(c.id, {
+        start: +parts[0].start.toFixed(3),
+        end: +parts[parts.length - 1].end.toFixed(3),
+        segments: c.segments?.length ? parts.map((r) => ({ start: +r.start.toFixed(3), end: +r.end.toFixed(3) })) : null,
+        teaser: t && t.start >= parts[0].start && t.end <= parts[0].end ? { start: +t.start.toFixed(3), end: +t.end.toFixed(3) } : null,
+        reframe: null,
+      });
+    }
+    // every clip's captions came from the old times
+    if (c.status === 'ready') {
+      await clipDb.update(c.id, { status: 'pending' });
+      again.push(c.id);
+    }
+  }
+  return again;
+}
+
+/** Where a range on one transcript's clock is on another's: the words inside it, found in the other transcript. */
+function moveRange(r: TimeRange, from: Segment[], to: Segment[]): TimeRange | null {
+  const inside = from
+    .map((s) => ({ ...s, words: s.words.filter((w) => (w.s + w.e) / 2 >= r.start && (w.s + w.e) / 2 <= r.end) }))
+    .filter((s) => s.words.length);
+  const near = to.filter((s) => s.e > r.start - MOVE_BAND && s.s < r.end + MOVE_BAND).flatMap((s) => s.words);
+  const moved = inside.length && near.length ? retimeToWords(inside, near, MOVE_BAND) : null;
+  return moved?.length ? { start: moved[0].s, end: moved[moved.length - 1].e } : null;
+}
+
+/** The transcript's times moved onto the video's measured word times (YouTube's own speech recognition), if it has them. */
+async function withMeasuredTimes(segs: Segment[], url: string | null | undefined, dir: string): Promise<Segment[]> {
+  if (!url || !segs.length) return segs;
+  try {
+    const words = await fetchWordTimings(url, path.join(dir, 'work'), infoJsonPath(dir));
+    return (words && retimeToWords(segs, words)) ?? segs;
+  } catch (e) {
+    console.warn('[word timings]', (e as Error).message);
+    return segs;
+  }
+}
+
+/**
+ * Caption words for [start, end] of the video (times from `start`; `fileStart` is `start` in `src`'s own time).
+ * Measured word times are used as they are; otherwise each phrase is pinned to where talking starts and stops in the
+ * audio and its words are spread over the spoken bits.
+ */
+async function captionWords(segs: Segment[], src: string, fileStart: number, start: number, end: number): Promise<Word[]> {
+  const here = segs.filter((s) => s.e > start && s.s < end);
+  if (here.length && here.every((s) => s.timed)) return wordsInRange(segs, start, end);
+  const gaps = await speechGaps(src, fileStart, end - start).catch(() => null);
+  return gaps ? alignPhrases(phrasesInRange(segs, start, end), gaps, end - start) : wordsInRange(segs, start, end);
+}
+
 /** Make sure these ranges have a transcript (projects built from picked parts only transcribe what they need). */
 async function ensureTranscript(projectId: string, ranges: TimeRange[], onProgress?: (done: number, total: number) => void): Promise<Segment[]> {
   const p = (await projects.get(projectId))!;
@@ -555,6 +670,7 @@ async function ensureTranscript(projectId: string, ranges: TimeRange[], onProgre
   const covered = readCovered(dir);
   let segs = p.transcript ?? [];
   if (covered === null && segs.length) return segs;
+  const fresh = !segs.length || transcriptCurrent(p); // nothing older mixed in
   const cov = covered ?? [];
   const missing = ranges.filter((r) => !cov.some((c) => c.start <= r.start + 0.5 && c.end >= r.end - 0.5));
   for (const [i, r] of missing.entries()) {
@@ -574,7 +690,8 @@ async function ensureTranscript(projectId: string, ranges: TimeRange[], onProgre
       fs.rmSync(sub, { recursive: true, force: true });
     }
   }
-  await projects.update(projectId, { transcript: segs });
+  if (missing.length) segs = await withMeasuredTimes(segs, p.sourceUrl, dir);
+  await projects.update(projectId, { transcript: segs, ...(fresh ? { transcriptRev: TRANSCRIPT_REV } : {}) });
   fs.writeFileSync(coveredPath(dir), JSON.stringify(cov));
   return segs;
 }

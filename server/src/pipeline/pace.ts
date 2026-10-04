@@ -75,6 +75,29 @@ function mergeRanges(rs: Range[]): Range[] {
   return out;
 }
 
+export const FPS = 30;
+/** Seconds rounded to the 30 fps frame grid. */
+export const toFrame = (t: number) => Math.round(t * FPS) / FPS;
+
+/**
+ * Put every cut exactly on a video frame. The picture can only be cut between frames (1/30 s) while the sound can be
+ * cut anywhere — if the two are cut at slightly different spots, each jump cut moves the sound a few ms against the
+ * picture and after a dozen cuts lips and captions are visibly out of sync. Snapped, both are cut identically.
+ */
+export function snapKeep(keep: Range[], dur: number): Range[] {
+  const end = Math.floor(dur * FPS + 1e-6) / FPS;
+  const out: Range[] = [];
+  for (const k of keep) {
+    const s = Math.max(0, toFrame(k.s));
+    const e = Math.min(end, toFrame(k.e));
+    if (e - s < MIN_KEEP) continue;
+    const last = out[out.length - 1];
+    if (last && s <= last.e + 1e-6) last.e = Math.max(last.e, e);
+    else out.push({ s: +s.toFixed(4), e: +e.toFixed(4) });
+  }
+  return out.length ? out : [{ s: 0, e: +end.toFixed(4) }];
+}
+
 /** Length of the edited clip. */
 export const keptLength = (keep: Range[]) => keep.reduce((a, k) => a + k.e - k.s, 0);
 

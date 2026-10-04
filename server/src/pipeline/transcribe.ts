@@ -5,7 +5,11 @@ import { cutAudio } from './media.js';
 import { generateJson, part } from './gemini.js';
 import type { Segment, Word } from '../types.js';
 
-const CHUNK = 8 * 60; // seconds per transcription request
+// Seconds per transcription request. Gemini's timestamps drift the further into a file it gets: on 8-minute chunks the
+// captions ran 5–30 s behind the voice by the end of each chunk. Measured on a TED talk against its official subtitles:
+// 8 min → median 7.6 s off, 2 min → 0.9 s, 30 s → 0.4 s.
+const CHUNK = 30;
+const CHUNK_SLACK = 8; // a chunk may end this much earlier/later to fall in a pause
 
 const schema = {
   type: 'object',
@@ -38,14 +42,14 @@ Never invent speech. If there is no speech, return an empty list.`;
 /** Chunk boundaries placed in the middle of pauses so no word is cut in half between two requests. */
 function chunkPlan(duration: number, silences: { s: number; e: number }[]) {
   const bounds = [0];
-  while (duration - bounds[bounds.length - 1] > CHUNK * 1.15) {
+  while (duration - bounds[bounds.length - 1] > CHUNK + CHUNK_SLACK) {
     const target = bounds[bounds.length - 1] + CHUNK;
     let best = target;
     let bd = Infinity;
     for (const x of silences) {
       const mid = (x.s + x.e) / 2;
       const d = Math.abs(mid - target);
-      if (d < bd && d <= 75 && x.e - x.s >= 0.3) {
+      if (d < bd && d <= CHUNK_SLACK && x.e - x.s >= 0.3) {
         bd = d;
         best = mid;
       }
@@ -68,19 +72,26 @@ export async function transcribe(
   const chunks = chunkPlan(duration, silences);
   let done = 0;
   let lang = '';
-  const results = await pool(chunks, 4, async (c, i) => {
+  const results = await pool(chunks, 8, async (c, i) => {
     const file = path.join(workDir, `chunk_${String(i).padStart(3, '0')}.mp3`);
     await cutAudio(audioPath, file, c.start, c.dur);
-    const r = await generateJson<{ language?: string; segments: { s: number; e: number; sp?: string; t: string }[] }>({
-      model: config.fastModel,
-      system,
-      parts: [part.file(file, 'audio/mp3'), part.text(`Transcribe this ${Math.round(c.dur)}-second audio chunk. Work out which language is spoken and return its name too.`)],
-      schema,
-      audioTimestamp: true,
-      thinking: 'MINIMAL',
-      maxOutputTokens: 60000,
-      label: `transcribe chunk ${i + 1}/${chunks.length}`,
-    });
+    const ask = () =>
+      generateJson<RawChunk>({
+        model: config.fastModel,
+        system,
+        parts: [part.file(file, 'audio/mp3'), part.text(`Transcribe this ${Math.round(c.dur)}-second audio chunk. Work out which language is spoken and return its name too.`)],
+        schema,
+        audioTimestamp: true,
+        thinking: 'MINIMAL',
+        maxOutputTokens: 8192,
+        label: `transcribe chunk ${i + 1}/${chunks.length}`,
+      });
+    let r = await ask();
+    for (let tries = 1; tries < 3 && badTimes(r.segments || [], c.dur); tries++) r = await ask();
+    if (badTimes(r.segments || [], c.dur)) {
+      console.warn(`[transcribe] chunk ${i + 1}: timestamps still broken after 3 tries — spreading its phrases evenly`);
+      r = { ...r, segments: spreadEvenly(r.segments || [], c.dur) };
+    }
     done++;
     onProgress(done, chunks.length);
     if (r.language && !lang) lang = r.language;
@@ -101,6 +112,30 @@ export async function transcribe(
 
   const flat = results.flat().sort((a, b) => a.s - b.s);
   return { segments: withWords(cleanTimeline(flat, duration)), language: lang || 'auto' };
+}
+
+type RawChunk = { language?: string; segments: { s: number; e: number; sp?: string; t: string }[] };
+
+/** Timestamps that stall (phrase after phrase at the same time) or run past the chunk: the model lost track of time. */
+function badTimes(segs: RawChunk['segments'], dur: number) {
+  if (segs.length < 3) return false;
+  let wrong = 0;
+  for (const [k, x] of segs.entries()) {
+    const s = Number(x.s);
+    if (!Number.isFinite(s) || s > dur + 1 || (k > 0 && s <= Number(segs[k - 1].s) + 0.05)) wrong++;
+  }
+  return wrong / segs.length > 0.3;
+}
+
+function spreadEvenly(segs: RawChunk['segments'], dur: number): RawChunk['segments'] {
+  const len = segs.map((x) => Math.max(1, x.t.length));
+  const total = len.reduce((a, b) => a + b, 0);
+  let t = 0;
+  return segs.map((x, k) => {
+    const s = t;
+    t += (dur * len[k]) / total;
+    return { ...x, s, e: t };
+  });
 }
 
 /** Make timestamps monotonic and non-overlapping. */
