@@ -23,10 +23,8 @@ async function autopilotClip(id: string) {
 }
 
 export async function autopilotSummary(ap: AutopilotRow) {
-  const soon = await schedule(ap, 3);
-  const next = soon.find((s) => !s.skipped && s.at > Date.now());
-  const booked = soon.find((s) => s.posts.length && s.at > Date.now());
-  const [review, ready, scheduled, posted, clipping, waiting] = await Promise.all([
+  const [soon, review, ready, scheduled, posted, clipping, waiting] = await Promise.all([
+    schedule(ap, 3),
     apClips.withStatus(ap.id, 'review'),
     apClips.withStatus(ap.id, 'ready'),
     apClips.withStatus(ap.id, 'scheduled'),
@@ -34,6 +32,8 @@ export async function autopilotSummary(ap: AutopilotRow) {
     apVideos.withStatus(ap.id, 'clipping'),
     apVideos.withStatus(ap.id, 'waiting'),
   ]);
+  const next = soon.find((s) => !s.skipped && s.at > Date.now());
+  const booked = soon.find((s) => s.posts.length && s.at > Date.now());
   return {
     id: ap.id,
     name: ap.name,

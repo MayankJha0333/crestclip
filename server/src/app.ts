@@ -59,7 +59,8 @@ export function createApp() {
   app.set('trust proxy', 'loopback'); // real client IPs behind a local reverse proxy (rate limits)
   // keep the raw bytes too: Razorpay webhooks are signed over the exact body
   app.use(express.json({ limit: '2mb', verify: (req, _res, buf) => ((req as Request).rawBody = Buffer.from(buf)) }));
-  app.use(attachUser);
+  // who is signed in: only the API and private media need it (page files, fonts and scripts don't)
+  app.use(['/api', '/media'], attachUser);
 
   app.use('/api', (req, res, next) => (PUBLIC_API.some((r) => r.test(req.path)) ? next() : requireUser(req, res, next)));
   app.use('/api', authRouter);

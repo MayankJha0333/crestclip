@@ -553,12 +553,16 @@ export async function scanNow(apId: string) {
 
 /** The next `days` days of posting times with what will go out at each. */
 export async function schedule(ap: AutopilotRow, days = 7) {
-  const skips = await apSkips.list(ap.id);
   const slots: Slot[] = upcomingSlots(ap.config.times, ap.config.timezone, Date.now() - 60 * 60_000, days);
+  // all lookups at the same time (one wait, not one per slot)
+  const [skips, rows] = await Promise.all([
+    apSkips.list(ap.id),
+    Promise.all(slots.map((s) => Promise.all([posts.forSlot(ap.id, s.key), apClips.bySlot(ap.id, s.key)]))),
+  ]);
   return Promise.all(
-    slots.map(async (s) => {
-      const list = (await posts.forSlot(ap.id, s.key)).filter((p) => p.status !== 'canceled');
-      const item = await apClips.bySlot(ap.id, s.key);
+    slots.map(async (s, i) => {
+      const list = rows[i][0].filter((p) => p.status !== 'canceled');
+      const item = rows[i][1];
       return { ...s, skipped: skips.has(s.key), posts: list, clipId: list[0]?.clipId ?? item?.clipId ?? null, apClipId: item?.id ?? null, itemStatus: item?.status ?? null };
     }),
   );

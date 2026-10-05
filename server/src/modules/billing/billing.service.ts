@@ -110,6 +110,12 @@ export const plansInfo = () => ({ currency: CURRENCY, creditsPerClip: CREDITS_PE
 
 export async function accountSummary(user: UserRow) {
   const plan = planOf(user.plan);
+  // read together (one wait instead of three)
+  const [balance, usedThisMonth, grants] = await Promise.all([
+    credits.balance(user.id),
+    user.cycleStart ? credits.spentSince(user.id, user.cycleStart) : 0,
+    credits.liveGrants(user.id),
+  ]);
   return {
     plan: publicPlan(plan),
     cycleStart: user.cycleStart,
@@ -118,10 +124,10 @@ export async function accountSummary(user: UserRow) {
     hasSubscription: Boolean(user.rzSubscriptionId),
     credits: {
       perClip: CREDITS_PER_CLIP,
-      balance: await credits.balance(user.id),
+      balance,
       monthly: plan.credits,
-      usedThisMonth: user.cycleStart ? await credits.spentSince(user.id, user.cycleStart) : 0,
-      grants: (await credits.liveGrants(user.id)).map((g) => ({ source: g.source, remaining: g.remaining, expiresAt: g.expiresAt })),
+      usedThisMonth,
+      grants: grants.map((g) => ({ source: g.source, remaining: g.remaining, expiresAt: g.expiresAt })),
     },
     paymentsReady: razorpayReady(),
   };

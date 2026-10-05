@@ -1,0 +1,46 @@
+# "Same answers as main": on every pull request, runs main's app and the pull request's app on the same sample
+# data and checks that every API answer and access check is unchanged. See .github/compare-api.sh.
+# A change that is MEANT to change what the API returns will (correctly) fail here — read the diff, then merge.
+
+name: Same answers as main
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: compare-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compare:
+    name: Compare API answers with main
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      mongo:
+        image: mongo:7
+        ports: ['27017:27017']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: docker/setup-buildx-action@v3
+      - name: Build this version
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: crestclip:new
+          cache-from: type=gha
+      - name: Get main's version
+        run: git worktree add ../base "${{ github.event.pull_request.base.sha || 'origin/main' }}"
+      - name: Build main's version
+        uses: docker/build-push-action@v6
+        with:
+          context: ../base
+          load: true
+          tags: crestclip:old
+          cache-from: type=gha
+      - name: Compare
+        run: bash .github/compare-api.sh

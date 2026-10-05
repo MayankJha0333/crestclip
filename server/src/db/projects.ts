@@ -174,6 +174,14 @@ export const projects = {
     await col().deleteOne({ _id: id });
   },
   /** the videos inside a multi-video project, in the order they were added */
+  /** The videos inside several multi-video projects at once (parent id → its videos, in the order they were added). */
+  async childrenOf(parentIds: string[]): Promise<Map<string, ProjectRow[]>> {
+    const out = new Map<string, ProjectRow[]>(parentIds.map((id) => [id, []]));
+    if (!parentIds.length) return out;
+    const rows = await col().find({ parentId: { $in: parentIds } }, { projection: LIST_FIELDS }).sort({ createdAt: 1, _id: 1 }).toArray();
+    for (const d of rows) out.get(d.parentId!)?.push(toProject(d));
+    return out;
+  },
   async children(parentId: string): Promise<ProjectRow[]> {
     return (await col().find({ parentId }).sort({ createdAt: 1, _id: 1 }).toArray()).map(toProject);
   },

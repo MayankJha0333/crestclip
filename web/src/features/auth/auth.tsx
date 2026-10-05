@@ -3,6 +3,27 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { api, LOGGED_OUT, type Me } from '../../lib/api';
 import { Spinner } from '../../components/ui';
 import { identify } from '../../lib/analytics';
+import { readLocal, writeLocal } from '../../lib/storage';
+
+/**
+ * The last account this browser saw. Signed-in pages draw straight away from it instead of waiting for the server,
+ * and the fresh copy replaces it a moment later (or sends the person to log in if the session has ended).
+ * Not used on the server-built public pages, so what React draws there still matches the page exactly.
+ */
+const ME_KEY = 'crestclip:me';
+const cachedMe = (): Me | undefined => {
+  if (typeof window === 'undefined' || document.getElementById('root')?.dataset.ssr === '1') return undefined;
+  return readLocal<Me | null>(ME_KEY, null) ?? undefined;
+};
+const rememberMe = (me: Me | null) => {
+  if (me) writeLocal(ME_KEY, me);
+  else
+    try {
+      localStorage.removeItem(ME_KEY);
+    } catch {
+      /* ignore */
+    }
+};
 
 interface AuthState {
   /** the signed-in person with their plan and credits; null = signed out; undefined = still checking */
@@ -15,14 +36,18 @@ interface AuthState {
 const Ctx = createContext<AuthState>({ me: undefined, refresh: async () => {}, logOut: async () => {} });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [me, setMe] = useState<Me | null | undefined>(undefined);
+  const [me, setMeState] = useState<Me | null | undefined>(cachedMe);
+  const setMe = useCallback((m: Me | null) => {
+    rememberMe(m);
+    setMeState(m);
+  }, []);
   const refresh = useCallback(async () => {
     try {
       setMe(await api.me());
     } catch {
       setMe(null);
     }
-  }, []);
+  }, [setMe]);
   // visits count per account, not per browser (random account ID only — never the email)
   const userId = me?.user.id;
   const plan = me?.account.plan.id;
@@ -42,11 +67,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('focus', tick);
       window.clearInterval(t);
     };
-  }, [refresh]);
+  }, [refresh, setMe]);
   const logOut = useCallback(async () => {
     await api.logOut().catch(() => {});
     setMe(null);
-  }, []);
+  }, [setMe]);
   return <Ctx.Provider value={{ me, refresh, logOut }}>{children}</Ctx.Provider>;
 }
 

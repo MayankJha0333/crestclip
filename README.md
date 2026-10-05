@@ -103,7 +103,7 @@ One-time setup:
 
 1. Service account `crestclip-server` with **Vertex AI User** ("Agent Platform User") and **Logs Writer**, plus
    **Storage Admin** on your bucket.
-2. VM `crestclip-server` with that service account (e2-standard-2, Ubuntu 24.04, 50 GB, HTTP + HTTPS allowed) and a
+2. VM `crestclip-server-mumbai` in `asia-south1-a` (Mumbai, next to the MongoDB Atlas cluster) with that service account (e2-standard-4, Ubuntu 24.04, 50 GB, HTTP + HTTPS allowed) and a
    static IP. Point the domain's A record at it. In MongoDB Atlas → Network Access, allow the IP.
 3. Run `deploy/gcp-setup.sh` in Cloud Shell and add the GitHub variable `GCP_WIF_PROVIDER` it prints
    (Settings → Secrets and variables → Actions → Variables).

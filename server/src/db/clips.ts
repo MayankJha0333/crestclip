@@ -44,6 +44,9 @@ export interface ClipRow {
   outDuration: number | null;
 }
 
+/** The few clip fields a list card needs. */
+export type ClipSummary = Pick<ClipRow, 'projectId' | 'status' | 'peakScore' | 'thumbPath'>;
+
 const DEFAULT_MUSIC: MusicSettings = { track: 'none', volume: 15, duck: true };
 
 const col = () => collection<Doc<ClipRow>>(COLLECTIONS.clips);
@@ -193,6 +196,15 @@ export const clips = {
         .find({ status: 'ready', filePath: { $ne: null } })
         .toArray()
     ).map(toClip);
+  },
+  /** Just what list cards need (status, score, thumbnail) for many projects at once — one small query. */
+  async summaryFor(projectIds: string[]): Promise<ClipSummary[]> {
+    if (!projectIds.length) return [];
+    const rows = await col()
+      .find({ projectId: { $in: [...new Set(projectIds)] } }, { projection: { projectId: 1, status: 1, peakScore: 1, thumbPath: 1 } })
+      .sort({ peakScore: -1, idx: 1 }) // same order as forProject, so ties pick the same thumbnail
+      .toArray();
+    return rows.map((d) => ({ projectId: d.projectId, status: d.status, peakScore: d.peakScore, thumbPath: inDataDir(d.thumbPath) }));
   },
   async forProject(projectId: string): Promise<ClipRow[]> {
     return (await col().find({ projectId }).sort({ peakScore: -1, idx: 1 }).toArray()).map(toClip);

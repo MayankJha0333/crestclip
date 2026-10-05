@@ -99,9 +99,16 @@ export const sessions = {
     await sessionCol().insertOne({ _id: hash(token), userId, createdAt: now(), expiresAt });
     return { token, expiresAt };
   },
+  /** The person behind a session — the session and its user are read together, in one trip to the database. */
   async user(token: string): Promise<UserRow | null> {
-    const s = await sessionCol().findOne({ _id: hash(token), expiresAt: { $gt: now() } });
-    return s ? users.get(s.userId) : null;
+    const [s] = await sessionCol()
+      .aggregate<{ u: Doc<UserRow>[] }>([
+        { $match: { _id: hash(token), expiresAt: { $gt: now() } } },
+        { $limit: 1 },
+        { $lookup: { from: COLLECTIONS.users, localField: 'userId', foreignField: '_id', as: 'u' } },
+      ])
+      .toArray();
+    return s?.u[0] ? toUser(s.u[0]) : null;
   },
   async remove(token: string) {
     await sessionCol().deleteOne({ _id: hash(token) });

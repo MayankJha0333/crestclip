@@ -7,7 +7,7 @@ import { asyncHandler, HttpError, validate } from '../../lib/http.js';
 import { uploadTmpDir } from '../../lib/paths.js';
 import type { ProjectOptions } from '../../types.js';
 import { publicClips } from '../clips/clips.presenter.js';
-import { publicGroupSummary, publicProject, publicProjectDetail, publicProjectListItem } from './projects.presenter.js';
+import { publicGroupSummary, publicProject, publicProjectDetail, publicProjectList } from './projects.presenter.js';
 import { createBatchSchema, createFolderSchema, createProjectSchema, folderPreviewSchema, pickClipsSchema } from './projects.schemas.js';
 import { me } from '../auth/auth.middleware.js';
 import * as service from './projects.service.js';
@@ -24,7 +24,7 @@ const upload = multer({
 projectsRouter.get(
   '/projects',
   asyncHandler(async (req, res) => {
-    res.json(await Promise.all((await projects.list(me(req).id)).map(publicProjectListItem)));
+    res.json(await publicProjectList(await projects.list(me(req).id)));
   }),
 );
 

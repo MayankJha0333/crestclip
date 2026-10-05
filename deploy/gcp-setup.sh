@@ -11,7 +11,7 @@ set -euo pipefail
 PROJECT=peakclip-510216
 REGION=us-central1
 GITHUB_REPO=MayankJha0333/crestclip
-VM=crestclip-server
+VM=crestclip-server-mumbai
 VM_SA="crestclip-server@${PROJECT}.iam.gserviceaccount.com"
 DEPLOYER="github-deployer@${PROJECT}.iam.gserviceaccount.com"
 
