@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
@@ -34,6 +35,50 @@ export interface Comment {
 }
 
 let extraArgsOk: boolean | null = null;
+
+// ---------------- proxy: rotating residential addresses (YTDLP_PROXY) ----------------
+
+/** YouTube blocking this address, or the proxy itself failing: worth retrying from a fresh address. */
+const BLOCKED = /Sign in to confirm|not a bot|HTTP Error 403|HTTP Error 429|Too Many Requests|Tunnel connection failed|ProxyError|407 Proxy|Unable to connect to proxy|Connection reset|Read timed out|timed out/i;
+/** How often each video's address was swapped, so its later steps (download, captions) reuse the one that worked. */
+const rotation = new Map<string, number>();
+/** Videos YouTube blocked when fetched directly: all their later steps go through the proxy (same exit address). */
+const viaProxy = new Set<string>();
+const infoUrl = new Map<string, string>();
+
+/** Which video a run is about: its link, or the link inside the saved page info it reuses. Search/explore runs share one key. */
+function videoKey(args: string[]): string {
+  const i = args.indexOf('--load-info-json');
+  if (i >= 0) {
+    const file = args[i + 1];
+    if (!infoUrl.has(file)) {
+      try {
+        const j = JSON.parse(fs.readFileSync(file, 'utf8')) as { webpage_url?: string };
+        infoUrl.set(file, String(j.webpage_url ?? file));
+      } catch {
+        infoUrl.set(file, file);
+      }
+    }
+    return infoUrl.get(file)!;
+  }
+  return args.find((a) => /^https?:\/\//.test(a)) ?? 'search';
+}
+
+/** The proxy for this video right now: same exit address for all its steps until a block forces a new one. */
+function proxyFor(key: string): string | null {
+  const list = config.ytdlpProxies;
+  if (!list.length) return null;
+  const turn = rotation.get(key) ?? 0;
+  const hash = crypto.createHash('sha1').update(key).digest('hex');
+  const pick = list[(parseInt(hash.slice(0, 8), 16) + turn) % list.length];
+  // {session}: exactly 8 letters/digits (IPRoyal requires that length, every other provider accepts it)
+  // {port}: providers that keep one address per port (DataImpulse: 10000-20000) — a different port per video and per retry
+  const port = 10000 + ((parseInt(hash.slice(8, 14), 16) + turn * 7919) % 10001);
+  return pick.replaceAll('{session}', `${hash.slice(0, 7)}${(turn % 36).toString(36)}`).replaceAll('{port}', String(port));
+}
+
+/** Never show the proxy's username/password in logs or to people. */
+export const redactProxy = (s: string) => s.replace(/(\/\/)[^\s/@:]+:[^\s/@]+@/g, '$1***:***@');
 
 // ---------------- PO-token helper (YTDLP_POT_URL) ----------------
 
@@ -75,10 +120,12 @@ let lastForcedUpdate = 0;
  *  - drops our extra args once if an old custom yt-dlp doesn't know them,
  *  - if YouTube broke the download, updates yt-dlp right away and retries once.
  */
-async function ytdlp(args: string[], opts: Parameters<typeof run>[2] = {}, healed = false): Promise<{ stdout: string; stderr: string }> {
+async function ytdlp(args: string[], opts: Parameters<typeof run>[2] = {}, healed = false, rotated = 0): Promise<{ stdout: string; stderr: string }> {
   if (ytStatus.state === 'installing' || ytStatus.state === 'missing') await ensureYtdlp();
+  const key = config.ytdlpProxies.length ? videoKey(args) : '';
+  const proxy = key && (config.ytdlpProxyMode === 'always' || viaProxy.has(key)) ? proxyFor(key) : null;
   try {
-    const r = await run(ytdlpPath(), [...baseArgs(), ...args], opts);
+    const r = await run(ytdlpPath(), [...baseArgs(), ...(proxy ? ['--proxy', proxy] : []), ...args], opts);
     if (config.ytdlpExtraArgs.length) extraArgsOk = true;
     return r;
   } catch (e) {
@@ -86,13 +133,28 @@ async function ytdlp(args: string[], opts: Parameters<typeof run>[2] = {}, heale
     const text = `${err.message}\n${err.stderr}`;
     if (extraArgsOk === null && config.ytdlpExtraArgs.length && /no such option|unrecognized arguments/i.test(text)) {
       extraArgsOk = false;
-      return ytdlp(args, opts, healed);
+      return ytdlp(args, opts, healed, rotated);
+    }
+    if (key && !proxy && BLOCKED.test(text)) {
+      // blocked going direct: this video goes through the proxy from now on
+      if (viaProxy.size > 5000) viaProxy.clear();
+      viaProxy.add(key);
+      console.log('  [yt-dlp] blocked going direct — switching this video to the proxy');
+      return ytdlp(args, opts, healed, rotated);
+    }
+    // a new address only exists with several gateways or a {session} id — a single fixed proxy (e.g. a home connection) can’t rotate
+    const canRotate = config.ytdlpProxies.length > 1 || config.ytdlpProxies.some((p) => p.includes('{session}') || p.includes('{port}'));
+    if (proxy && canRotate && rotated < config.ytdlpProxyRetries && BLOCKED.test(text)) {
+      if (rotation.size > 5000) rotation.clear();
+      rotation.set(key, (rotation.get(key) ?? 0) + 1);
+      console.log(`  [yt-dlp] blocked or proxy error — retrying from a new address (${rotated + 1}/${config.ytdlpProxyRetries})`);
+      return ytdlp(args, opts, healed, rotated + 1);
     }
     if (!healed && STALE.test(text) && Date.now() - lastForcedUpdate > 10 * 60_000) {
       lastForcedUpdate = Date.now();
       console.log('  [tools] YouTube changed something — updating yt-dlp and retrying');
       await ensureYtdlp(true);
-      return ytdlp(args, opts, true);
+      return ytdlp(args, opts, true, rotated);
     }
     throw friendlyYtdlpError(err);
   }
@@ -103,14 +165,16 @@ function friendlyYtdlpError(e: ProcError): Error {
   if (/Could not start/.test(s)) return new Error(ytStatus.detail || 'The video downloader isn’t ready yet — CrestClip is setting it up. Try again in a minute, or upload the file instead.');
   if (/Sign in to confirm|not a bot/i.test(s)) {
     void potHelperStatus().then(({ ok }) =>
-      console.warn(`  [yt-dlp] YouTube bot check — PO-token helper ${ok === null ? 'off' : ok ? 'reachable' : 'NOT reachable (is the `pot` container running?)'}${config.ytdlpCookies ? ', cookies set' : ', no YTDLP_COOKIES'}`),
+      console.warn(
+        `  [yt-dlp] YouTube bot check${config.ytdlpProxies.length ? ' (even through YTDLP_PROXY)' : ''} — PO-token helper ${ok === null ? 'off' : ok ? 'reachable' : 'NOT reachable (is the `pot` container running?)'}${config.ytdlpCookies ? ', cookies set' : ', no YTDLP_COOKIES'}${config.ytdlpProxies.length ? '' : ', no YTDLP_PROXY'}`,
+      ),
     );
+    return new Error('YouTube is blocking downloads of this link right now. Try again in a few minutes, or upload the video file instead.');
   }
-  if (/Sign in to confirm|not a bot/i.test(s)) return new Error('YouTube asked for a sign-in check. Add a cookies file (YTDLP_COOKIES in .env) or upload the video file instead.');
   if (/Private video|members-only|This video is private/i.test(s)) return new Error('This video is private or members-only.');
   if (/Unsupported URL/i.test(s)) return new Error('That link is not supported. Try a YouTube, TikTok, Twitch, Vimeo, X or direct video link.');
-  if (/age/i.test(s) && /restrict/i.test(s)) return new Error('This video is age-restricted. Add a cookies file (YTDLP_COOKIES) to download it.');
-  return new Error(`Could not fetch the video: ${e.message.slice(0, 300)}`);
+  if (/age/i.test(s) && /restrict/i.test(s)) return new Error('This video is age-restricted, so it can’t be downloaded from the link. Upload the video file instead.');
+  return new Error(`Could not fetch the video: ${redactProxy(e.message).slice(0, 300)}`);
 }
 
 /** Estimated size of the full download we'd otherwise do (best ≤1080p video + best audio). */

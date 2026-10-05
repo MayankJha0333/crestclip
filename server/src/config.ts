@@ -148,6 +148,24 @@ export const config = {
    * Default = the helper from docker-compose on this machine. '' = don't use one.
    */
   ytdlpPotUrl: env('YTDLP_POT_URL', 'http://127.0.0.1:4416').replace(/\/$/, ''),
+  /**
+   * Rotating residential proxy for YouTube/yt-dlp traffic only (Drive, cloud storage, AI calls stay direct).
+   * e.g. http://USER-session-{session}:PASS@gate.example.com:7000, or http://USER:PASS@gw.dataimpulse.com:{port}
+   * — several may be listed, comma-separated. {session} (a tag in the username) or {port} (providers that keep one
+   * address per port) is filled in per video (one exit address for all of that video's steps, which YouTube requires)
+   * and with a fresh value whenever YouTube blocks or the proxy fails. Use http(s)://, not socks (ffmpeg cuts need http).
+   */
+  ytdlpProxies: env('YTDLP_PROXY')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
+  /**
+   * 'fallback' (default): go direct first and use the proxy only for a video YouTube blocks — you pay per GB, and
+   * direct often still works. 'always': every YouTube request goes through the proxy.
+   */
+  ytdlpProxyMode: env('YTDLP_PROXY_MODE', 'fallback') === 'always' ? ('always' as const) : ('fallback' as const),
+  /** how many fresh addresses to try per step before giving up */
+  ytdlpProxyRetries: num('YTDLP_PROXY_RETRIES', 2),
   // Optional Twitch API app (dev.twitch.tv) — enables Twitch channel search + richer VOD/clip data in Explore
   twitchClientId: env('TWITCH_CLIENT_ID'),
   twitchClientSecret: env('TWITCH_CLIENT_SECRET'),
