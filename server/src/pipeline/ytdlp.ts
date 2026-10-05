@@ -35,9 +35,30 @@ export interface Comment {
 
 let extraArgsOk: boolean | null = null;
 
+// ---------------- PO-token helper (YTDLP_POT_URL) ----------------
+
+/** Is the PO-token helper answering? Checked at most once a minute. */
+let potChecked = 0;
+let potOk: boolean | null = null;
+export async function potHelperStatus(): Promise<{ url: string; ok: boolean | null }> {
+  if (!config.ytdlpPotUrl) return { url: '', ok: null };
+  if (Date.now() - potChecked > 60_000) {
+    potChecked = Date.now();
+    try {
+      const r = await fetch(`${config.ytdlpPotUrl}/ping`, { signal: AbortSignal.timeout(3000) });
+      potOk = r.ok;
+    } catch {
+      potOk = false;
+    }
+  }
+  return { url: config.ytdlpPotUrl, ok: potOk };
+}
+
 function baseArgs(): string[] {
   const a = ['--no-playlist', '--no-warnings', '--ignore-config'];
   if (config.ytdlpCookies) a.push('--cookies', config.ytdlpCookies);
+  // the plugin's default is 127.0.0.1:4416; only a different address needs saying
+  if (config.ytdlpPotUrl && config.ytdlpPotUrl !== 'http://127.0.0.1:4416') a.push('--extractor-args', `youtubepot-bgutilhttp:base_url=${config.ytdlpPotUrl}`);
   if (extraArgsOk !== false) a.push(...config.ytdlpExtraArgs);
   // Use CrestClip's own ffmpeg for merging/cutting, so no system ffmpeg is needed.
   if (path.isAbsolute(config.ffmpeg)) a.push('--ffmpeg-location', config.ffmpeg);
@@ -80,6 +101,11 @@ async function ytdlp(args: string[], opts: Parameters<typeof run>[2] = {}, heale
 function friendlyYtdlpError(e: ProcError): Error {
   const s = `${e.message}\n${e.stderr}`;
   if (/Could not start/.test(s)) return new Error(ytStatus.detail || 'The video downloader isn’t ready yet — CrestClip is setting it up. Try again in a minute, or upload the file instead.');
+  if (/Sign in to confirm|not a bot/i.test(s)) {
+    void potHelperStatus().then(({ ok }) =>
+      console.warn(`  [yt-dlp] YouTube bot check — PO-token helper ${ok === null ? 'off' : ok ? 'reachable' : 'NOT reachable (is the `pot` container running?)'}${config.ytdlpCookies ? ', cookies set' : ', no YTDLP_COOKIES'}`),
+    );
+  }
   if (/Sign in to confirm|not a bot/i.test(s)) return new Error('YouTube asked for a sign-in check. Add a cookies file (YTDLP_COOKIES in .env) or upload the video file instead.');
   if (/Private video|members-only|This video is private/i.test(s)) return new Error('This video is private or members-only.');
   if (/Unsupported URL/i.test(s)) return new Error('That link is not supported. Try a YouTube, TikTok, Twitch, Vimeo, X or direct video link.');

@@ -37,7 +37,16 @@ services:
     volumes:
       - ./.env:/app/.env:ro
       - ./data:/data
-    depends_on: [redis]
+    depends_on: [redis, pot]
+    <<: *logs
+
+  # PO-token helper for YouTube: yt-dlp asks it (on 127.0.0.1:4416) for the "proof of origin" token YouTube now
+  # expects from real players. Free; the standard fix for "Sign in to confirm you're not a bot" on cloud servers.
+  pot:
+    image: brainicism/bgutil-ytdlp-pot-provider:latest
+    restart: unless-stopped
+    network_mode: host
+    init: true
     <<: *logs
 
   redis:

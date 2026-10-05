@@ -249,6 +249,8 @@ export interface PostItem {
 export interface Health {
   ok: boolean;
   ai: { ok: boolean; fake: boolean; checkedAt: number };
+  /** YouTube PO-token helper: true/false, or null when not configured */
+  potHelper?: boolean | null;
   gcsBucket: string | null;
   ffmpeg: string | null;
   ytdlp: string | null;

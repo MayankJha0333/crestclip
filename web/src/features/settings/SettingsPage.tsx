@@ -57,6 +57,9 @@ function SystemSection() {
       ) : (
         <ul className="grid gap-2 sm:grid-cols-2">
           <StatusRow ok={health.ai.ok} label={health.ai.ok ? (health.ai.fake ? 'AI · demo mode' : 'AI connected') : 'AI not connected'} />
+          {health.potHelper !== null && health.potHelper !== undefined && (
+            <StatusRow ok={health.potHelper} label={health.potHelper ? 'YouTube token helper · running' : 'YouTube token helper · not reachable'} />
+          )}
           <StatusRow
             ok={Boolean(health.ffmpeg) && !ffSettingUp}
             pending={ffSettingUp}

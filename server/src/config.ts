@@ -143,6 +143,11 @@ export const config = {
   ytdlp: env('YTDLP_PATH', 'yt-dlp'),
   ytdlpExtraArgs: env('YTDLP_EXTRA_ARGS', '--js-runtimes node').split(/\s+/).filter(Boolean),
   ytdlpCookies: env('YTDLP_COOKIES'),
+  /**
+   * The PO-token helper (bgutil-ytdlp-pot-provider) yt-dlp asks for YouTube's "proof of origin" tokens.
+   * Default = the helper from docker-compose on this machine. '' = don't use one.
+   */
+  ytdlpPotUrl: env('YTDLP_POT_URL', 'http://127.0.0.1:4416').replace(/\/$/, ''),
   // Optional Twitch API app (dev.twitch.tv) — enables Twitch channel search + richer VOD/clip data in Explore
   twitchClientId: env('TWITCH_CLIENT_ID'),
   twitchClientSecret: env('TWITCH_CLIENT_SECRET'),
