@@ -52,7 +52,6 @@ export const api = {
   authConfig: () => req<{ google: boolean; signups: boolean; firstAccount: boolean }>('/api/auth/config'),
   /** null when nobody is signed in */
   me: () => req<Me | { user: null }>('/api/auth/me').then((m) => (m.user ? (m as Me) : null)),
-  signUp: (body: { email: string; password: string; name?: string }) => req<{ ok: boolean }>('/api/auth/signup', json('POST', body)),
   logIn: (body: { email: string; password: string }) => req<{ ok: boolean }>('/api/auth/login', json('POST', body)),
   logOut: () => req<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
   changePassword: (body: { current: string; next: string }) => req<{ ok: boolean }>('/api/auth/password', json('POST', body)),

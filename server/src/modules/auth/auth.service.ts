@@ -9,7 +9,7 @@ const scrypt = promisify(crypto.scrypt) as (pw: string, salt: Buffer, len: numbe
 const SCRYPT = { N: 16384, r: 8, p: 1 };
 
 /** "scrypt$N$r$p$salt$hash" — salted, slow on purpose, compared in constant time. */
-async function hashPassword(pw: string): Promise<string> {
+export async function hashPassword(pw: string): Promise<string> {
   const salt = crypto.randomBytes(16);
   const key = await scrypt(pw, salt, 64, SCRYPT);
   return ['scrypt', SCRYPT.N, SCRYPT.r, SCRYPT.p, salt.toString('base64'), key.toString('base64')].join('$');
@@ -45,11 +45,6 @@ async function createUser(u: { email: string; name: string | null; passwordHash?
   return refreshAccount(user); // adds the first month's credits
 }
 
-export async function signUp(r: { email: string; password: string; name?: string }) {
-  if (await users.byEmail(r.email)) throw new HttpError(409, 'An account with this email already exists. Log in instead.');
-  return createUser({ email: r.email, name: r.name?.trim() || r.email.split('@')[0], passwordHash: await hashPassword(r.password) });
-}
-
 export async function logIn(r: { email: string; password: string }) {
   const user = await users.byEmail(r.email);
   // same message and similar time whether the email exists or not
@@ -59,7 +54,9 @@ export async function logIn(r: { email: string; password: string }) {
 }
 
 export async function changePassword(user: UserRow, current: string, next: string) {
-  if (user.passwordHash && !(await checkPassword(current, user.passwordHash))) throw new HttpError(400, 'Your current password is wrong.');
+  // Google-only accounts can't add a password (there's no email log-in for them)
+  if (!user.passwordHash) throw new HttpError(400, 'This account signs in with Google.');
+  if (!(await checkPassword(current, user.passwordHash))) throw new HttpError(400, 'Your current password is wrong.');
   await users.update(user.id, { passwordHash: await hashPassword(next) });
 }
 

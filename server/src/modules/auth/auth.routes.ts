@@ -21,19 +21,11 @@ authRouter.get(
   }),
 );
 
-authRouter.post(
-  '/auth/signup',
-  asyncHandler(async (req, res) => {
-    // free credits come with every account, so cap new accounts per network (not on a local dev setup)
-    if (!/^http:\/\/(localhost|127\.0\.0\.1)/.test(config.publicUrl)) service.rateLimit(`signup:${req.ip}`, 5, 24 * 3600_000, 'Too many new accounts from this network today. Try again tomorrow.');
-    const body = validate(z.object({ email, password, name: z.string().max(80).optional() }), req.body, (i) => i ?? 'Check your email and password.');
-    const user = await service.signUp(body);
-    const s = await service.startSession(user.id);
-    setSessionCookie(res, s.token, s.expiresAt);
-    res.status(201).json({ ok: true });
-  }),
-);
-
+/**
+ * Email + password log-in. There is no public sign-up or log-in form any more — everyone joins with Google.
+ * This stays only for accounts the owner gave a password (e.g. the Meta / Google app-review test account,
+ * see `npm run set-password -w server`), reached at /login?with=email.
+ */
 authRouter.post(
   '/auth/login',
   asyncHandler(async (req, res) => {

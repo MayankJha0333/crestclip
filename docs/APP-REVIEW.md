@@ -52,10 +52,9 @@ Google Auth Platform → **Verification Center → Prepare for verification**.
 
 **Why we need `youtube.readonly`** (paste):
 
-> After the user connects YouTube we read their own channel's name, handle and profile picture, so the app
-> can show which channel is connected and the user can pick it when posting. We also read the status of
-> videos we uploaded for them (processing / live / failed) to show it on the Schedule page. We do not read
-> any other channel data.
+> After the user connects YouTube we make one call (channels.list, mine=true) to read their own channel's
+> id, name and profile picture, so the app can show which channel is connected and the user can pick it
+> when posting. We do not read videos, comments, analytics or any other channel data.
 
 **Demo video** — record your screen (QuickTime → New Screen Recording), 2–3 minutes, upload to YouTube as
 **Unlisted**, paste the link:
@@ -125,9 +124,9 @@ App Review → **Requests → add** `instagram_business_basic` and `instagram_bu
 
 **How we use `instagram_business_basic`** (paste):
 
-> After the user connects Instagram we read their account's id, username, name and profile picture to show
-> which account is connected and let them pick it when posting. We don't read followers, messages,
-> comments or insights.
+> After the user connects Instagram we read their account's id, username, name, profile picture and account
+> type (to check it's a professional account, which publishing requires), to show which account is
+> connected and let them pick it when posting. We don't read followers, messages, comments or insights.
 
 **Screencast** (one per permission, or one video covering both — 1–2 minutes each):
 
@@ -137,11 +136,17 @@ App Review → **Requests → add** `instagram_business_basic` and `instagram_bu
 4. Open a clip → **Post → Instagram** → post.
 5. Open Instagram and show the Reel on the profile (`instagram_business_content_publish`).
 
-**Test login for the reviewer** — make a CrestClip account just for Meta (e.g.
-`meta-review@crestclip.com` with a strong password), give it credits from the Admin page, and make one
-finished project in it so there's a clip to post. Put the email + password in "Testing instructions" with:
+**Test login for the reviewer** — CrestClip is Google sign-in only, so give the reviewer their own email +
+password account (run this against the production database):
 
-> Log in at https://crestclip.com/login with the account above. Open Projects → the "Review demo"
+```
+npm run set-password -w server -- meta-review@crestclip.com 'a-strong-password'
+```
+
+Give it credits from the Admin page, and make one finished project in it so there's a clip to post. Put the
+email + password in "Testing instructions" with:
+
+> Log in at https://crestclip.com/login?with=email with the account above. Open Projects → the "Review demo"
 > project → any clip → Post → Instagram, connect your test Instagram professional account, and post.
 
 ### 5. Publish the Meta app

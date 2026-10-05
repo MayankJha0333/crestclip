@@ -8,6 +8,7 @@
     "start": "NODE_ENV=production tsx src/index.ts",
     "doctor": "tsx src/scripts/doctor.ts",
     "setup-tools": "tsx src/scripts/setup-tools.ts",
+    "set-password": "tsx src/scripts/set-password.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

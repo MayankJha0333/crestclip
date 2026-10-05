@@ -23,7 +23,7 @@ export function PrivacyPage() {
       <Section title="2. What we collect">
         <ul>
           <li>
-            <strong>Account:</strong> your name, email and a scrambled (hashed) password — or, if you sign in with Google, your Google name, email and profile picture.
+            <strong>Account:</strong> your Google name, email and profile picture (you sign in with Google). Older accounts made with an email may also have a scrambled (hashed) password.
           </li>
           <li>
             <strong>Payments:</strong> your plan, amounts, dates and payment IDs. Card and bank details go straight to Razorpay; we never see or store them.

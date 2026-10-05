@@ -229,7 +229,7 @@ crestclip/
 
 ## Accounts, plans & credits
 
-Everyone signs up (email + password, or **Continue with Google**) and gets their own projects, clips, connected accounts, watermark and music. **The first account is the owner**: an admin on the Pro plan.
+Everyone signs up with **Continue with Google** (there's no email + password sign-up — Google has already checked the email is real) and gets their own projects, clips, connected accounts, watermark and music. **The first account is the owner**: an admin on the Pro plan.
 
 **Credits** are spent per clip: **every clip costs 5 credits** (`CREDITS_PER_CLIP` in `plans.ts`). Asking for 8 clips takes 40 credits up front; if only 6 good moments come out, 10 go back. Clips you pick on the rewatch graph cost the same. Editing and re-rendering is free, and a video that fails gives all its credits back. Video length is limited per plan, which keeps the AI cost of very long videos in check.
 
@@ -295,7 +295,6 @@ A 1-hour podcast costs about **$0.30–0.60 in Gemini usage**. That covers trans
 
 ## Next steps to make it a full SaaS
 
-- Email verification and password-reset emails (needs an email provider). Until then, Free credits can be farmed with throwaway emails — new accounts are capped at 5 per network per day.
 - Keep the original videos in Cloud Storage too (so edits can re-render on any server) and run render workers on Cloud Run Jobs.
 - YouTube Analytics API (`audienceWatchRatio`) for creators clipping their **own** channel. This is the most accurate retention data there is.
 - Live-chat spike detection for streams (`yt-dlp --sub-langs live_chat`).

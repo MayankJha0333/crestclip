@@ -25,14 +25,16 @@ function GoogleMark() {
   );
 }
 
-/** Log in / sign up (one page, two modes). */
+/**
+ * Log in / sign up (one page, two modes) — Google only. Email + password is hidden: it's only for accounts the owner
+ * gave a password (the app-review test account), at /login?with=email.
+ */
 export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
   const { me, refresh } = useAuth();
   const nav = useNavigate();
   const [params] = useSearchParams();
   const next = safeNext(params.get('next'));
   const [cfg, setCfg] = useState<{ google: boolean; signups: boolean; firstAccount: boolean } | null>(null);
-  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -46,15 +48,15 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
 
   if (me) return <Navigate to={next} replace />;
   const signup = mode === 'signup' || Boolean(cfg?.firstAccount);
+  const withEmail = !signup && params.get('with') === 'email';
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      if (signup) await api.signUp({ email, password, name: name || undefined });
-      else await api.logIn({ email, password });
-      track(signup ? 'sign_up' : 'login', { method: 'email' });
+      await api.logIn({ email, password });
+      track('login', { method: 'email' });
       await refresh();
       nav(next, { replace: true });
     } catch (err) {
@@ -66,12 +68,12 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
   const other = `${signup ? '/login' : '/signup'}${params.get('next') ? `?next=${encodeURIComponent(next)}` : ''}`;
 
   return (
-    <main className="grid min-h-screen place-items-center px-4 py-10">
-      <div className="w-full max-w-md">
-        <Link to="/" aria-label="CrestClip home" className="mx-auto mb-8 block w-fit no-underline">
-          <Logo size={40} />
-        </Link>
+    <main className="flex min-h-screen flex-col px-4 pt-10 pb-6">
+      <div className="mx-auto my-auto w-full max-w-md">
         <Card className="p-6 sm:p-8">
+          <Link to="/" aria-label="CrestClip home" className="mb-7 block w-fit no-underline">
+            <Logo size={36} />
+          </Link>
           <h1 className="text-3xl">{cfg?.firstAccount ? 'Create the owner account' : signup ? 'Start clipping free' : 'Welcome back'}</h1>
           <p className="mt-1.5 text-ink-2">
             {cfg?.firstAccount
@@ -81,8 +83,12 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
                 : 'Log in to your clips, plan and credits.'}
           </p>
 
-          {cfg?.google && (
-            <>
+          {signup && cfg && !cfg.signups ? (
+            <p className="mt-6 rounded-2xl bg-warn-bg p-4 text-sm font-semibold text-warn-ink">Sign-ups are closed right now. If you already have an account, log in.</p>
+          ) : cfg && !cfg.google ? (
+            <p className="mt-6 rounded-2xl bg-warn-bg p-4 text-sm font-semibold text-warn-ink">Google sign-in isn’t set up on this server yet.</p>
+          ) : (
+            cfg?.google && (
               <a
                 href={`/api/auth/google/start?next=${encodeURIComponent(next)}`}
                 onClick={() => track('google_sign_in_click', { page: signup ? 'signup' : 'login' })}
@@ -90,41 +96,44 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
               >
                 <GoogleMark /> Continue with Google
               </a>
+            )
+          )}
+          {!signup && !withEmail && cfg?.google && (
+            <p className="mt-4 text-center text-sm text-ink-3">Made your account with email before? Use Google with that same email — your clips are all still there.</p>
+          )}
+          {!withEmail && error && (
+            <p role="alert" className="mt-4 rounded-2xl bg-bad-bg px-4 py-3 text-sm font-semibold text-bad-ink">
+              {error}
+            </p>
+          )}
+
+          {withEmail && (
+            <>
               <div className="my-5 flex items-center gap-3 text-xs font-bold text-ink-3 uppercase">
                 <span className="h-px flex-1 bg-line" /> or with email <span className="h-px flex-1 bg-line" />
               </div>
-            </>
-          )}
-
-          {signup && cfg && !cfg.signups ? (
-            <p className="mt-6 rounded-2xl bg-warn-bg p-4 text-sm font-semibold text-warn-ink">Sign-ups are closed right now. If you already have an account, log in.</p>
-          ) : (
-            <form onSubmit={submit} className={cfg?.google ? 'flex flex-col gap-4' : 'mt-6 flex flex-col gap-4'}>
-              {signup && (
-                <Field label="Your name">
-                  <Input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" maxLength={80} placeholder="Optional" />
+              <form onSubmit={submit} className="flex flex-col gap-4">
+                <Field label="Email">
+                  <Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" autoFocus />
                 </Field>
-              )}
-              <Field label="Email">
-                <Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" autoFocus />
-              </Field>
-              <Field label="Password" hint={signup ? 'At least 8 characters.' : undefined}>
-                <Input type="password" required minLength={signup ? 8 : 1} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={signup ? 'new-password' : 'current-password'} />
-              </Field>
-              {error && (
-                <p role="alert" className="rounded-2xl bg-bad-bg px-4 py-3 text-sm font-semibold text-bad-ink">
-                  {error}
-                </p>
-              )}
-              <Button type="submit" variant="primary" size="lg" loading={busy} className="mt-1 w-full">
-                {!busy && <Mail size={18} />} {signup ? 'Create account' : 'Log in'}
-              </Button>
-            </form>
+                <Field label="Password">
+                  <Input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+                </Field>
+                {error && (
+                  <p role="alert" className="rounded-2xl bg-bad-bg px-4 py-3 text-sm font-semibold text-bad-ink">
+                    {error}
+                  </p>
+                )}
+                <Button type="submit" variant="primary" size="lg" loading={busy} className="mt-1 w-full">
+                  {!busy && <Mail size={18} />} Log in
+                </Button>
+              </form>
+            </>
           )}
 
           {signup && !cfg?.firstAccount && (
             <ul className="mt-6 grid gap-1.5 text-sm text-ink-2">
-              {['12 free clips every month', 'Clips with captions, hooks and music', 'Upgrade any time — cancel any time'].map((t) => (
+              {['No password to remember — just your Google account', 'Clips with captions, hooks and music', 'Upgrade any time — cancel any time'].map((t) => (
                 <li key={t} className="flex items-center gap-2">
                   <Check size={15} className="text-good" /> {t}
                 </li>
@@ -153,14 +162,15 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
             </Link>
           </p>
         )}
-        <nav aria-label="Policies" className="mt-8 flex flex-wrap justify-center gap-x-4 gap-y-1.5 text-xs font-bold text-ink-3">
-          {LEGAL_LINKS.map((l) => (
-            <Link key={l.to} to={l.to} className="text-ink-3 no-underline hover:text-ink">
-              {l.label}
-            </Link>
-          ))}
-        </nav>
       </div>
+      {/* policy links sit at the bottom of the page */}
+      <nav aria-label="Policies" className="mt-10 flex flex-wrap justify-center gap-x-4 gap-y-1.5 text-xs font-bold text-ink-3">
+        {LEGAL_LINKS.map((l) => (
+          <Link key={l.to} to={l.to} className="text-ink-3 no-underline hover:text-ink">
+            {l.label}
+          </Link>
+        ))}
+      </nav>
     </main>
   );
 }

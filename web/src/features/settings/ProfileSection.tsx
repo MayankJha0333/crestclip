@@ -36,7 +36,7 @@ export function ProfileSection() {
     setBusy(true);
     try {
       await api.changePassword({ current, next });
-      toast(me.user.hasPassword ? 'Password changed' : 'Password set — you can now log in with email too');
+      toast('Password changed');
       setOpen(false);
       setCurrent('');
       setNext('');
@@ -75,18 +75,19 @@ export function ProfileSection() {
           <Link to="/app/billing" className={buttonClass('secondary', 'sm')}>
             Plan & credits
           </Link>
-          <Button size="sm" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
-            <KeyRound size={15} /> {me.user.hasPassword ? 'Change password' : 'Set a password'}
-          </Button>
+          {/* only accounts the owner gave a password (app-review test account) — everyone else signs in with Google */}
+          {me.user.hasPassword && (
+            <Button size="sm" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+              <KeyRound size={15} /> Change password
+            </Button>
+          )}
         </span>
       </div>
-      {open && (
+      {open && me.user.hasPassword && (
         <form onSubmit={save} className="mt-5 grid gap-4 rounded-[22px] bg-row p-4 shadow-flat sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-          {me.user.hasPassword && (
-            <Field label="Current password">
-              <Input type="password" required value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" />
-            </Field>
-          )}
+          <Field label="Current password">
+            <Input type="password" required value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" />
+          </Field>
           <Field label="New password" hint="At least 8 characters.">
             <Input type="password" required minLength={8} value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" />
           </Field>
@@ -103,8 +104,8 @@ export function ProfileSection() {
         ) : (
           <form onSubmit={removeAccount} className="grid gap-3 rounded-[22px] bg-row p-4 shadow-flat">
             <p className="text-sm">
-              <b>This can’t be undone.</b> Your projects, clips, scheduled posts, Autopilots, credits and connected YouTube / Instagram accounts are deleted, and CrestClip’s access to
-              those accounts is removed. Payment records are kept because tax law requires it. <Link to="/data-deletion">More about deleting your data</Link>
+              <b>This can’t be undone.</b> Your projects, clips, scheduled posts, Autopilots, credits and connected YouTube / Instagram accounts are deleted, and CrestClip’s access to those accounts
+              is removed. Payment records are kept because tax law requires it. <Link to="/data-deletion">More about deleting your data</Link>
             </p>
             <Field label={`Type ${me.user.email} to confirm`}>
               <Input required value={confirmEmail} onChange={(e) => setConfirmEmail(e.target.value)} autoComplete="off" data-clarity-mask="true" />
