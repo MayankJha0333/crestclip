@@ -132,8 +132,29 @@ function estimateFullSize(j: Record<string, unknown>): number | null {
 }
 
 /** Read a link without downloading. `saveTo` keeps the raw JSON so later downloads can skip re-reading the page. */
+/**
+ * Read a video's info (`-J`). YouTube's default (web) player often answers a cloud server with a sign-in check,
+ * so after that the clients that need no sign-in (tv) or take a PO token (mweb) are tried, like the downloads do.
+ */
+async function infoJson(url: string): Promise<string> {
+  let lastErr: unknown;
+  for (const client of YT_CLIENT_FALLBACKS) {
+    try {
+      const { stdout } = await ytdlp([...(client ? ['--extractor-args', client] : []), '-J', '--skip-download', url], { timeoutMs: 120_000 });
+      if (client) console.log(`  [yt-dlp] video info read with ${client}`);
+      return stdout;
+    } catch (e) {
+      lastErr = e;
+      const text = `${(e as Error).message}\n${(e as { stderr?: string }).stderr ?? ''}`;
+      if (!/Sign in to confirm|not a bot|HTTP Error 403/i.test(text) || !/youtu\.?be/i.test(url)) throw e;
+      console.log(`  [yt-dlp] sign-in check reading info${client ? ` with ${client}` : ''} — trying the next player client`);
+    }
+  }
+  throw lastErr;
+}
+
 export async function fetchInfo(url: string, saveTo?: string): Promise<SourceInfo> {
-  const { stdout } = await ytdlp(['-J', '--skip-download', url], { timeoutMs: 120_000 });
+  const stdout = await infoJson(url);
   if (saveTo) fs.writeFileSync(saveTo, stdout);
   const j = JSON.parse(stdout);
   const heat = Array.isArray(j.heatmap) && j.heatmap.length ? (j.heatmap as HeatPoint[]) : null;
