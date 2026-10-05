@@ -34,6 +34,12 @@ services:
       FFMPEG_PATH: ''
       FFPROBE_PATH: ''
       YTDLP_PATH: ''
+      # YouTube blocks cloud servers, so yt-dlp goes through DataImpulse home-internet addresses when blocked.
+      # No password: this server's IP is whitelisted in DataImpulse (Manage Whitelist IPs). {port} = one sticky
+      # address per video (10000-20000). A YTDLP_PROXY in /opt/crestclip/.env does NOT override this line.
+      YTDLP_PROXY: 'http://gw.dataimpulse.com:{port}'
+      YTDLP_PROXY_MODE: fallback
+      YTDLP_PROXY_RETRIES: '2'
     volumes:
       - ./.env:/app/.env:ro
       - ./data:/data
