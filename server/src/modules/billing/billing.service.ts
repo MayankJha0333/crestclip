@@ -163,6 +163,13 @@ export function assertAutopilot(user: UserRow) {
   if (!planOf(user.plan).autopilot) throw new HttpError(403, 'Autopilot is on the Pro plan.');
 }
 
+/** What a Free user sees when they try a YouTube link (or YouTube in Explore). */
+export const YOUTUBE_LOCKED = 'YouTube links aren’t supported right now. Please upload the video file, or provide a Google Drive or Dropbox link.';
+
+export function assertYoutubeSource(user: UserRow) {
+  if (!planOf(user.plan).youtubeSource) throw new HttpError(403, YOUTUBE_LOCKED);
+}
+
 export function assertCustomLogo(user: UserRow) {
   if (!planOf(user.plan).customLogo) throw new HttpError(403, 'Your own logo is on the Creator and Pro plans.');
 }

@@ -276,6 +276,16 @@ export interface WebVideo {
   language: string | null;
 }
 
+/** Any youtube.com / youtu.be / m.youtube.com / music.youtube.com / youtube-nocookie.com link (videos, Shorts, channels…). */
+export function isYouTubeUrl(url: string): boolean {
+  try {
+    const host = new URL(/^https?:\/\//i.test(url.trim()) ? url.trim() : `https://${url.trim()}`).hostname.toLowerCase();
+    return host === 'youtu.be' || host === 'youtube.com' || host.endsWith('.youtube.com') || host === 'youtube-nocookie.com' || host.endsWith('.youtube-nocookie.com');
+  } catch {
+    return false;
+  }
+}
+
 export function youtubeId(url: string): string | null {
   const m = url.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|live\/|embed\/)|youtu\.be\/)([\w-]{11})/);
   return m ? m[1] : null;

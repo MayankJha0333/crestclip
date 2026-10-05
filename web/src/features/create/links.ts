@@ -9,9 +9,12 @@ export interface LinkInfo {
   folder?: boolean;
 }
 
+/** Shown to Free users who paste a YouTube link (the server says the same). */
+export const YOUTUBE_LOCKED = 'YouTube links aren’t supported right now. Please upload the video file, or provide a Google Drive or Dropbox link.';
+
 const VIDEO_EXT = /\.(mp4|m4v|mov|mkv|webm|avi|mpe?g|ts|mts|m2ts|wmv|flv|3gp)$/i;
 
-export function detectLink(raw: string): LinkInfo | null {
+export function detectLink(raw: string, opts: { youtube?: boolean } = {}): LinkInfo | null {
   const s = raw.trim();
   if (!s) return null;
   let u: URL;
@@ -22,6 +25,7 @@ export function detectLink(raw: string): LinkInfo | null {
   }
   if (!u.hostname.includes('.')) return null;
   const host = u.hostname.replace(/^www\./, '');
+  if (/(^|\.)youtube\.com$|^youtu\.be$|(^|\.)youtube-nocookie\.com$/.test(host) && opts.youtube === false) return { kind: 'youtube', label: 'YouTube', hint: '', error: YOUTUBE_LOCKED };
   if (/(^|\.)youtube\.com$|^youtu\.be$/.test(host)) return { kind: 'youtube', label: 'YouTube', hint: 'Uses the “Most replayed” graph · long videos download only the parts that become clips' };
   if (/(^|\.)twitch\.tv$/.test(host)) return { kind: 'twitch', label: 'Twitch', hint: 'Past broadcasts, highlights and clips work · live streams can be clipped after they end' };
   if (host === 'drive.google.com' || host === 'docs.google.com' || host === 'drive.usercontent.google.com') {

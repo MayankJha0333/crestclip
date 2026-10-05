@@ -27,6 +27,7 @@ export function LinkList({
   onDraft,
   onFile,
   onSubmit,
+  youtube = true,
 }: {
   /** most videos one project can hold on this plan (the server checks it too) */
   max: number;
@@ -38,6 +39,8 @@ export function LinkList({
   onDraft: (v: string) => void;
   onFile: (f: File) => void;
   onSubmit: () => void;
+  /** YouTube links allowed on this plan (Creator and Pro) */
+  youtube?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -60,14 +63,16 @@ export function LinkList({
     onDraft('');
     return true;
   };
-  const draftInfo = draft.trim() ? detectLink(draft) : null;
+  const draftInfo = draft.trim() ? detectLink(draft, { youtube }) : null;
+  // a link already in the list that can't be used (e.g. YouTube on Free): say why in full below
+  const itemError = items.map((u) => detectLink(u, { youtube })).find((i) => i?.error)?.error;
   const next = items.length + 1;
   const full = items.length >= max;
 
   return (
     <div className="flex flex-col gap-2" aria-describedby="link-hint">
       {items.map((u, i) => {
-        const info = detectLink(u);
+        const info = detectLink(u, { youtube });
         const bad = !info || info.error;
         return (
           <div key={u} className={cn('group flex min-w-0 animate-pop-in items-center gap-3 rounded-2xl py-2.5 pr-2 pl-2.5', bad ? 'bg-bad-bg' : 'bg-row shadow-flat')}>
@@ -129,7 +134,7 @@ export function LinkList({
               commit(draft);
             }}
             onBlur={() => commit(draft)}
-            placeholder={items.length ? 'Paste another link (optional)' : 'Paste a video link — YouTube, Twitch, Drive…'}
+            placeholder={items.length ? 'Paste another link (optional)' : youtube ? 'Paste a video link — YouTube, Twitch, Drive…' : 'Paste a video link — Google Drive, Dropbox, Twitch…'}
             className="min-w-0 flex-1 bg-transparent py-2 text-[17px] font-semibold text-ink outline-none placeholder:font-normal placeholder:text-ink-3"
           />
           {draft.trim() ? (
@@ -160,6 +165,8 @@ export function LinkList({
           </span>
         ) : draftInfo?.error ? (
           <span className="font-semibold text-bad">{draftInfo.error}</span>
+        ) : itemError ? (
+          <span className="font-semibold text-bad">{itemError}</span>
         ) : full ? (
           <span className="font-semibold text-warn-ink">
             <b>
@@ -177,7 +184,7 @@ export function LinkList({
         ) : (
           <>
             Works with
-            {SOURCES.map((s) => (
+            {SOURCES.filter((s) => youtube || s !== 'YouTube').map((s) => (
               <Badge key={s} className="font-bold text-ink-2">
                 {s}
               </Badge>

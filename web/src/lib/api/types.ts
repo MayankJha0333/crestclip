@@ -446,6 +446,8 @@ export interface Plan {
   exportHeight: number;
   scheduling: boolean;
   autopilot: boolean;
+  /** can paste YouTube links and browse YouTube in Explore (Creator and Pro) */
+  youtubeSource?: boolean;
   points: string[];
 }
 export interface PlansInfo {

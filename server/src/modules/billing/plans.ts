@@ -37,6 +37,8 @@ export interface Plan {
   exportHeight: 1280 | 1920;
   scheduling: boolean;
   autopilot: boolean;
+  /** clip YouTube videos: paste YouTube links in New clips and browse YouTube in Explore */
+  youtubeSource: boolean;
   /** the list on the pricing cards (built from the limits above, so it never goes out of date) */
   points: string[];
 }
@@ -62,6 +64,7 @@ export const PLANS: Record<PlanId, Plan> = {
     exportHeight: 1280,
     scheduling: false,
     autopilot: false,
+    youtubeSource: false,
     points: [], // filled in below from the limits
   },
   creator: {
@@ -78,6 +81,7 @@ export const PLANS: Record<PlanId, Plan> = {
     exportHeight: 1920,
     scheduling: true,
     autopilot: false,
+    youtubeSource: true,
     points: [],
   },
   pro: {
@@ -94,6 +98,7 @@ export const PLANS: Record<PlanId, Plan> = {
     exportHeight: 1920,
     scheduling: true,
     autopilot: true,
+    youtubeSource: true,
     points: [],
   },
 };

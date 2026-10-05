@@ -12,6 +12,8 @@ import { ChannelCard, Rail, SkeletonCard, VideoCard } from './ExploreCards';
 import { parseLink } from './parseLink';
 import { PeekDrawer } from './PeekDrawer';
 import { track } from '../../lib/analytics';
+import { useAccount } from '../auth/auth';
+import { YOUTUBE_LOCKED } from '../create/links';
 
 const YT_TYPES = [
   { value: 'videos', label: 'Videos' },
@@ -68,13 +70,16 @@ function FeedSection({ title, subtitle, action, children, loading }: { title: st
 export function ExplorePage() {
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
-  const source = (params.get('source') === 'twitch' ? 'twitch' : 'youtube') as ExploreSource;
+  // YouTube in Explore is on Creator and Pro — Free only ever sees Twitch here
+  const ytOk = useAccount().plan.youtubeSource !== false;
+  const source = (!ytOk || params.get('source') === 'twitch' ? 'twitch' : 'youtube') as ExploreSource;
   const q = params.get('q') ?? '';
   const type = params.get('type') ?? (source === 'twitch' ? 'channels' : 'videos');
   const sort = params.get('sort') ?? 'relevance';
   const duration = params.get('duration') ?? 'any';
   const uploaded = params.get('uploaded') ?? 'any';
-  const channelUrl = params.get('channel');
+  const channelParam = params.get('channel');
+  const channelUrl = channelParam && (ytOk || /twitch\.tv/i.test(channelParam)) ? channelParam : null;
   const tab = params.get('tab') ?? (channelUrl && /twitch\.tv/.test(channelUrl) ? 'vods' : 'videos');
   const cat = params.get('cat') ?? 'all';
   const mode: 'channel' | 'search' | 'discover' = channelUrl ? 'channel' : q ? 'search' : 'discover';
@@ -194,6 +199,7 @@ export function ExplorePage() {
     setFocused(false);
     inputRef.current?.blur();
     const link = parseLink(t);
+    if (!ytOk && link && (link.kind === 'channel' ? !/twitch\.tv/i.test(link.url) : link.source === 'youtube')) return toast(YOUTUBE_LOCKED, 'error');
     if (link?.kind === 'channel') return set({ channel: link.url, tab: null, q: null, source: /twitch/.test(link.url) ? 'twitch' : 'youtube' });
     if (link) return openPeek([{ kind: link.kind, source: link.source, id: link.id, url: link.url, title: 'Loading video…' }], 0);
     pushRecentSearch(t);
@@ -246,29 +252,31 @@ export function ExplorePage() {
         title="Explore"
         description="Find a video worth clipping — preview where viewers rewatch, then clip it in one click."
         actions={
-          <Segmented
-            label="Source"
-            value={source}
-            onChange={(v) => set({ source: v, type: null, channel: null, tab: null, q: null, cat: null, sort: null, duration: null, uploaded: null })}
-            options={[
-              {
-                value: 'youtube',
-                label: (
-                  <>
-                    <Youtube size={17} className={source === 'youtube' ? 'text-[#c4302b]' : ''} /> YouTube
-                  </>
-                ),
-              },
-              {
-                value: 'twitch',
-                label: (
-                  <>
-                    <Twitch size={17} className={source === 'twitch' ? 'text-[#7a4ce0]' : ''} /> Twitch
-                  </>
-                ),
-              },
-            ]}
-          />
+          ytOk ? (
+            <Segmented
+              label="Source"
+              value={source}
+              onChange={(v) => set({ source: v, type: null, channel: null, tab: null, q: null, cat: null, sort: null, duration: null, uploaded: null })}
+              options={[
+                {
+                  value: 'youtube',
+                  label: (
+                    <>
+                      <Youtube size={17} className={source === 'youtube' ? 'text-[#c4302b]' : ''} /> YouTube
+                    </>
+                  ),
+                },
+                {
+                  value: 'twitch',
+                  label: (
+                    <>
+                      <Twitch size={17} className={source === 'twitch' ? 'text-[#7a4ce0]' : ''} /> Twitch
+                    </>
+                  ),
+                },
+              ]}
+            />
+          ) : undefined
         }
       />
 

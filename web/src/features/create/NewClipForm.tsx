@@ -89,6 +89,7 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
   const account = useAccount();
   const { refresh } = useAuth();
   const plan = account.plan;
+  const ytOk = plan.youtubeSource !== false; // YouTube links: Creator and Pro
   const MAX_VIDEOS = plan.maxVideosPerProject;
   const balance = account.credits.balance;
   // what this will cost: credits per clip × clips × videos (unused clips are given back)
@@ -99,13 +100,13 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
   const links = [...new Set([...items, ...splitLinks(draft)])].slice(0, MAX_VIDEOS);
   const many = links.length > 1;
   // a Google Drive folder: read on its own, the AI picks the videos inside
-  const folderLink = mode === 'link' ? (links.find((u) => detectLink(u)?.folder) ?? null) : null;
+  const folderLink = mode === 'link' ? (links.find((u) => detectLink(u, { youtube: ytOk })?.folder) ?? null) : null;
   const folderMixed = Boolean(folderLink && links.length > 1);
   const folder = useFolderPreview(folderMixed ? null : folderLink);
   const folderVideos = folder.status === 'ready' ? folder.data.willClip : 0;
   const videos = mode === 'upload' ? 1 : folderLink ? Math.max(1, folderVideos) : Math.max(1, links.length);
   const cost = opts.clipCount * perClip * videos;
-  const linkInfos = links.map((u) => ({ url: u, info: detectLink(u) }));
+  const linkInfos = links.map((u) => ({ url: u, info: detectLink(u, { youtube: ytOk }) }));
   const brief = previewInstructions(instructions);
   const newFromBrief = brief.links.filter((u) => !links.includes(u));
   const videoReady =
@@ -135,7 +136,7 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
     setBusy(true);
     try {
       if (mode === 'link') {
-        if (!links.length) throw new Error('Paste a full video link first (YouTube, Twitch, Google Drive, Dropbox…)');
+        if (!links.length) throw new Error(ytOk ? 'Paste a full video link first (YouTube, Twitch, Google Drive, Dropbox…)' : 'Paste a full video link first (Google Drive, Dropbox, Twitch…), or upload the video file.');
         const bad = linkInfos.find((l) => !l.info || l.info.error);
         if (bad) throw new Error(bad.info?.error ? `${bad.info.label}: ${bad.info.error}` : `“${bad.url}” isn’t a video link`);
         if (folderLink) {
@@ -265,6 +266,7 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
                 onDraft={setDraft}
                 onFile={pickFile}
                 onSubmit={() => submit()}
+                youtube={ytOk}
               />
               {folderLink && <FolderSummary state={folder} mixed={folderMixed} />}
             </>

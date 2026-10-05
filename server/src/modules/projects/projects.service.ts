@@ -13,7 +13,8 @@ import { dedupeVideos, planFolder, type FolderPlan } from '../../pipeline/folder
 import { rangeFor } from '../../pipeline/moments.js';
 import { createPickedClips, preparePickedClips } from '../../pipeline/process.js';
 import type { ProjectOptions, TimeRange } from '../../types.js';
-import { assertHasCredits, assertVideosPerProject, chargeClips } from '../billing/billing.service.js';
+import { assertHasCredits, assertVideosPerProject, assertYoutubeSource, chargeClips } from '../billing/billing.service.js';
+import { isYouTubeUrl } from '../../pipeline/ytweb.js';
 import { creditsForClips, planOf } from '../billing/plans.js';
 import { optionsSchema } from './projects.schemas.js';
 import { purgeProject } from './retention.js';
@@ -46,6 +47,7 @@ async function projectFromLink(userId: string, url: string, options: ProjectOpti
 }
 
 export async function createFromLink(user: UserRow, url: string, options: ProjectOptions) {
+  if (isYouTubeUrl(url)) assertYoutubeSource(user);
   requireAi();
   await assertHasCredits(user, clipsAsked(options));
   const p = await projectFromLink(user.id, url, await applyInstructions(options, user.id));
@@ -57,6 +59,7 @@ export async function createFromLink(user: UserRow, url: string, options: Projec
 export async function createFromLinks(user: UserRow, links: string[], options: ProjectOptions) {
   requireAi();
   const urls = [...new Set(links.map((u) => u.trim()))];
+  if (urls.some(isYouTubeUrl)) assertYoutubeSource(user);
   assertVideosPerProject(user, urls.length);
   await assertHasCredits(user, clipsAsked(options) * urls.length);
   for (const u of urls) {
