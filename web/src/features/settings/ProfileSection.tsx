@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { KeyRound, LogOut } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { KeyRound, LogOut, Trash2 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { toast } from '../../lib/toast';
 import { Badge, Button, buttonClass, Card, CardHeader, Field, Input } from '../../components/ui';
@@ -13,7 +13,24 @@ export function ProfileSection() {
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmEmail, setConfirmEmail] = useState('');
+  const navigate = useNavigate();
   if (!me) return null;
+  const removeAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api.deleteAccount(confirmEmail);
+      await logOut();
+      toast('Your account and its data were deleted');
+      navigate('/', { replace: true });
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -78,6 +95,31 @@ export function ProfileSection() {
           </Button>
         </form>
       )}
+      <div className="mt-6 border-t border-line pt-4">
+        {!deleting ? (
+          <button type="button" className="text-sm text-ink-3 underline-offset-2 hover:underline" onClick={() => setDeleting(true)}>
+            Delete my account…
+          </button>
+        ) : (
+          <form onSubmit={removeAccount} className="grid gap-3 rounded-[22px] bg-row p-4 shadow-flat">
+            <p className="text-sm">
+              <b>This can’t be undone.</b> Your projects, clips, scheduled posts, Autopilots, credits and connected YouTube / Instagram accounts are deleted, and CrestClip’s access to
+              those accounts is removed. Payment records are kept because tax law requires it. <Link to="/data-deletion">More about deleting your data</Link>
+            </p>
+            <Field label={`Type ${me.user.email} to confirm`}>
+              <Input required value={confirmEmail} onChange={(e) => setConfirmEmail(e.target.value)} autoComplete="off" data-clarity-mask="true" />
+            </Field>
+            <span className="flex flex-wrap gap-2">
+              <Button type="submit" variant="danger" loading={busy} disabled={confirmEmail.trim().toLowerCase() !== me.user.email.toLowerCase()}>
+                <Trash2 size={15} /> Delete my account
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => (setDeleting(false), setConfirmEmail(''))}>
+                Keep my account
+              </Button>
+            </span>
+          </form>
+        )}
+      </div>
     </Card>
   );
 }

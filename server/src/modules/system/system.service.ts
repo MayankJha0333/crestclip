@@ -41,7 +41,6 @@ export function site() {
     name: b.name,
     legalName: b.legalName || b.name,
     email: b.email || null,
-    phone: b.phone || null,
     address: b.address || null,
     jurisdiction: b.jurisdiction || null,
     hours: b.hours,

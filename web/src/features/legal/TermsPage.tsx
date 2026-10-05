@@ -23,7 +23,7 @@ export function TermsPage() {
           <li>You must be at least 18 years old to use {b.name}.</li>
           <li>Give us accurate details and keep your password safe. You’re responsible for what happens in your account.</li>
           <li>One person, one free account. Creating extra accounts to get more free credits isn’t allowed.</li>
-          <li>You can delete your account any time by emailing us.</li>
+          <li>You can delete your account any time in Settings, or by emailing us — see <Link to="/data-deletion">Delete your data</Link>.</li>
         </ul>
       </Section>
 

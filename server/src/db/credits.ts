@@ -193,6 +193,10 @@ export const credits = {
     if (take > 0) await this.spend(userId, take, note, null, 'adjust');
     return true;
   },
+  /** Account deletion: their credits and credit history. Payment records are kept (tax law), see `payments`. */
+  async removeAllFor(userId: string) {
+    await Promise.all([grantCol().deleteMany({ userId }), eventCol().deleteMany({ userId })]);
+  },
   async history(userId: string, limit = 100): Promise<Omit<CreditEventRow, 'userId' | 'detail'>[]> {
     const docs = await eventCol()
       .find({ userId }, { projection: { userId: 0, detail: 0 } })

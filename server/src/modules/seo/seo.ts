@@ -109,6 +109,13 @@ ${nav()}`,
       priority: '0.2',
       body: `<h1>Privacy policy</h1>${nav()}`,
     },
+    '/data-deletion': {
+      title: `Delete your data — ${NAME}`,
+      description: `How to delete your ${NAME} account and data, and remove its access to YouTube or Instagram.`,
+      changefreq: 'yearly',
+      priority: '0.2',
+      body: `<h1>Delete your data</h1>${nav()}`,
+    },
     '/refunds': {
       title: `Refunds & cancellation — ${NAME}`,
       description: `How refunds and cancelling a ${NAME} plan work.`,
@@ -141,12 +148,14 @@ function structuredData(site: string) {
       '@context': 'https://schema.org',
       '@type': 'Organization',
       name: NAME,
-      alternateName: [OLD_NAME, 'Crest Clip'],
-      url: site,
+      alternateName: ['Crest Clip', OLD_NAME],
+      url: `${site}/`,
       logo: `${site}/logo-512.png`,
       email: config.business.email || undefined,
     },
-    { '@context': 'https://schema.org', '@type': 'WebSite', name: NAME, alternateName: [OLD_NAME, 'Crest Clip'], url: site },
+    // what Google shows as the site name above the link: url must be exactly the home page's canonical address
+    // (with the trailing slash), and only spellings of the current name — the old name here makes Google unsure
+    { '@context': 'https://schema.org', '@type': 'WebSite', name: NAME, alternateName: ['Crest Clip'], url: `${site}/` },
     {
       '@context': 'https://schema.org',
       '@type': 'SoftwareApplication',

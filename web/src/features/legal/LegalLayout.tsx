@@ -8,7 +8,7 @@ import { useAuth } from '../auth/auth';
 import type { Business } from './business';
 
 /** When the policy text last changed (shown at the top of each policy page). */
-const POLICY_UPDATED = '3 October 2026';
+const POLICY_UPDATED = '5 October 2026';
 
 /** A public page: header, a readable column of text, and the footer with every policy link. */
 export function LegalLayout({ title, intro, policy, wide, business, children }: { title: string; intro: ReactNode; policy?: boolean; wide?: boolean; business: Business; children: ReactNode }) {
@@ -60,7 +60,7 @@ export function SupportEmail({ business }: { business: Business }) {
   return business.email ? <a href={`mailto:${business.email}`}>{business.email}</a> : <Link to="/contact">the email on our Contact page</Link>;
 }
 
-/** Who to contact: business, email, phone, address, hours (only the lines that are set). */
+/** Who to contact: business, email, address, hours (only the lines that are set). No phone number on purpose. */
 export function ContactDetails({ business, grievance }: { business: Business; grievance?: boolean }) {
   const s = business.site;
   if (!s) return null;
@@ -78,11 +78,6 @@ export function ContactDetails({ business, grievance }: { business: Business; gr
       {s.email && (
         <li>
           <strong>Email:</strong> <a href={`mailto:${s.email}`}>{s.email}</a>
-        </li>
-      )}
-      {s.phone && (
-        <li>
-          <strong>Phone:</strong> <a href={`tel:${s.phone.replace(/\s+/g, '')}`}>{s.phone}</a>
         </li>
       )}
       {s.address && (

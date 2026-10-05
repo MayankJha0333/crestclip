@@ -40,6 +40,10 @@ async function newestFirst(filter: object, limit: number): Promise<PostRow[]> {
 }
 
 export const posts = {
+  /** Account deletion: every post this person made. */
+  async removeAllFor(userId: string) {
+    await col().deleteMany({ userId });
+  },
   async create(p: {
     clipId: string;
     connectionId: string;

@@ -123,7 +123,6 @@ export const config = {
     name: env('BUSINESS_NAME', 'CrestClip'),
     legalName: env('BUSINESS_LEGAL_NAME'),
     email: env('SUPPORT_EMAIL'),
-    phone: env('SUPPORT_PHONE'),
     address: env('BUSINESS_ADDRESS'),
     /** courts for disputes, e.g. "Bengaluru, Karnataka" */
     jurisdiction: env('BUSINESS_JURISDICTION'),

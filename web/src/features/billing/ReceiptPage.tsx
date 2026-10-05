@@ -69,7 +69,6 @@ export function ReceiptPage() {
               {s.legalName !== s.name && <> (trading as {s.name})</>}
               {s.address && <div>{s.address}</div>}
               {s.email && <div>{s.email}</div>}
-              {s.phone && <div>{s.phone}</div>}
               <div>{s.url.replace(/^https?:\/\//, '')}</div>
             </dd>
           </div>

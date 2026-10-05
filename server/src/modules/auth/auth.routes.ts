@@ -6,6 +6,7 @@ import { asyncHandler, validate } from '../../lib/http.js';
 import { accountSummary, reconcileSubscriptions, refreshAccount } from '../billing/billing.service.js';
 import { clearSessionCookie, me, requireUser, setSessionCookie } from './auth.middleware.js';
 import * as service from './auth.service.js';
+import { deleteAccount } from './account-deletion.js';
 
 export const authRouter = Router();
 
@@ -76,6 +77,19 @@ authRouter.post(
     const body = validate(z.object({ current: z.string().max(200).default(''), next: password }), req.body, (i) => i ?? 'Check the passwords.');
     service.rateLimit(`pw:${me(req).id}`, 10, 15 * 60_000, 'Too many tries. Wait 15 minutes.');
     await service.changePassword(me(req), body.current, body.next);
+    res.json({ ok: true });
+  }),
+);
+
+/** Delete my account and everything in it (type your email to confirm). Payment records are kept for tax law. */
+authRouter.post(
+  '/auth/delete-account',
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const body = validate(z.object({ email: z.string().max(200) }), req.body, 'Type your email address to confirm.');
+    service.rateLimit(`delete:${me(req).id}`, 5, 15 * 60_000, 'Too many tries. Wait 15 minutes.');
+    await deleteAccount(me(req), body.email);
+    clearSessionCookie(res);
     res.json({ ok: true });
   }),
 );

@@ -1,16 +1,19 @@
 import { Link } from 'react-router-dom';
 import { Logo } from './brand/Logo';
 
-/** The links every public page shows — Razorpay and Google check that these pages are easy to find. */
+/**
+ * The links every public page shows — only the pages Razorpay (international payments: About, Contact, Shipping,
+ * Refunds, Terms, Privacy, plus Pricing) and Google (Privacy) require to be easy to find. The Crayo comparison is
+ * still in the sitemap (for Google search); Delete your data is linked from the privacy policy, terms and Settings.
+ */
 export const LEGAL_LINKS = [
   { to: '/about', label: 'About' },
   { to: '/pricing', label: 'Pricing' },
   { to: '/contact', label: 'Contact' },
   { to: '/terms', label: 'Terms' },
   { to: '/privacy', label: 'Privacy' },
-  { to: '/refunds', label: 'Refunds & cancellation' },
-  { to: '/shipping', label: 'Shipping & delivery' },
-  { to: '/crayo-alternative', label: 'CrestClip vs Crayo' },
+  { to: '/refunds', label: 'Refunds' },
+  { to: '/shipping', label: 'Shipping' },
 ];
 
 export function SiteFooter({ owner }: { owner?: string }) {

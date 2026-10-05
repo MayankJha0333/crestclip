@@ -2,7 +2,7 @@ import { Navigate, type RouteObject } from 'react-router-dom';
 import { LandingPage } from '../features/landing/LandingPage';
 import { AuthPage } from '../features/auth/AuthPage';
 import { RequireAuth } from '../features/auth/auth';
-import { AboutPage, ContactPage, CrayoAlternativePage, PricingPage, PrivacyPage, RefundsPage, ShippingPage, TermsPage } from '../features/legal';
+import { AboutPage, ContactPage, CrayoAlternativePage, DataDeletionPage, PricingPage, PrivacyPage, RefundsPage, ShippingPage, TermsPage } from '../features/legal';
 
 /**
  * Every address in the app. Shared by the browser (router.tsx) and the server (entry-server.tsx), which builds the
@@ -21,6 +21,7 @@ export const routes: RouteObject[] = [
   { path: '/contact', element: <ContactPage /> },
   { path: '/terms', element: <TermsPage /> },
   { path: '/privacy', element: <PrivacyPage /> },
+  { path: '/data-deletion', element: <DataDeletionPage /> },
   { path: '/refunds', element: <RefundsPage /> },
   { path: '/refund-policy', element: <Navigate to="/refunds" replace /> },
   { path: '/shipping', element: <ShippingPage /> },

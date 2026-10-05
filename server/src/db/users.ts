@@ -77,6 +77,10 @@ export const users = {
   async update(id: string, patch: Partial<Omit<UserRow, 'id' | 'createdAt'>>) {
     await col().updateOne({ _id: id }, { $set: setFields(patch, UPDATABLE) });
   },
+  /** Delete the account itself (see account-deletion.ts for everything that goes with it). */
+  async remove(id: string) {
+    await col().deleteOne({ _id: id });
+  },
 };
 
 const SESSION_DAYS = 30;

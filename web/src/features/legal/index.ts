@@ -2,6 +2,7 @@
 export { AboutPage } from './AboutPage';
 export { ContactPage } from './ContactPage';
 export { CrayoAlternativePage } from './CrayoAlternativePage';
+export { DataDeletionPage } from './DataDeletionPage';
 export { PricingPage } from './PricingPage';
 export { PrivacyPage } from './PrivacyPage';
 export { RefundsPage } from './RefundsPage';

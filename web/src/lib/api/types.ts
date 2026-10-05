@@ -513,7 +513,6 @@ export interface SiteInfo {
   name: string;
   legalName: string;
   email: string | null;
-  phone: string | null;
   address: string | null;
   jurisdiction: string | null;
   /** when support answers */

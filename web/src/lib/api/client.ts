@@ -56,6 +56,8 @@ export const api = {
   logIn: (body: { email: string; password: string }) => req<{ ok: boolean }>('/api/auth/login', json('POST', body)),
   logOut: () => req<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
   changePassword: (body: { current: string; next: string }) => req<{ ok: boolean }>('/api/auth/password', json('POST', body)),
+  /** delete the account and everything in it (type the email to confirm) */
+  deleteAccount: (email: string) => req<{ ok: boolean }>('/api/auth/delete-account', json('POST', { email })),
   // plans & credits
   plans: () => req<PlansInfo>('/api/billing/plans'),
   site: () => req<SiteInfo>('/api/site'),

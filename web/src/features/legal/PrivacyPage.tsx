@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useBusiness } from './business';
 import { ContactDetails, LegalLayout, Section, SupportEmail } from './LegalLayout';
 
@@ -82,7 +83,7 @@ export function PrivacyPage() {
         <p>These companies only get what they need to do their job for us. We never sell or rent your personal data.</p>
       </Section>
 
-      <Section title="6. YouTube and Google data">
+      <Section title="6. YouTube, Google and Instagram data">
         <p>
           {b.name} uses YouTube API Services to post clips to your channel when you connect it. Google’s{' '}
           <a href="https://policies.google.com/privacy" {...ext}>
@@ -98,6 +99,17 @@ export function PrivacyPage() {
           </a>
           , including its Limited Use rules.
         </p>
+        <p>
+          If you connect Instagram, {b.name} uses Instagram’s API (by Meta) to read your account’s name, username and picture, and to publish the clips you choose — nothing else. Meta’s{' '}
+          <a href="https://privacycenter.instagram.com/policy" {...ext}>
+            Privacy Policy
+          </a>{' '}
+          applies to that data. You can remove our access in Instagram’s <strong>Settings → Apps and websites</strong>, or by disconnecting in Settings.
+        </p>
+        <p>
+          We use data from YouTube and Instagram only to show you which account is connected and to post what you ask us to post. We don’t sell it, use it for ads, or share it with anyone
+          else. To delete it, see <Link to="/data-deletion">Delete your data</Link>.
+        </p>
       </Section>
 
       <Section title="7. Where it’s stored">
@@ -110,7 +122,7 @@ export function PrivacyPage() {
             <strong>Projects</strong> (original video, transcript, clips, edits): {b.retentionDays} days after you create them, then deleted automatically — on our servers and in cloud storage.
           </li>
           <li>
-            <strong>Your account:</strong> until you ask us to delete it.
+            <strong>Your account:</strong> until you delete it (Settings → Your account → Delete my account) or ask us to — see <Link to="/data-deletion">Delete your data</Link>.
           </li>
           <li>
             <strong>Payment records:</strong> as long as tax law requires (in India, usually up to 8 years).
