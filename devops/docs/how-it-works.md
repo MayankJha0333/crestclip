@@ -53,7 +53,8 @@ started several times — a setting called `ROLE` tells each copy what its job i
 ## 2. Jobs and workers
 
 1. Someone clicks **New clips** → `web-1` saves the project and **adds a job** to the queue in Redis.
-2. A free **worker** takes it. Each worker clips 2 videos and renders 2 clips at once (`sizing.env`).
+2. A free **worker** takes it. Each worker works on 5 videos at once, but renders only 2 clips at a time — the
+   CPU-heavy part (`sizing.env`). Most of a video's time is waiting on downloads and AI, so 5 fit easily.
 3. The worker saves progress to the database → the website shows it.
 4. Each job's own log lines are saved with it → visible in **/admin/queues/**.
 

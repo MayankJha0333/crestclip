@@ -6,7 +6,7 @@
 |---|---|---|
 | **App** | 1 container doing everything | website ×2, workers ×2, 1 scheduler — each its own container |
 | **Job queue** | in the app's memory — lost on restart, stuck jobs blocked everything | in Redis — survives restarts, stuck jobs re-run once, then fail with a refund |
-| **Videos at once** | 1 (the `5` setting was silently ignored) | 4 (2 workers × 2), set in `deploy/sizing.env` |
+| **Videos at once** | 1 (the `5` setting was silently ignored) | 10 in progress (2 workers × 5), max 4 heavy renders at once — set in `deploy/sizing.env` |
 | **Load balancing** | none — a crash or deploy took the site down | Caddy spreads visitors over 2 copies, skips one that's down |
 | **Settings** | a file on the server, edited by hand over SSH | one secret in Google Secret Manager, edited with `secrets.sh`, versioned, auto-applied |
 | **Deploys** | switch everything at once | one piece at a time — no downtime; goes back by itself if broken |

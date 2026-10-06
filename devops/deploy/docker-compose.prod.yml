@@ -78,7 +78,7 @@ services:
     environment:
       <<: *env
       ROLE: worker
-      JOB_CONCURRENCY: ${WORKER_JOBS:-2}
+      JOB_CONCURRENCY: ${WORKER_JOBS:-5}
       RENDER_CONCURRENCY: ${WORKER_RENDERS:-2}
     deploy:
       replicas: ${WORKERS:-2}
