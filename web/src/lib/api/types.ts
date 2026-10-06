@@ -222,7 +222,8 @@ export interface Account {
 export interface Connections {
   accounts: Account[];
   platforms: {
-    youtube: { configured: boolean; redirectUri: string };
+    /** auditPassed: false = Google hasn't approved the app's YouTube API use yet, so YouTube keeps every upload private */
+    youtube: { configured: boolean; redirectUri: string; auditPassed: boolean };
     instagram: { configured: boolean; redirectUri: string; needsHttps: boolean };
   };
 }

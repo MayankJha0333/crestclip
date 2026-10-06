@@ -9,7 +9,7 @@ import { buildAss, wordsInRange, type EmojiCue } from './captions.js';
 import { part, uploadToGcs, deleteFromGcs, usage } from './gemini.js';
 import { removeFromCloud, saveToCloud } from '../infra/cloudStore.js';
 import { extractAudio, extractAudioRange, hasLibass, loudnessPerSecond, makeProxy, probe, silences as findSilences, thumbnail } from './media.js';
-import { aiScore, describeClips, findMoments, rankClips, snapClips, snapRange } from './moments.js';
+import { aiScore, describeClips, ensurePeakCandidate, findMoments, junkTitle, rankClips, snapClips, snapRange } from './moments.js';
 import { judgeClips } from './judge.js';
 import { contentBand, planReframe } from './reframe.js';
 import { concatParts, faceOnFrame, mixMusic, planZooms, renderClip } from './render.js';
@@ -212,6 +212,7 @@ export async function processProject(id: string) {
 
     let cands: Awaited<ReturnType<typeof findMoments>>['clips'];
     let notes: string;
+    let videoTitle: string | null = null;
     const source: VisualSource | null = info?.isYouTube ? { kind: 'youtube', url: info.webpageUrl } : pr.width ? { kind: 'file', src } : null;
     if (noSpeech) {
       if (!source) throw new Error('This video has no talking, and the picture isn’t available to watch.');
@@ -229,6 +230,7 @@ export async function processProject(id: string) {
         onProgress: (frac, detail) => stage(id, 'moments', 0.1 + frac * 0.85, detail),
       });
       cands = found.clips;
+      videoTitle = found.videoTitle;
       notes = ['No talking in this video — CrestClip picked the moments by watching it.', found.notes].filter(Boolean).join(' ');
     } else {
       let videoPart = null;
@@ -262,9 +264,21 @@ export async function processProject(id: string) {
       }).finally(() => {
         if (gcsObject) deleteFromGcs(gcsObject);
       });
-      cands = found.clips;
+      // the tallest replay peak always gets a candidate, so the graph and the clips agree
+      cands = await ensurePeakCandidate({
+        clips: found.clips,
+        segments: tr.segments,
+        duration,
+        title: info?.title ?? p.title ?? 'Untitled',
+        channel: info?.channel ?? '',
+        signals,
+        options: p.options,
+      });
       notes = found.notes;
+      videoTitle = found.videoTitle;
     }
+    // an upload named "6AA26DA6 8EC2 404C…" or "IMG 4021" gets the AI's title for the video (a link keeps its real title)
+    if (videoTitle && !info && junkTitle(p.title)) await projects.update(id, { title: videoTitle });
     let picked = snapClips(cands, tr.segments, sil, duration, p.options);
     if (noSpeech && pr.width) picked = await snapToShots(picked, src, duration); // start and end on a camera cut
     // a separate, blind judge grades the clips (the picker marks its own picks far too kindly)

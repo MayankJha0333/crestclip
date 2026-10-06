@@ -4,6 +4,7 @@ import { api, LOGGED_OUT, type Me } from '../../lib/api';
 import { Spinner } from '../../components/ui';
 import { identify } from '../../lib/analytics';
 import { readLocal, writeLocal } from '../../lib/storage';
+import { setCacheOwner } from '../../lib/cache';
 
 /**
  * The last account this browser saw. Signed-in pages draw straight away from it instead of waiting for the server,
@@ -13,9 +14,12 @@ import { readLocal, writeLocal } from '../../lib/storage';
 const ME_KEY = 'crestclip:me';
 const cachedMe = (): Me | undefined => {
   if (typeof window === 'undefined' || document.getElementById('root')?.dataset.ssr === '1') return undefined;
-  return readLocal<Me | null>(ME_KEY, null) ?? undefined;
+  const m = readLocal<Me | null>(ME_KEY, null) ?? undefined;
+  if (m) setCacheOwner(m.user.id);
+  return m;
 };
 const rememberMe = (me: Me | null) => {
+  setCacheOwner(me?.user.id ?? '');
   if (me) writeLocal(ME_KEY, me);
   else
     try {

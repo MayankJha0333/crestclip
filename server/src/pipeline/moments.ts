@@ -38,6 +38,7 @@ const clipSchema = {
   type: 'object',
   properties: {
     notes: { type: 'string', description: 'one or two sentences about what this video is and where its best moments are' },
+    video_title: { type: 'string', description: 'a natural title for the whole video, as its creator might name it (<= 70 chars, no hashtags)' },
     clips: {
       type: 'array',
       items: {
@@ -160,13 +161,13 @@ export async function findMoments(input: {
   signals: Signals | null;
   options: ProjectOptions;
   videoPart: Part | null;
-}): Promise<{ clips: ClipCandidate[]; notes: string }> {
+}): Promise<{ clips: ClipCandidate[]; notes: string; videoTitle: string | null }> {
   const { options, duration } = input;
   const range = rangeFor(options);
   const want = Math.max(1, Math.min(30, options.clipCount));
   const ask = Math.min(40, Math.ceil(want * 1.6) + 2);
 
-  if (config.fakeAi) return { clips: fakeMoments(input.segments, duration, range, ask), notes: 'Fake AI mode — clips are placeholders.' };
+  if (config.fakeAi) return { clips: fakeMoments(input.segments, duration, range, ask), notes: 'Fake AI mode — clips are placeholders.', videoTitle: null };
 
   const hot = input.signals?.hotspots?.length
     ? input.signals.hotspots
@@ -183,7 +184,7 @@ Return the ${ask} best clip candidates, best first.
 ${options.focus ? `Creator's focus request: "${options.focus}" — prioritize moments that match it.` : ''}
 ${options.rules?.length ? `\nTHE CREATOR'S RULES — every clip MUST follow these (skip moments that would break them):\n${options.rules.map((r) => `- ${r}`).join('\n')}` : ''}
 ${options.instructions && !options.rules?.length ? `\nTHE CREATOR'S INSTRUCTIONS (follow them):\n${options.instructions.slice(0, 2500)}` : ''}
-${input.signals?.curveKind === 'audience' ? `\nAUDIENCE HOTSPOTS (most re-watched moments):\n${hot}` : input.signals?.curveKind === 'energy' ? `\nAUDIO ENERGY SPIKES (laughter/shouting/excitement, weaker signal):\n${hot}` : ''}
+${input.signals?.curveKind === 'audience' ? `\nAUDIENCE HOTSPOTS (most re-watched moments, strongest first). The first one is THE most re-watched moment of the whole video: one of your clips MUST contain it.\n${hot}` : input.signals?.curveKind === 'energy' ? `\nAUDIO ENERGY SPIKES (laughter/shouting/excitement, weaker signal):\n${hot}` : ''}
 \nCHAPTERS:\n${chapters}
 ${input.description ? `\nVIDEO DESCRIPTION (for context only):\n${input.description.slice(0, 1500)}` : ''}
 
@@ -194,7 +195,7 @@ ${transcriptForPrompt(input.segments)}`;
   if (input.videoPart) parts.push(input.videoPart);
   parts.push(part.text(prompt));
 
-  type Raw = { notes?: string; clips: (Omit<ClipCandidate, 'rubric'> & Record<string, number>)[] };
+  type Raw = { notes?: string; video_title?: string; clips: (Omit<ClipCandidate, 'rubric'> & Record<string, number>)[] };
   let raw: Raw;
   try {
     raw = await generateJson<Raw>({ system: SYSTEM, parts, schema: clipSchema, thinking: 'MEDIUM', lowMediaRes: true, maxOutputTokens: 40000, label: 'find viral moments' });
@@ -204,7 +205,69 @@ ${transcriptForPrompt(input.segments)}`;
     raw = await generateJson<Raw>({ system: SYSTEM, parts: [part.text(prompt)], schema: clipSchema, thinking: 'MEDIUM', maxOutputTokens: 40000, label: 'find viral moments' });
   }
 
-  const clips: ClipCandidate[] = (raw.clips || []).map((c) => ({
+  const clips = parseClips(raw.clips);
+  return { clips, notes: raw.notes ?? '', videoTitle: cleanTitle(raw.video_title) };
+}
+
+/**
+ * The most re-watched moment must come out as a clip candidate. The picker treats hotspots as hints, so now and then
+ * it skips the tallest peak and the person sees their best moment missing from the graph. When no candidate covers
+ * the #1 audience peak, a small focused call cuts one clip around it from just that part of the transcript.
+ */
+export async function ensurePeakCandidate(input: {
+  clips: ClipCandidate[];
+  segments: Segment[];
+  duration: number;
+  title: string;
+  channel: string;
+  signals: Signals | null;
+  options: ProjectOptions;
+}): Promise<ClipCandidate[]> {
+  const { clips, segments, duration, signals, options } = input;
+  if (config.fakeAi || !signals || signals.curveKind !== 'audience' || !signals.hotspots.length || !segments.length) return clips;
+  const top = signals.hotspots[0];
+  const mid = (top.start + top.end) / 2;
+  if (clips.some((c) => c.start <= top.end && c.end >= top.start && c.end - c.start > 0)) return clips;
+
+  const range = rangeFor(options);
+  const pad = Math.max(range.max * 1.5, 60);
+  const around = segments.filter((s) => s.e >= top.start - pad && s.s <= top.end + pad);
+  if (around.length < 2) return clips;
+  const prompt = `VIDEO: "${input.title}"${input.channel ? ` by ${input.channel}` : ''}
+Duration: ${formatTime(duration)} (${duration.toFixed(0)} s)
+Clips are posted to TikTok, YouTube Shorts and Instagram Reels.
+Target clip length: ${range.label}. Hard limits: ${range.min}–${range.max} s.
+
+THE MOST RE-WATCHED MOMENT of this video, by its own viewers, is ${formatTime(top.start)}–${formatTime(top.end)} (${top.start.toFixed(0)}s–${top.end.toFixed(0)}s).
+Return exactly 1 clip. It MUST contain that moment (or at least the second ${mid.toFixed(0)}s), start on the hook that sets it up and end right after it pays off. Follow every rule above about edges.
+${options.rules?.length ? `\nTHE CREATOR'S RULES — the clip MUST follow these:\n${options.rules.map((r) => `- ${r}`).join('\n')}` : ''}
+
+TRANSCRIPT AROUND IT (format: [start-end seconds] speaker: text):
+${transcriptForPrompt(around)}`;
+  type Raw = { notes?: string; clips: (Omit<ClipCandidate, 'rubric'> & Record<string, number>)[] };
+  try {
+    const raw = await generateJson<Raw>({
+      system: SYSTEM,
+      parts: [part.text(prompt)],
+      schema: clipSchema,
+      thinking: 'LOW',
+      maxOutputTokens: 6000,
+      timeoutMs: 2 * 60_000,
+      label: 'clip the top replay peak',
+    });
+    const got = parseClips(raw.clips).filter((c) => c.end > c.start && c.start <= top.end && c.end >= top.start);
+    if (!got.length) return clips;
+    const peak = { ...got[0], reason: `The most re-watched moment of the video. ${got[0].reason}`.trim() };
+    console.log(`[moments] top replay peak ${formatTime(top.start)}–${formatTime(top.end)} had no candidate — added ${formatTime(peak.start)}–${formatTime(peak.end)}`);
+    return [peak, ...clips];
+  } catch (e) {
+    console.warn('[moments] clipping the top replay peak failed:', (e as Error).message);
+    return clips;
+  }
+}
+
+function parseClips(list: (Omit<ClipCandidate, 'rubric'> & Record<string, number>)[] | undefined): ClipCandidate[] {
+  return (list || []).map((c) => ({
     start: Number(c.start) || 0,
     end: Number(c.end) || 0,
     title: String(c.title || '').slice(0, 100),
@@ -228,7 +291,28 @@ ${transcriptForPrompt(input.segments)}`;
       trend: clamp10(c.trend),
     },
   }));
-  return { clips, notes: raw.notes ?? '' };
+}
+
+/** The AI's title for the whole video, tidied (null when it gave none). */
+export const cleanTitle = (t: unknown): string | null => {
+  const s = String(t ?? '')
+    .replace(/\s+/g, ' ')
+    .replace(/^["“”']+|["“”']+$/g, '')
+    .trim();
+  return s.length >= 4 ? s.slice(0, 90) : null;
+};
+
+/**
+ * Is this title just a file name's junk (an upload called "6AA26DA6 8EC2 404C…", "IMG 4021", "video")? Then the AI's
+ * title for the video is better.
+ */
+export function junkTitle(t: string | null | undefined): boolean {
+  const s = (t ?? '').trim();
+  if (s.length < 4) return true;
+  if (/^[0-9a-f\s_-]{12,}$/i.test(s)) return true; // hex ids, uuids
+  if (/^(img|vid|video|mov|dsc|pxl|screen ?recording|untitled|source|download|final|export|clip|render)[\s_\d.-]*$/i.test(s)) return true;
+  if (/^[\d\s._:-]+$/.test(s)) return true; // "2026 10 06 14 20 11"
+  return false;
 }
 
 const clamp10 = (v: unknown) => Math.max(0, Math.min(10, Number(v) || 0));

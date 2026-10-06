@@ -5,7 +5,7 @@ import { config } from '../config.js';
 import { pool, run } from '../lib/proc.js';
 import { deleteFromGcs, generateJson, part, uploadToGcs } from './gemini.js';
 import { framesAt, sceneCuts } from './media.js';
-import { rangeFor } from './moments.js';
+import { cleanTitle, rangeFor } from './moments.js';
 import { formatTime } from './signals.js';
 import { spokenWords } from './transcribe.js';
 import type { ClipCandidate, ProjectOptions, Segment, Signals } from '../types.js';
@@ -101,6 +101,7 @@ const schema = {
   type: 'object',
   properties: {
     notes: { type: 'string', description: 'one or two sentences: what this video shows and where its best moments are' },
+    video_title: { type: 'string', description: 'a natural title for the whole video, as its creator might name it (<= 70 chars, no hashtags)' },
     clips: {
       type: 'array',
       items: {
@@ -180,7 +181,7 @@ Score each clip 0-10 (be a harsh, honest critic — average moments 4-6, only tr
 - length_fit: natural length within the requested range?
 - trend: a recognisable product, game, place or trend?`;
 
-type Raw = { notes?: string; clips: (Record<string, unknown> & { start: number; end: number })[] };
+type Raw = { notes?: string; video_title?: string; clips: (Record<string, unknown> & { start: number; end: number })[] };
 
 const clamp10 = (v: unknown) => Math.max(0, Math.min(10, Number(v) || 0));
 
@@ -322,11 +323,11 @@ export async function findVisualMoments(input: {
   signals: Signals | null;
   options: ProjectOptions;
   onProgress: (frac: number, detail: string) => void;
-}): Promise<{ clips: ClipCandidate[]; notes: string }> {
+}): Promise<{ clips: ClipCandidate[]; notes: string; videoTitle: string | null }> {
   const { options, duration } = input;
   const range = rangeFor(options);
   const want = Math.max(1, Math.min(30, options.clipCount));
-  if (config.fakeAi) return { clips: fakeVisual(duration, range, want), notes: 'Fake AI mode — clips are placeholders.' };
+  if (config.fakeAi) return { clips: fakeVisual(duration, range, want), notes: 'Fake AI mode — clips are placeholders.', videoTitle: null };
 
   const windows = windowsFor(duration);
   const single = windows.length === 1;
@@ -369,12 +370,12 @@ ${input.description ? `\nVIDEO DESCRIPTION (context only):\n${input.description.
       const list = Array.isArray(raw.clips) ? raw.clips : [];
       // still frames are labelled with full-video times; video windows answer from 0 (or either way, for YouTube)
       const toTime = watch.framesOnly ? (t: number) => t : toVideoTime(list, w, watch.mode);
-      return { clips: list.map((c) => toCandidate(c, toTime, w)).filter((c): c is ClipCandidate => Boolean(c)), notes: raw.notes ?? '' };
+      return { clips: list.map((c) => toCandidate(c, toTime, w)).filter((c): c is ClipCandidate => Boolean(c)), notes: raw.notes ?? '', videoTitle: cleanTitle(raw.video_title) };
     } catch (e) {
       // one bad window doesn't sink the whole video — unless every window fails (checked below)
       console.warn(`[visual] ${single ? 'watching the video' : `part ${i + 1}/${windows.length}`} failed:`, (e as Error).message);
       if (single) throw e;
-      return { clips: [] as ClipCandidate[], notes: '' };
+      return { clips: [] as ClipCandidate[], notes: '', videoTitle: null as string | null };
     } finally {
       watch?.cleanup();
       done++;
@@ -385,7 +386,7 @@ ${input.description ? `\nVIDEO DESCRIPTION (context only):\n${input.description.
   const clips = results.flatMap((r) => r.clips);
   if (!clips.length && windows.length > 1) throw new Error('The AI couldn’t watch this video. Please try again in a few minutes.');
   const notes = results.map((r) => r.notes).find(Boolean) ?? '';
-  return { clips, notes };
+  return { clips, notes, videoTitle: results.map((r) => r.videoTitle).find(Boolean) ?? null };
 }
 
 /**

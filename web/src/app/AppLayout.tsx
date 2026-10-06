@@ -64,6 +64,7 @@ function Sidebar() {
   const isActive = useActive();
   const { state, health } = useHealth();
   const { pathname } = useLocation();
+  const isAdmin = Boolean(useAuth().me?.user.isAdmin);
   return (
     <aside className="sticky top-6 hidden h-[calc(100vh-3rem)] w-60 shrink-0 flex-col rounded-[28px] bg-surface p-5 shadow-clay lg:flex">
       <Link to="/" aria-label="CrestClip home" className="no-underline">
@@ -90,7 +91,7 @@ function Sidebar() {
           )}
         >
           <Settings size={18} /> Settings
-          <span className={cn('ml-auto size-2.5 rounded-full', DOT[state])} title={state === 'ok' ? 'All systems go' : 'See system status'} />
+          {isAdmin && <span className={cn('ml-auto size-2.5 rounded-full', DOT[state])} title={state === 'ok' ? 'All systems go' : 'See system status on the Admin page'} />}
         </NavLink>
         <AccountRow />
       </div>
@@ -126,6 +127,7 @@ function AccountRow() {
 function MobileNav() {
   const isActive = useActive();
   const { state } = useHealth();
+  const isAdmin = Boolean(useAuth().me?.user.isAdmin);
   return (
     <>
       <header className="sticky top-0 z-30 -mx-4 mb-4 flex items-center justify-between bg-glass px-4 py-3 backdrop-blur-md lg:hidden">
@@ -136,7 +138,7 @@ function MobileNav() {
           <CreditPill />
           <Link to="/app/settings" aria-label="Settings" className="relative grid size-10 place-items-center rounded-full bg-surface text-ink shadow-clay-sm">
             <Settings size={18} />
-            <span className={cn('absolute top-1.5 right-1.5 size-2 rounded-full', DOT[state])} />
+            {isAdmin && <span className={cn('absolute top-1.5 right-1.5 size-2 rounded-full', DOT[state])} />}
           </Link>
         </span>
       </header>

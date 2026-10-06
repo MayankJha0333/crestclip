@@ -64,6 +64,7 @@ export const routes: RouteObject[] = [
       { path: 'autopilot/:id', lazy: () => import('../features/autopilot/AutopilotDetailPage').then((m) => ({ Component: m.AutopilotDetailPage })) },
       { path: 'autopilot/:id/edit', lazy: () => import('../features/autopilot/AutopilotEditorPage').then((m) => ({ Component: m.AutopilotEditorPage })) },
       { path: 'settings', lazy: () => import('../features/settings/SettingsPage').then((m) => ({ Component: m.SettingsPage })) },
+      { path: 'admin', lazy: () => import('../features/settings/AdminPage').then((m) => ({ Component: m.AdminPage })) },
       { path: 'billing', lazy: () => import('../features/billing/BillingPage').then((m) => ({ Component: m.BillingPage })) },
       { path: '*', element: <Navigate to="/app" replace /> },
     ],

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { HttpError } from '../../lib/http.js';
 import { addLogo, setWatermarkLogo } from '../../pipeline/watermark.js';
 
-export { removeLogo, removeWatermarkLogo, updateWatermark } from '../../pipeline/watermark.js';
+export { removeLogo, removeWatermarkLogo, setDefaultLogo, updateWatermark } from '../../pipeline/watermark.js';
 
 const IMAGE = /^image\/(png|jpe?g|webp)$/;
 

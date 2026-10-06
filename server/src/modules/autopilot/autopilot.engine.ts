@@ -9,7 +9,7 @@ import { creditsForClips, planOf } from '../billing/plans.js';
 import type { ProjectOptions } from '../../types.js';
 import { channelVideos, topicVideos, uploadDateMs, videoDetails, type FoundVideo } from './autopilot.sources.js';
 import { upcomingSlots, type Slot } from './autopilot.time.js';
-import { languageMismatch } from '../../pipeline/language.js';
+import { guessSpokenLanguage, languageMismatch } from '../../pipeline/language.js';
 import { purgeProject } from '../projects/retention.js';
 
 /**
@@ -199,7 +199,9 @@ async function startClipping(ap: AutopilotRow) {
       await apVideos.update(v.id, { status: 'skipped', reason: blocked });
       continue;
     }
-    const wrongLanguage = languageMismatch(f.languages, d.language, d.title || v.title || '');
+    // no captions to tell the spoken language → ask the AI from the title and description (a Spanish title in Latin letters passes the script check)
+    const spoken = d.language ?? (f.languages?.length ? await guessSpokenLanguage(d.title || v.title || '', d.description ?? '') : null);
+    const wrongLanguage = languageMismatch(f.languages, spoken, d.title || v.title || '');
     if (wrongLanguage) {
       await apVideos.update(v.id, { status: 'skipped', reason: wrongLanguage });
       continue;

@@ -61,6 +61,8 @@ export const config = {
   // Publishing connectors (OAuth apps you create — see README → "Post to YouTube & Instagram")
   youtubeClientId: env('YOUTUBE_CLIENT_ID'),
   youtubeClientSecret: env('YOUTUBE_CLIENT_SECRET'),
+  /** Set YOUTUBE_AUDIT_PASSED=1 once Google's YouTube API audit is through: until then YouTube keeps every upload private, and the app says so. */
+  youtubeAuditPassed: env('YOUTUBE_AUDIT_PASSED') === '1',
   instagramAppId: env('INSTAGRAM_APP_ID'),
   instagramAppSecret: env('INSTAGRAM_APP_SECRET'),
   instagramApiVersion: env('INSTAGRAM_API_VERSION', 'v25.0'),

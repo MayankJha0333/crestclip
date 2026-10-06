@@ -1,3 +1,4 @@
+import { config } from '../../config.js';
 import { clips, connections, type ConnectionRow, type PostRow, type UserRow } from '../../db/index.js';
 import { toMediaUrl } from '../../lib/paths.js';
 import { isConfigured, redirectUri } from './providers/index.js';
@@ -12,7 +13,7 @@ export async function publicConnections(user: UserRow) {
   return {
     accounts: (await connections.list(user.id)).map(publicConnection),
     platforms: {
-      youtube: { configured: isConfigured('youtube'), redirectUri: redirectUri('youtube') },
+      youtube: { configured: isConfigured('youtube'), redirectUri: redirectUri('youtube'), auditPassed: config.youtubeAuditPassed },
       instagram: { configured: isConfigured('instagram'), redirectUri: redirectUri('instagram'), needsHttps: !redirectUri('instagram').startsWith('https://') },
     },
   };

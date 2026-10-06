@@ -43,6 +43,15 @@ const stop = (fn: () => void) => (e: MouseEvent) => {
 const CARD =
   'group relative flex h-full min-w-0 cursor-pointer flex-col rounded-[24px] bg-surface p-2.5 pb-3.5 shadow-clay-sm outline-none transition-all duration-300 ease-(--ease-squish) hover:-translate-y-1 hover:shadow-clay focus-visible:shadow-[0_0_0_3px_var(--tangerine),var(--shadow-clay)]';
 
+
+/** When a saved thumbnail link has died (old cached card, removed size), fall back to YouTube's standard one for the video. */
+function fallbackThumb(e: React.SyntheticEvent<HTMLImageElement>, item: { source: string; kind: string; id: string }, onGiveUp: () => void) {
+  const img = e.currentTarget;
+  const std = item.source === 'youtube' && item.kind !== 'channel' && /^[\w-]{11}$/.test(item.id) ? `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg` : null;
+  if (std && img.src !== std) img.src = std;
+  else onGiveUp();
+}
+
 export function VideoCard({
   item,
   index = 0,
@@ -83,7 +92,7 @@ export function VideoCard({
             alt=""
             loading="lazy"
             className="block size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-            onError={() => setBroken(true)}
+            onError={(e) => fallbackThumb(e, item, () => setBroken(true))}
             onLoad={(e) => {
               // YouTube answers a missing vertical thumbnail (oar2.jpg) with a 120px grey placeholder — use the normal one instead.
               const img = e.currentTarget;
@@ -169,7 +178,7 @@ export function ChannelCard({ item, onOpen, onLive }: { item: ExploreItem; onOpe
     <article className={cn(CARD, 'animate-pop-in items-center px-4 py-5 text-center')} aria-label={`Open channel ${item.title}`} {...clickable(onOpen)}>
       <span className="grid size-20 place-items-center overflow-hidden rounded-full bg-row text-ink-2 shadow-flat">
         {item.thumbnail && !broken ? (
-          <img src={item.thumbnail} alt="" loading="lazy" className="size-full object-cover" onError={() => setBroken(true)} />
+          <img src={item.thumbnail} alt="" loading="lazy" className="size-full object-cover" onError={(e) => fallbackThumb(e, item, () => setBroken(true))} />
         ) : item.source === 'twitch' ? (
           <Twitch size={30} />
         ) : (

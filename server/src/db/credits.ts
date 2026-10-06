@@ -62,18 +62,29 @@ export class NotEnoughCredits extends Error {
   }
 }
 
+/**
+ * A counter per person that moves on every change to their credits (this server only). The account summary shown
+ * on every page is cached against it, so reading it costs no database trips until something actually changes.
+ */
+const versions = new Map<string, number>();
+export const creditsVersion = (userId: string) => versions.get(userId) ?? 0;
+const touch = (userId: string) => versions.set(userId, creditsVersion(userId) + 1);
+
 async function event(userId: string, delta: number, kind: CreditEventRow['kind'], note: string, projectId: string | null = null, detail: SpendDetail | null = null) {
+  touch(userId);
   const _id = newId();
   await eventCol().insertOne({ _id, userId, delta, kind, note, projectId, detail, refunded: false, createdAt: stamp() });
   return _id;
 }
 
 async function addGrant(userId: string, source: GrantSource, amount: number, expiresAt: number, ref: string | null = null) {
+  touch(userId);
   await grantCol().insertOne({ _id: newId(), userId, source, amount, remaining: amount, expiresAt, ref, createdAt: stamp() });
 }
 
 /** Put credits back on the grants they came from; what can't go back (grant expired) becomes a fresh 30-day grant. */
 async function giveBack(userId: string, parts: { g: string; a: number }[]) {
+  touch(userId);
   let lapsed = 0;
   for (const { g, a } of parts) {
     if (a <= 0) continue;
@@ -195,6 +206,7 @@ export const credits = {
   },
   /** Account deletion: their credits and credit history. Payment records are kept (tax law), see `payments`. */
   async removeAllFor(userId: string) {
+    touch(userId);
     await Promise.all([grantCol().deleteMany({ userId }), eventCol().deleteMany({ userId })]);
   },
   async history(userId: string, limit = 100): Promise<Omit<CreditEventRow, 'userId' | 'detail'>[]> {

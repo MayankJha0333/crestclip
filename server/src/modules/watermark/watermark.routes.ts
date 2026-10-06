@@ -46,6 +46,17 @@ watermarkRouter.delete('/watermark/logo', (req, res) => {
   res.json(publicWatermark(me(req)));
 });
 
+/** Make a library logo the default one (what Settings shows and every new clip gets). */
+watermarkRouter.post('/watermark/logos/:id/default', (req, res) => {
+  assertCustomLogo(me(req));
+  try {
+    service.setDefaultLogo(me(req).id, req.params.id);
+  } catch (e) {
+    throw new HttpError(404, (e as Error).message);
+  }
+  res.json(publicWatermark(me(req)));
+});
+
 watermarkRouter.delete('/watermark/logos/:id', (req, res) => {
   service.removeLogo(me(req).id, req.params.id);
   res.json(publicWatermark(me(req)));

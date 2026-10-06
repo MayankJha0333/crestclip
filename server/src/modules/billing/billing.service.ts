@@ -1,6 +1,6 @@
 import { config } from '../../config.js';
 import { site } from '../system/system.service.js';
-import { credits, NotEnoughCredits, payments, projects, users, type PlanId, type UserRow } from '../../db/index.js';
+import { credits, creditsVersion, NotEnoughCredits, payments, projects, users, type PlanId, type UserRow } from '../../db/index.js';
 import { HttpError } from '../../lib/http.js';
 import { CREDITS_PER_CLIP, creditsForClips, CURRENCY, PLAN_ORDER, PLANS, planOf, TOPUP, type Plan } from './plans.js';
 import { planForRazorpayPlan, razorpay, razorpayPlanId, razorpayReady, toCents, validOrderPayment, validSubscriptionPayment, validWebhook, type RzPayment, type RzSubscription } from './razorpay.js';
@@ -108,7 +108,25 @@ export const publicPlan = (p: Plan) => ({ ...p, currency: CURRENCY, clips: Math.
 /** The public pricing table (landing page, pricing page, Plan page). */
 export const plansInfo = () => ({ currency: CURRENCY, creditsPerClip: CREDITS_PER_CLIP, plans: PLAN_ORDER.map((id) => publicPlan(PLANS[id])), topup: TOPUP });
 
-export async function accountSummary(user: UserRow) {
+type Summary = Awaited<ReturnType<typeof buildSummary>>;
+const summaryCache = new Map<string, { key: string; at: number; value: Summary }>();
+const SUMMARY_TTL = 30_000;
+
+/**
+ * The plan + credits block every page asks for (/auth/me). Cached for 30 s per person, keyed on everything that
+ * can change it (credit changes on this server bump `creditsVersion`), so the usual page load costs one database
+ * trip (the session) instead of four. Grants expiring exactly inside the 30 s window show a moment late — fine.
+ */
+export async function accountSummary(user: UserRow): Promise<Summary> {
+  const key = [creditsVersion(user.id), user.plan, user.cycleStart, user.cycleEnd, user.cancelAtPeriodEnd, user.rzSubscriptionId].join('|');
+  const hit = summaryCache.get(user.id);
+  if (hit && hit.key === key && Date.now() - hit.at < SUMMARY_TTL) return hit.value;
+  const value = await buildSummary(user);
+  summaryCache.set(user.id, { key, at: Date.now(), value });
+  return value;
+}
+
+async function buildSummary(user: UserRow) {
   const plan = planOf(user.plan);
   // read together (one wait instead of three)
   const [balance, usedThisMonth, grants] = await Promise.all([

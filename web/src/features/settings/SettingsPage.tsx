@@ -1,16 +1,15 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, Loader2, Monitor, Moon, RefreshCw, Sun } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { AlertTriangle, CheckCircle2, Loader2, Monitor, Moon, RefreshCw, ShieldCheck, Sun } from 'lucide-react';
 import { api, type Connections } from '../../lib/api';
 import { cn } from '../../lib/cn';
 import { usePolling } from '../../lib/hooks';
 import { useTheme, type ThemeChoice } from '../../lib/theme';
 import { toast } from '../../lib/toast';
-import { Button, Card, CardHeader, PageHeader } from '../../components/ui';
+import { Button, buttonClass, Card, CardHeader, PageHeader } from '../../components/ui';
 import { SOCIAL } from '../schedule/postStatus';
 import { WatermarkSection } from '../watermark/WatermarkSection';
 import { AccountsSection } from './AccountsSection';
-import { AdminSection } from './AdminSection';
 import { useAuth } from '../auth/auth';
 import { ProfileSection } from './ProfileSection';
 import { useHealth } from './health';
@@ -24,7 +23,7 @@ function StatusRow({ ok, pending, label }: { ok: boolean; pending?: boolean; lab
   );
 }
 
-function SystemSection() {
+export function SystemSection() {
   const { health, reload } = useHealth();
   const [retrying, setRetrying] = useState(false);
   const ffSettingUp = health?.ffmpegStatus?.state === 'installing';
@@ -116,7 +115,7 @@ function AppearanceSection() {
   );
 }
 
-/** One-time setup lives here: watermark, connected accounts, look, and system health. */
+/** One-time setup lives here: logo, connected accounts and look. System health and account admin are on /app/admin. */
 export function SettingsPage() {
   const { me } = useAuth();
   const [data, setData] = useState<Connections | null>(null);
@@ -139,7 +138,17 @@ export function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Settings" description="Your account, watermark, connected accounts, theme and system status." />
+      <PageHeader
+        title="Settings"
+        description="Your account, logo, connected accounts and theme."
+        actions={
+          me?.user.isAdmin ? (
+            <Link to="/app/admin" className={buttonClass('secondary')}>
+              <ShieldCheck size={16} /> Admin
+            </Link>
+          ) : undefined
+        }
+      />
       <div className="flex flex-col gap-6">
         <ProfileSection />
         <WatermarkSection />
@@ -148,8 +157,6 @@ export function SettingsPage() {
           <AccountsSection data={data} onChange={load} />
         </Card>
         <AppearanceSection />
-        {me?.user.isAdmin && <SystemSection />}
-        <AdminSection />
       </div>
     </>
   );

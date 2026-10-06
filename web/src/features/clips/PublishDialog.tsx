@@ -10,6 +10,13 @@ import { SOCIAL } from '../schedule/postStatus';
 import { useAccount } from '../auth/auth';
 import { ClipVideo } from './ClipVideo';
 import { track } from '../../lib/analytics';
+import { readLocal, writeLocal } from '../../lib/storage';
+
+/** the account(s) the person posted to last time — the dialog starts with those ticked, not every account */
+const LAST_KEY = 'crestclip:last-post-accounts';
+/** what each network allows */
+const LIMITS = { youtubeTitle: 100, youtubeDescription: 5000, instagramCaption: 2200, instagramHashtags: 30 };
+const countTags = (text: string) => (text.match(/#[\p{L}\p{N}_]+/gu) ?? []).length;
 
 const nextHour = () => {
   const d = new Date(Date.now() + 3600_000);
@@ -28,6 +35,7 @@ export function PublishDialog({ clip, onClose, onDone }: { clip: Clip; onClose: 
   const [title, setTitle] = useState(clip.title.slice(0, 100));
   const [caption, setCaption] = useState(`${clip.description}\n\n${clip.hashtags.join(' ')}`.trim());
   const [privacy, setPrivacy] = useState<'public' | 'unlisted' | 'private'>('public');
+  const [auditPassed, setAuditPassed] = useState(true);
   const [when, setWhen] = useState<'now' | 'later'>('now');
   const canSchedule = useAccount().plan.scheduling;
   const [at, setAt] = useState(toLocalInput(nextHour()));
@@ -39,7 +47,11 @@ export function PublishDialog({ clip, onClose, onDone }: { clip: Clip; onClose: 
       .connections()
       .then((c) => {
         setAccounts(c.accounts);
-        setPicked(new Set(c.accounts.map((a) => a.id)));
+        setAuditPassed(c.platforms.youtube.auditPassed);
+        // start with the account(s) used last time; a first-timer gets one account ticked, never all of them
+        const last = readLocal<string[]>(LAST_KEY, []).filter((id) => c.accounts.some((a) => a.id === id));
+        setPicked(new Set(last.length ? last : c.accounts.slice(0, 1).map((a) => a.id)));
+        if (!c.platforms.youtube.auditPassed) setPrivacy('private');
       })
       .catch(() => setAccounts([]));
   }, []);
@@ -49,12 +61,17 @@ export function PublishDialog({ clip, onClose, onDone }: { clip: Clip; onClose: 
   const hasIG = chosen.some((a) => a.platform === 'instagram');
   const scheduledMs = when === 'later' ? new Date(at).getTime() : null;
   const n = chosen.length;
+  const tags = countTags(caption);
+  const captionMax = hasIG ? LIMITS.instagramCaption : LIMITS.youtubeDescription;
+  const tooManyTags = hasIG && tags > LIMITS.instagramHashtags;
 
   const submit = async () => {
     setError(null);
     if (!n) return setError('Pick at least one account.');
     if (scheduledMs != null && (!Number.isFinite(scheduledMs) || scheduledMs < Date.now() + 60_000)) return setError('Pick a time at least a minute from now.');
     if (hasYT && scheduledMs && scheduledMs > Date.now() + 365 * 86400_000) return setError('YouTube can schedule up to a year ahead.');
+    if (tooManyTags) return setError(`Instagram allows ${LIMITS.instagramHashtags} hashtags per post — this caption has ${tags}.`);
+    writeLocal(LAST_KEY, chosen.map((a) => a.id));
     setBusy(true);
     try {
       await api.createPosts({
@@ -154,16 +171,29 @@ export function PublishDialog({ clip, onClose, onDone }: { clip: Clip; onClose: 
                 value={privacy}
                 onChange={setPrivacy}
                 options={[
-                  { value: 'public', label: 'Public' },
-                  { value: 'unlisted', label: 'Unlisted' },
+                  { value: 'public', label: 'Public', disabled: !auditPassed, title: auditPassed ? undefined : 'Not available until Google’s review of CrestClip completes' },
+                  { value: 'unlisted', label: 'Unlisted', disabled: !auditPassed, title: auditPassed ? undefined : 'Not available until Google’s review of CrestClip completes' },
                   { value: 'private', label: 'Private' },
                 ]}
               />
+              {!auditPassed && (
+                <p className="rounded-xl bg-warn-bg px-3 py-2 text-xs font-bold text-warn">
+                  YouTube keeps CrestClip uploads private until Google’s review of the app completes. The video lands in your YouTube Studio — set it to public there in one click.
+                </p>
+              )}
             </div>
           )}
 
-          <Field label={`${hasIG && hasYT ? 'Caption / description' : hasIG ? 'Caption' : 'Description'} · ${caption.length}/2200`}>
-            <Textarea rows={5} maxLength={2200} value={caption} onChange={(e) => setCaption(e.target.value)} />
+          <Field label={`${hasIG && hasYT ? 'Caption / description' : hasIG ? 'Caption' : 'Description'} · ${caption.length}/${captionMax}`}>
+            <Textarea rows={5} maxLength={captionMax} value={caption} onChange={(e) => setCaption(e.target.value)} />
+            {(hasIG || hasYT) && (
+              <p className={cn('mt-1.5 text-xs', tooManyTags ? 'font-bold text-bad' : 'text-ink-3')}>
+                {tags} hashtag{tags === 1 ? '' : 's'}
+                {hasIG && ` · Instagram allows ${LIMITS.instagramHashtags}`}
+                {hasYT && hasIG && ' · '}
+                {hasYT && `YouTube description up to ${LIMITS.youtubeDescription.toLocaleString()} characters`}
+              </p>
+            )}
           </Field>
 
           <div>

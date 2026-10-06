@@ -1,8 +1,9 @@
-import { useCallback, useState } from 'react';
+import { useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, CalendarClock, ChevronRight, Clock, Loader2, Pause, Play, Plus, Sparkles } from 'lucide-react';
 import { api, type AutopilotSummary } from '../../lib/api';
 import { usePolling } from '../../lib/hooks';
+import { useCachedState } from '../../lib/cache';
 import { toast } from '../../lib/toast';
 import { Button, buttonClass, Card, EmptyState, PageHeader, Skeleton } from '../../components/ui';
 import { cn } from '../../lib/cn';
@@ -42,7 +43,7 @@ const Stat = ({ value, label, hint }: { value: number; label: string; hint: stri
 );
 
 export function AutopilotListPage() {
-  const [list, setList] = useState<AutopilotSummary[] | null>(null);
+  const [list, setList] = useCachedState<AutopilotSummary[]>('autopilots');
   const sched = useScheduler();
   const allowed = useAccount().plan.autopilot;
   const load = useCallback(

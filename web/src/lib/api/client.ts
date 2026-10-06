@@ -149,6 +149,7 @@ export const api = {
     return req<Watermark & { added: string }>('/api/watermark/logos', { method: 'POST', body: fd });
   },
   removeLogo: (id: string) => req<Watermark>(`/api/watermark/logos/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  setDefaultLogo: (id: string) => req<Watermark>(`/api/watermark/logos/${encodeURIComponent(id)}/default`, { method: 'POST' }),
   rerender: (id: string) => req<Clip>(`/api/clips/${id}/render`, { method: 'POST' }),
   variant: (id: string) => req<Clip>(`/api/clips/${id}/variant`, { method: 'POST' }),
   transcript: (id: string) => req<{ start: number; end: number; duration: number; segments: { s: number; e: number; text: string; speaker?: string }[] }>(`/api/clips/${id}/transcript`),

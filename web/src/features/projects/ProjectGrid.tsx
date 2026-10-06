@@ -3,13 +3,14 @@ import { Film } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api, type Project } from '../../lib/api';
 import { usePolling } from '../../lib/hooks';
+import { useCachedState } from '../../lib/cache';
 import { buttonClass, EmptyState, Skeleton } from '../../components/ui';
 import { DeleteProjectDialog } from './DeleteProjectDialog';
 import { isWorking, ProjectCard } from './ProjectCard';
 
 /** Live list of projects (refreshes while anything is processing). */
 export function useProjects() {
-  const [list, setList] = useState<Project[] | null>(null);
+  const [list, setList] = useCachedState<Project[]>('projects'); // last list first, fresh one a moment later
   const load = () =>
     api
       .projects()

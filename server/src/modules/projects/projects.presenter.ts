@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { clips, projects, type ClipSummary, type ProjectRow } from '../../db/index.js';
 import { projectDir, toMediaUrl } from '../../lib/paths.js';
 import { readFootage } from '../../pipeline/footage.js';
+import { cloudOn } from '../../infra/cloudStore.js';
 import { publicClips } from '../clips/clips.presenter.js';
 
 /** The original video, if a full copy is on disk (uploads, short links). Long links only keep the clip parts. */
@@ -21,8 +22,11 @@ export function publicError(e: string | null): string | null {
   return e.replace(/^Gemini\b/, 'The AI').replace(/\bGemini\b/g, 'the AI');
 }
 
-/** The project's own thumbnail, when its file is on this computer (projects made elsewhere may not have it here). */
-const ownThumbUrl = (p: ProjectRow) => (p.thumbPath && fs.existsSync(p.thumbPath) ? toMediaUrl(p.thumbPath) : null);
+/**
+ * The project's own thumbnail: when its file is on this computer, or when the bucket keeps a copy (the /media route
+ * fetches it back on first use — a new server or a wiped disk doesn't lose every picture).
+ */
+const ownThumbUrl = (p: ProjectRow) => (p.thumbPath && (fs.existsSync(p.thumbPath) || cloudOn()) ? toMediaUrl(p.thumbPath) : null);
 
 /** A thumbnail for a project: its own, else its best clip's (clip thumbnails are also kept in the cloud bucket). */
 async function thumbFor(p: ProjectRow, known?: ClipSummary[]): Promise<string | null> {
@@ -127,12 +131,15 @@ async function publicGroup(g: ProjectRow) {
   const index = new Map(kids.map((k, i) => [k.id, i]));
   return {
     ...view,
-    parts: kids.map((k, i) => ({
-      ...publicProject(k),
-      index: i + 1,
-      clipCount: all.filter((c) => c.projectId === k.id).length,
-      readyCount: all.filter((c) => c.projectId === k.id && c.status === 'ready').length,
-    })),
+    parts: await Promise.all(
+      kids.map(async (k, i) => ({
+        ...publicProject(k),
+        thumbUrl: await thumbFor(k, all),
+        index: i + 1,
+        clipCount: all.filter((c) => c.projectId === k.id).length,
+        readyCount: all.filter((c) => c.projectId === k.id && c.status === 'ready').length,
+      })),
+    ),
     clips: (await publicClips(all)).map((c) => ({ ...c, part: (index.get(c.projectId) ?? 0) + 1 })),
   };
 }
@@ -141,20 +148,31 @@ async function publicGroup(g: ProjectRow) {
  * The whole projects list with as few trips to the database as possible: the videos inside every multi-video project
  * in one query, then the clips of all of them (just status, score and thumbnail) in one more — never one query per video.
  */
-export async function publicProjectList(rows: Awaited<ReturnType<typeof projects.list>>) {
+export async function publicProjectList(rows: ProjectRow[]) {
+  // three trips to the database for the whole list, however long it is: the projects, the videos inside groups, every clip's summary
   const groups = rows.filter((r) => r.sourceType === 'group');
   const kidsOf = await projects.childrenOf(groups.map((g) => g.id));
   const kids = [...kidsOf.values()].flat();
-  const needThumb = rows.filter((r) => r.sourceType !== 'group' && !ownThumbUrl(r));
-  const known = await clips.summaryFor([...kids.map((k) => k.id), ...needThumb.map((r) => r.id)]);
+  const known = await clips.summaryFor([...kids.map((k) => k.id), ...rows.filter((r) => r.sourceType !== 'group').map((r) => r.id)]);
   return Promise.all(
     rows.map(async (p) => {
       if (p.sourceType === 'group') {
         const mine = kidsOf.get(p.id) ?? [];
         const ids = new Set(mine.map((k) => k.id));
-        return groupView(p, mine, known.filter((c) => ids.has(c.projectId)));
+        return groupView(
+          p,
+          mine,
+          known.filter((c) => ids.has(c.projectId)),
+        );
       }
-      return { ...publicProject(p), thumbUrl: await thumbFor(p, known), clipCount: p.clipCount, readyCount: p.readyCount, bestScore: p.bestScore };
+      const own = known.filter((c) => c.projectId === p.id);
+      return {
+        ...publicProject(p),
+        thumbUrl: await thumbFor(p, known),
+        clipCount: own.length,
+        readyCount: own.filter((c) => c.status === 'ready').length,
+        bestScore: own.length ? Math.max(...own.map((c) => c.peakScore)) : null,
+      };
     }),
   );
 }

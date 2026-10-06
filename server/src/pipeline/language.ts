@@ -1,3 +1,6 @@
+import { config } from '../config.js';
+import { generateJson, part } from './gemini.js';
+
 /**
  * Spoken-language helpers for picking videos (Autopilot's "Language" filter).
  * The real answer comes from YouTube's auto-captions (they're made in the language people speak); before that is
@@ -76,4 +79,41 @@ export function languageMismatch(chosen: string[] | undefined, spoken: string | 
   const guess = scriptLanguages(title);
   if (guess && !guess.some((g) => want.has(g))) return `Title is in ${languageName(guess[0])} — you chose ${names}`;
   return null;
+}
+
+// ---------------- when YouTube has no captions: ask the AI from the words ----------------
+
+const guesses = new Map<string, { lang: string | null; sure: boolean }>();
+
+/**
+ * The language a video is most likely spoken in, from its title and description — used only when YouTube has no
+ * auto-captions to tell us (a Spanish title in Latin letters looks like English to the script check above).
+ * One tiny call to the fast model, remembered per video. Returns null when it can't tell with confidence.
+ */
+export async function guessSpokenLanguage(title: string, description: string): Promise<string | null> {
+  const text = `${title}\n${description.slice(0, 600)}`.trim();
+  if (text.length < 4 || config.fakeAi) return null;
+  const key = text.slice(0, 200);
+  const hit = guesses.get(key);
+  if (hit) return hit.sure ? hit.lang : null;
+  try {
+    const raw = await generateJson<{ language?: string; confidence?: number }>({
+      model: config.fastModel,
+      system:
+        'You tell which language a YouTube video is SPOKEN in, from its title and description. Answer with the ISO 639-1 code (en, hi, es, pt…) and how sure you are, 0–1. Creator names, hashtags and brand names say nothing; the sentences do. Hinglish (Hindi written in Latin letters) is "hi".',
+      parts: [part.text(text)],
+      schema: { type: 'object', properties: { language: { type: 'string' }, confidence: { type: 'number' } }, required: ['language', 'confidence'] },
+      maxOutputTokens: 100,
+      timeoutMs: 20_000,
+      label: 'guess the spoken language',
+    });
+    const lang = raw.language ? baseLanguage(String(raw.language)) : null;
+    const sure = Boolean(lang && /^[a-z]{2}$/.test(lang) && (Number(raw.confidence) || 0) >= 0.7);
+    guesses.set(key, { lang, sure });
+    if (guesses.size > 2000) for (const k of [...guesses.keys()].slice(0, 500)) guesses.delete(k);
+    return sure ? lang : null;
+  } catch (e) {
+    console.warn('[language] guess failed:', (e as Error).message);
+    return null;
+  }
 }

@@ -4,6 +4,7 @@ import { ArrowLeft, ChevronRight, Clapperboard, ExternalLink, Film, Hourglass, L
 import { api, type Project } from '../../lib/api';
 import { deletesIn, fmtTime, fmtViews } from '../../lib/format';
 import { usePolling } from '../../lib/hooks';
+import { useCachedState } from '../../lib/cache';
 import { Badge, Button, Card, EmptyState, Progress, Skeleton, Spinner, Tabs } from '../../components/ui';
 import { ClipList, rankClips, type ClipSort } from './ClipList';
 import { UpgradeCallout } from '../billing/UpgradeCallout';
@@ -24,7 +25,11 @@ function BackLink({ to, label }: { to: string; label: string }) {
 
 export function ProjectPage() {
   const { id = '' } = useParams();
-  const [p, setP] = useState<Project | null>(null);
+  return <ProjectView key={id} id={id} />; // a fresh view per project, so moving between projects never shows the last one's data
+}
+
+function ProjectView({ id }: { id: string }) {
+  const [p, setP] = useCachedState<Project>(`project:${id}`);
   const [err, setErr] = useState<string | null>(null);
   const load = useCallback(
     () =>

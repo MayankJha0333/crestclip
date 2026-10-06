@@ -133,31 +133,10 @@ export const projects = {
       .toArray();
     return rows.reduce((n, r) => n + Math.max(1, r.options?.clipCount ?? 1), 0);
   },
-  /** One person's projects (newest first) with their clip counts and best score. */
-  async list(userId: string): Promise<(ProjectRow & { clipCount: number; readyCount: number; bestScore: number | null })[]> {
-    const rows = (await col().find({ userId, parentId: null }, { projection: LIST_FIELDS }).sort({ createdAt: -1 }).toArray()).map((d) => ({
-      ...toProject(d),
-      transcript: null,
-      signals: null,
-      description: null,
-      aiNotes: null,
-      mediaPath: null,
-    }));
-    const stats = await collection(COLLECTIONS.clips)
-      .aggregate<{ _id: string; clipCount: number; readyCount: number; bestScore: number | null }>([
-        { $match: { projectId: { $in: rows.map((r) => r.id) } } },
-        {
-          $group: {
-            _id: '$projectId',
-            clipCount: { $sum: 1 },
-            readyCount: { $sum: { $cond: [{ $eq: ['$status', 'ready'] }, 1, 0] } },
-            bestScore: { $max: '$peakScore' },
-          },
-        },
-      ])
-      .toArray();
-    const byId = new Map(stats.map((s) => [s._id, s]));
-    return rows.map((r) => ({ ...r, clipCount: byId.get(r.id)?.clipCount ?? 0, readyCount: byId.get(r.id)?.readyCount ?? 0, bestScore: byId.get(r.id)?.bestScore ?? null }));
+  /** One person's top-level projects, newest first (clip counts come from `clips.summaryFor`, in one trip for the whole list). */
+  async list(userId: string): Promise<ProjectRow[]> {
+    const rows = await col().find({ userId, parentId: null }, { projection: LIST_FIELDS }).sort({ createdAt: -1 }).toArray();
+    return rows.map((d) => ({ ...toProject(d), transcript: null, signals: null, description: null, aiNotes: null, mediaPath: null }));
   },
   async update(id: string, patch: Partial<Omit<ProjectRow, 'id' | 'createdAt'>>) {
     await col().updateOne({ _id: id }, { $set: setFields(patch, UPDATABLE) });

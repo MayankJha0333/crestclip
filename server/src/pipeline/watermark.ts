@@ -143,6 +143,14 @@ export async function addLogo(userId: string, tmpPath: string, originalName: str
   return logo;
 }
 
+/** Make a library logo the Settings one (the default for every new clip). */
+export function setDefaultLogo(userId: string, id: string) {
+  const w = readWatermark(userId);
+  const logo = listLogos(userId).find((l) => l.id === id);
+  if (!logo) throw new Error('That logo is gone.');
+  return writeWatermark(userId, { ...w, file: logo.file, name: logo.name, enabled: true });
+}
+
 /** Delete a library logo. Deleting the Settings logo clears it there too. */
 export function removeLogo(userId: string, id: string) {
   if (!LOGO_ID.test(id)) return readWatermark(userId);

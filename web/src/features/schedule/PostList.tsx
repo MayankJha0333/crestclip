@@ -67,6 +67,11 @@ export function PostList({ items, onChange, showTime }: { items: PostItem[]; onC
                   <ExternalLink size={14} />
                 </a>
               )}
+              {p.status === 'failed' && /reconnect|expired|disconnected|permission/i.test(p.error ?? '') && (
+                <Link to="/app/settings" className={buttonClass('primary', 'sm')} title="Connect the account again in Settings, then retry">
+                  Reconnect {P.name}
+                </Link>
+              )}
               {p.status === 'failed' && (
                 <Button size="sm" onClick={() => run(api.retryPost(p.id))}>
                   <RotateCcw size={14} /> Retry

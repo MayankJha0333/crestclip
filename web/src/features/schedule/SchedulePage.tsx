@@ -3,14 +3,15 @@ import { Link, useNavigate } from 'react-router-dom';
 import { AlertTriangle, CalendarClock, CheckCircle2, Clapperboard, FolderOpen, History, Link2, Settings } from 'lucide-react';
 import { api, type Connections, type PostItem } from '../../lib/api';
 import { usePolling } from '../../lib/hooks';
+import { useCachedState } from '../../lib/cache';
 import { buttonClass, Card, Chip, EmptyState, PageHeader, Skeleton, StatTile, Tabs } from '../../components/ui';
 import { PostList } from './PostList';
 import { dayLabel, isUpcoming, SOCIAL, type SocialPlatform } from './postStatus';
 
 /** Everything that's going out (or went out) to YouTube and Instagram — manual posts and Autopilot alike. */
 export function SchedulePage() {
-  const [list, setList] = useState<PostItem[] | null>(null);
-  const [conn, setConn] = useState<Connections | null>(null);
+  const [list, setList] = useCachedState<PostItem[]>('posts');
+  const [conn, setConn] = useCachedState<Connections>('connections');
   const nav = useNavigate();
   const [tab, setTab] = useState<'upcoming' | 'history'>('upcoming');
   const [only, setOnly] = useState<'all' | SocialPlatform>('all');

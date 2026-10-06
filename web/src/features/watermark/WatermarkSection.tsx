@@ -53,6 +53,14 @@ export function WatermarkSection() {
     }
   };
 
+  const makeDefault = async (id: string) => {
+    try {
+      setWatermark(await api.setDefaultLogo(id));
+      toast('That logo now goes on every new clip');
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    }
+  };
   const upload = async (file: File | undefined) => {
     if (!file) return;
     setBusy('upload');
@@ -94,7 +102,7 @@ export function WatermarkSection() {
   };
 
   const status = !w?.logoUrl ? (
-    <Badge>Not set up</Badge>
+    <Badge>{w?.logos.length ? 'No default yet' : 'Not set up'}</Badge>
   ) : w.enabled ? (
     <Badge tone="good">
       <span className="size-1.5 rounded-full bg-current" /> On
@@ -108,7 +116,7 @@ export function WatermarkSection() {
 
   return (
     <Card className="p-5 sm:p-6">
-      <CardHeader title="Watermark" description="Put your logo on every clip. Set it once here." actions={w && !w.locked && status} />
+      <CardHeader title="Logo" description="Your logo on every clip. Set the default here; New clips can place a different one per project." actions={w && !w.locked && status} />
       <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => upload(e.target.files?.[0])} />
 
       {w?.locked ? (
@@ -149,6 +157,28 @@ export function WatermarkSection() {
                     </Button>
                   </span>
                 </span>
+              </div>
+            ) : w.logos.length ? (
+              <div className="rounded-[22px] bg-row p-3.5 shadow-flat">
+                <b className="block">Logos you’ve uploaded for projects</b>
+                <span className="mt-0.5 block text-xs text-ink-3">Pick one as the default for every new clip, or upload a new one below.</span>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {w.logos.map((l) => (
+                    <button
+                      key={l.id}
+                      type="button"
+                      onClick={() => makeDefault(l.id)}
+                      title={`Use “${l.name || 'this logo'}” on every new clip`}
+                      className={cn('flex items-center gap-2 rounded-2xl p-2 pr-3 shadow-flat transition-transform hover:-translate-y-0.5', checker)}
+                    >
+                      {l.url && <img src={l.url} alt="" className="size-10 object-contain" />}
+                      <span className="max-w-32 truncate text-xs font-bold">{l.name || 'Logo'}</span>
+                    </button>
+                  ))}
+                </div>
+                <Button size="sm" className="mt-3" loading={busy === 'upload'} onClick={() => fileInput.current?.click()}>
+                  {busy !== 'upload' && <UploadCloud size={14} />} Upload another
+                </Button>
               </div>
             ) : (
               <button
