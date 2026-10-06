@@ -177,7 +177,7 @@ function SingleProject({ p, load }: { p: Project; load: () => void }) {
                   <b className="inline-flex items-center gap-1.5 font-display">
                     {p.signals.curveKind === 'audience' ? <Flame size={16} className="text-accent" /> : <AudioLines size={16} className="text-accent" />}
                     {p.signals.curveKind === 'audience' ? 'Where viewers rewatch' : 'Where the energy spikes'}
-                    <span className="text-sm font-semibold text-ink-3">· numbered bands are your clips</span>
+                    <span className="hidden text-sm font-semibold text-ink-3 sm:inline">· numbered bands are your clips</span>
                   </b>
                   {hasSource && (
                     <Button size="sm" onClick={() => setTab('source')}>

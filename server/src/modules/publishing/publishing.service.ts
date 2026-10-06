@@ -144,6 +144,7 @@ export async function runPost(postId: string) {
 }
 
 function friendly(msg: string) {
+  if (/video_url is required|Media download has failed|media_url/i.test(msg)) return 'Instagram couldn’t fetch the clip from CrestClip’s web address. Check that the clip still exists and that CrestClip runs on its public https address, then retry.';
   if (/quotaExceeded|uploadLimitExceeded/i.test(msg)) return 'YouTube’s daily upload limit for this app was reached. Try again tomorrow.';
   if (/insufficient|scope/i.test(msg)) return 'CrestClip doesn’t have upload permission for this account. Disconnect and connect it again.';
   if (/invalid_grant|expired|OAuthException/i.test(msg)) return `The account login expired — reconnect it. (${msg.slice(0, 160)})`;
