@@ -3,9 +3,9 @@
 # Run it ON THE SERVER, straight from the app image — nothing to upload:
 #
 #   sudo docker run --rm --entrypoint cat us-central1-docker.pkg.dev/peakclip-510216/crestclip/app:main \
-#     /app/devops/server/install.sh | sudo bash
+#     /app/devops/deploy/install.sh | sudo bash
 #
-# It: installs Docker if missing, puts devops/server in /opt/crestclip, installs the every-minute updater
+# It: installs Docker if missing, puts devops/deploy in /opt/crestclip, installs the every-minute updater
 # (systemd), removes the old layout's files, then runs the updater once — which fetches the settings from Secret
 # Manager and starts every container (a ~30-second blip the first time, while the old single container stops).
 # Safe to run again.
@@ -20,7 +20,7 @@ if ! command -v docker >/dev/null 2>&1; then
   say "Installing Docker"
   curl -fsSL https://get.docker.com | sh
 fi
-mkdir -p "$APP_DIR/devops/server" "$APP_DIR/data"
+mkdir -p "$APP_DIR/devops/deploy" "$APP_DIR/data"
 cd "$APP_DIR"
 
 say "Logging in to the image store with this machine's Google account"
@@ -32,9 +32,9 @@ docker pull -q "$REPO_IMAGE:main" >/dev/null
 
 say "Copying the server files out of the image"
 cid=$(docker create "$REPO_IMAGE:main")
-docker cp "$cid:/app/devops/server/." "$APP_DIR/devops/server/" >/dev/null
+docker cp "$cid:/app/devops/deploy/." "$APP_DIR/devops/deploy/" >/dev/null
 docker rm "$cid" >/dev/null
-chmod 755 "$APP_DIR/devops/server/update.sh"
+chmod 755 "$APP_DIR/devops/deploy/update.sh"
 
 say "Installing the auto-updater (checks for new code and new settings every minute)"
 cat >/etc/systemd/system/crestclip-update.service <<'UNIT'
@@ -45,7 +45,7 @@ Wants=network-online.target docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash /opt/crestclip/devops/server/update.sh
+ExecStart=/bin/bash /opt/crestclip/devops/deploy/update.sh
 TimeoutStartSec=1200
 UNIT
 cat >/etc/systemd/system/crestclip-update.timer <<'UNIT'
@@ -79,7 +79,7 @@ sed -i '/^IMAGE=/d' deploy.env 2>/dev/null || true
 rm -f .failed-versions .secret-warned
 
 say "Starting everything"
-bash "$APP_DIR/devops/server/update.sh" || true
+bash "$APP_DIR/devops/deploy/update.sh" || true
 systemctl start crestclip-update.timer
 
 echo

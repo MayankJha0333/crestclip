@@ -1,5 +1,5 @@
 {
-  "_read_me": "Prices the Costs page uses for its estimates (USD). Edit any number here and redeploy. The real bill per service comes from Google's billing export when it's switched on (see devops/README.md, step 6) — that always wins over these estimates.",
+  "_read_me": "Prices the Costs page uses for its estimates (USD). Edit any number here and redeploy. The real bill per service comes from Google's billing export when it's switched on (see devops/docs/first-time-setup.md, step 6) — that always wins over these estimates.",
   "_checked": "2026-10-07",
 
   "server": {

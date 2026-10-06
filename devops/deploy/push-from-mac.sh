@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Ship the code on this computer straight to crestclip.com, skipping GitHub Actions (for when its queue is slow).
 #
-#   ./devops/server/push-from-mac.sh
+#   ./devops/deploy/push-from-mac.sh
 #
 # It builds the same Docker image GitHub would, uploads it as "main", and waits until crestclip.com runs it.
 # The server picks it up within a minute and goes back to the old version by itself if the new one doesn't start.

@@ -1,5 +1,5 @@
 /**
- * CrestClip admin pages — its own small container (see devops/server/docker-compose.prod.yml), on 127.0.0.1:8790.
+ * CrestClip admin pages — its own small container (see devops/deploy/docker-compose.prod.yml), on 127.0.0.1:8790.
  * Caddy sends /admin/* here only after the app said the visitor is a signed-in CrestClip admin (/admin/gate).
  *
  *   /admin/         Overview: is the site up, workers connected, queue sizes, every container's CPU + memory
@@ -119,7 +119,7 @@ app.get(
 ${bill.rows.map((r) => `<tr><td>${esc(r.service)}</td><td class="n">${usd(r.thisMonth)}</td><td class="n">${usd(r.last30)}</td><td style="width:160px">${bar(r.last30 / Math.max(...bill.rows.map((x) => x.last30), 0.01))}</td></tr>`).join('')}
 <tr><td><b>Total</b></td><td class="n"><b>${usd(bill.rows.reduce((s, r) => s + r.thisMonth, 0))}</b></td><td class="n"><b>${usd(bill.rows.reduce((s, r) => s + r.last30, 0))}</b></td><td></td></tr></table></div>
 <p class="note">Real numbers from Google's billing export (after free credits and discounts), in ${esc(bill.currency)}. Updated a few times a day.</p>`
-      : `<p class="note">${dot('warn')}Not switched on yet. Turn on Google's billing export to see the real bill per service here — see <b>devops/README.md → step 6</b>. Until then, the numbers below are estimates.</p>`;
+      : `<p class="note">${dot('warn')}Not switched on yet. Turn on Google's billing export to see the real bill per service here — see <b>devops/docs/first-time-setup.md → step 6</b>. Until then, the numbers below are estimates.</p>`;
 
     const aiHtml = !ai
       ? '<p class="note">Needs the database (MONGODB_URI).</p>'

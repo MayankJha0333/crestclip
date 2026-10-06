@@ -13,8 +13,8 @@
 # edit them with devops/secrets/secrets.sh, never on the server. Sizing (how many workers): sizing.env next to this file.
 # Everything uses the machine's own network on 127.0.0.1; only Caddy's ports 80/443 are open to the internet.
 #
-#   By hand on the server:  cd /opt/crestclip && sudo docker compose -f devops/server/docker-compose.prod.yml \
-#                             --env-file deploy.env --env-file devops/server/sizing.env up -d
+#   By hand on the server:  cd /opt/crestclip && sudo docker compose -f devops/deploy/docker-compose.prod.yml \
+#                             --env-file deploy.env --env-file devops/deploy/sizing.env up -d
 #   Logs:                   crestclip.com/admin/logs/   (or: sudo docker logs -f crestclip-web-1-1)
 
 name: crestclip
@@ -42,7 +42,7 @@ x-env: &env
   YTDLP_PROXY_RETRIES: '2'
 
 x-app: &app
-  image: ${IMAGE:?IMAGE is not set — the updater (devops/server/update.sh) writes it to deploy.env}
+  image: ${IMAGE:?IMAGE is not set — the updater (devops/deploy/update.sh) writes it to deploy.env}
   restart: unless-stopped
   network_mode: host
   init: true
@@ -145,7 +145,7 @@ services:
     environment:
       DOMAIN: ${DOMAIN:-crestclip.com}
     volumes:
-      - /opt/crestclip/devops/server/Caddyfile:/etc/caddy/Caddyfile:ro
+      - /opt/crestclip/devops/deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     <<: *logs

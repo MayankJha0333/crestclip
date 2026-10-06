@@ -6,7 +6,7 @@
 # It creates:
 #   1. an image store (Artifact Registry) where GitHub puts each new version of the app
 #   2. a keyless login for GitHub Actions (Workload Identity Federation) — only this repo's main branch can use it
-#      (the server fetches new versions itself — see devops/server/update.sh — so GitHub never logs in to it)
+#      (the server fetches new versions itself — see devops/deploy/update.sh — so GitHub never logs in to it)
 #   3. the server's access to its settings: ONE secret "crestclip-env" in Secret Manager (the whole .env file).
 #      If it's empty, the settings now on the server (/opt/crestclip/.env) are copied into it — the values pass
 #      through this shell only, never printed.

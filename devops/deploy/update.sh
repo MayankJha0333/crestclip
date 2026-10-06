@@ -21,7 +21,7 @@ WEB_PORTS=(8787 8788)
 WEB_SERVICES=(web-1 web-2)
 
 cd "$APP_DIR"
-DEV="$APP_DIR/devops/server"
+DEV="$APP_DIR/devops/deploy"
 COMPOSE=(docker compose -f "$DEV/docker-compose.prod.yml" --env-file "$APP_DIR/deploy.env" --env-file "$DEV/sizing.env")
 say() { echo "▸ $*"; }
 
@@ -87,7 +87,7 @@ take_files() {
   local cid f
   cid=$(docker create "$1") || return 1
   rm -rf .incoming && mkdir -p .incoming
-  docker cp "$cid:/app/devops/server/." .incoming/ >/dev/null || { docker rm "$cid" >/dev/null; return 1; }
+  docker cp "$cid:/app/devops/deploy/." .incoming/ >/dev/null || { docker rm "$cid" >/dev/null; return 1; }
   docker rm "$cid" >/dev/null
   mkdir -p "$DEV"
   for f in docker-compose.prod.yml sizing.env install.sh push-from-mac.sh; do

@@ -4,11 +4,11 @@
 #                                  2. Build the app image and test that it starts
 #   Pushes to main only:              … upload it to Google Artifact Registry and mark it as "main"
 #                                  3. Wait until crestclip.com runs it — the server checks for a new "main"
-#                                     every minute and switches by itself (devops/server/update.sh), going back to
+#                                     every minute and switches by itself (devops/deploy/update.sh), going back to
 #                                     the old version if the new one doesn't start.
 #
 # GitHub never logs in to the server and stores no keys: it uploads with a keyless Google login.
-# One-time setup: devops/gcp/setup.sh (Cloud Shell) → GitHub variable GCP_WIF_PROVIDER; devops/server/install.sh (server).
+# One-time setup: devops/gcp/setup.sh (Cloud Shell) → GitHub variable GCP_WIF_PROVIDER; devops/deploy/install.sh (server).
 # Everything about running it lives in devops/ — start with devops/README.md.
 
 name: CI/CD
