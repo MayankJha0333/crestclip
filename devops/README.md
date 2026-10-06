@@ -47,7 +47,8 @@ The admin pages only open for people signed in to CrestClip as an admin.
 1. **[/admin/](https://crestclip.com/admin/)** — "Workers connected" should be 2. If it's 0, open Live logs → `worker`.
 2. **[/admin/queues/](https://crestclip.com/admin/queues/) → Failed** — shows the error and the job's own log lines.
    **Retry** runs it again.
-3. A job that hangs restarts by itself after 150 minutes (`JOB_MAX_MINUTES`) — nothing to do.
+3. A job that hangs fixes itself: silent for 30 min, or running over 150 min → it re-runs once; stuck twice → it
+   fails with a refund. A job waiting over 24 h is cancelled with a refund. Nothing to restart by hand.
 4. A deploy that didn't go live: GitHub → Actions, or on the server `sudo journalctl -u crestclip-update -n 100`.
 
 ## Rules

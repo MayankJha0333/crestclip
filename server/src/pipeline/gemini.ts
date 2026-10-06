@@ -4,6 +4,7 @@ import { GoogleGenAI, type GenerateContentResponse, type Part, ThinkingLevel, Me
 import { config } from '../config.js';
 import { gcs } from '../infra/cloudStore.js';
 import { sleep } from '../lib/proc.js';
+import { touch } from '../lib/activity.js';
 
 /**
  * All AI in CrestClip goes through Gemini on Google Cloud Vertex AI
@@ -136,6 +137,7 @@ function record(label: string, model: string, started: number, meta: GenerateCon
     ms: Date.now() - started,
   };
   ledgers.getStore()?.push(line);
+  touch(); // an AI answer arrived — the job is alive
   return line;
 }
 

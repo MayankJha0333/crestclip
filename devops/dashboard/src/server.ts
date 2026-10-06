@@ -73,20 +73,22 @@ app.get(
     const busy = o.queues.reduce((s, q) => s + (q.active ?? 0), 0);
     const waiting = o.queues.reduce((s, q) => s + (q.waiting ?? 0), 0);
     const failed = o.queues.reduce((s, q) => s + (q.failed ?? 0), 0);
+    const longest = Math.max(0, ...o.queues.map((q) => q.longestWaitMin));
     const body = `
 <h1>Overview</h1><p class="sub">${esc(vm.name ?? 'this machine')}${vm.machineType ? ` · ${esc(vm.machineType)} · ${esc(vm.zone)}` : ''} · refreshes every 20 seconds</p>
 <div class="grid">
   ${card('Website', `${dot(webUp === o.web.length ? 'ok' : webUp ? 'warn' : 'bad')}${webUp} of ${o.web.length} up`, o.web.map((w) => `:${w.port} ${w.ok ? `${w.ms} ms` : 'down'}`).join(' · '))}
   ${card('Workers connected', `${dot(workers ? 'ok' : 'bad')}${workers}`, workers ? 'taking video jobs' : 'no worker is taking jobs!')}
   ${card('Jobs running', String(busy), `${waiting} waiting in line`)}
+  ${card('Longest wait', `${dot(longest >= 60 ? 'bad' : longest >= 15 ? 'warn' : 'ok')}${longest} min`, waiting ? 'oldest job still in line' : 'nobody is waiting')}
   ${card('Failed jobs', `${dot(failed ? 'warn' : 'ok')}${failed}`, failed ? '<a href="/admin/queues/">see why →</a>' : 'nothing failed recently')}
   ${o.disk ? card('Disk', `${o.disk.pct}%`, `${o.disk.usedGb} of ${o.disk.totalGb} GB used`) : ''}
   ${card('Redis memory', `${o.redis.usedMb} MB`, o.redis.maxMb ? `limit ${o.redis.maxMb} MB` : 'no limit set')}
 </div>
 
 <h2>Job queues</h2>
-<div class="wrap"><table><tr><th>Queue</th><th class="n">Workers</th><th class="n">Running</th><th class="n">Waiting</th><th class="n">Failed</th><th class="n">Done (kept 2 days)</th></tr>
-${o.queues.map((q) => `<tr><td><a href="/admin/queues/queue/${q.name}">${esc(q.label)}</a></td><td class="n">${q.workers}</td><td class="n">${q.active ?? 0}</td><td class="n">${q.waiting}</td><td class="n">${q.failed ?? 0}</td><td class="n">${q.completed ?? 0}</td></tr>`).join('')}
+<div class="wrap"><table><tr><th>Queue</th><th class="n">Workers</th><th class="n">Running</th><th class="n">Waiting</th><th class="n">Longest wait</th><th class="n">Failed</th><th class="n">Done (kept 2 days)</th></tr>
+${o.queues.map((q) => `<tr><td><a href="/admin/queues/queue/${q.name}">${esc(q.label)}</a></td><td class="n">${q.workers}</td><td class="n">${q.active ?? 0}</td><td class="n">${q.waiting}</td><td class="n">${q.waiting ? `${q.longestWaitMin} min` : '—'}</td><td class="n">${q.failed ?? 0}</td><td class="n">${q.completed ?? 0}</td></tr>`).join('')}
 </table></div>
 
 <h2>Containers right now</h2>

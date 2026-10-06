@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { touch } from './activity.js';
 
 interface RunOptions {
   cwd?: string;
@@ -29,7 +30,12 @@ export function run(cmd: string, args: string[], opts: RunOptions = {}): Promise
     let lineBufs = { stdout: '', stderr: '' };
     let timer: NodeJS.Timeout | undefined;
     let idle: NodeJS.Timeout | undefined;
+    // a tool that's still running = the job is alive (some, like ffmpeg with -v error, print nothing for minutes);
+    // a tool that hangs is stopped by its own timeoutMs instead
+    touch();
+    const beat = setInterval(touch, 30_000);
     const stop = () => {
+      clearInterval(beat);
       if (timer) clearTimeout(timer);
       if (idle) clearTimeout(idle);
     };
@@ -52,6 +58,7 @@ export function run(cmd: string, args: string[], opts: RunOptions = {}): Promise
     poke();
     const feed = (stream: 'stdout' | 'stderr', chunk: string) => {
       poke();
+      touch();
       if (!opts.onLine) return;
       lineBufs[stream] += chunk;
       const parts = lineBufs[stream].split(/\r|\n/);

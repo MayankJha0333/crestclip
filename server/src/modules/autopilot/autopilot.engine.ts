@@ -571,6 +571,8 @@ export async function schedule(ap: AutopilotRow, days = 7) {
 }
 
 // ---------------- start-up ----------------
+/** Extra connections: errors are already logged once by the main connection — don't flood the log while Redis is down. */
+const quiet = (c: Redis) => (c.on('error', () => {}), c);
 /**
  * `runWorkers`: true in exactly one process (ROLE=scheduler, or all) — it runs the 5-minute tick and the posts.
  * Website copies only need the queues, to book and cancel posts.
@@ -593,8 +595,8 @@ export async function startAutopilot(opts: { runWorkers: boolean } = { runWorker
       log(`queues ready (Redis: ${redisStatus.source}) — the scheduler runs the posts`);
       return;
     }
-    const w1 = new Worker('autopilot', async () => tickAll(), { connection: connection.duplicate(), prefix: PREFIX, concurrency: 1 });
-    const w2 = new Worker('autopilot-post', async (job) => runPost(String(job.data.postId)), { connection: connection.duplicate(), prefix: PREFIX, concurrency: 2 });
+    const w1 = new Worker('autopilot', async () => tickAll(), { connection: quiet(connection.duplicate()), prefix: PREFIX, concurrency: 1 });
+    const w2 = new Worker('autopilot-post', async (job) => runPost(String(job.data.postId)), { connection: quiet(connection.duplicate()), prefix: PREFIX, concurrency: 2 });
     for (const w of [w1, w2]) w.on('error', (e) => log('worker:', e.message));
     // the heartbeat: every 5 minutes
     await jobs.upsertJobScheduler('autopilot-tick', { every: 5 * 60_000 }, { name: 'tick', opts: { removeOnComplete: true, removeOnFail: 50 } });

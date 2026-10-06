@@ -24,6 +24,7 @@ async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Pr
       ...(body ? { 'content-type': 'application/json' } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(30_000),
   });
   const data = (await res.json().catch(() => ({}))) as T & { error?: { description?: string } };
   if (!res.ok) throw new Error(`Razorpay: ${data.error?.description || `request failed (${res.status})`}`);

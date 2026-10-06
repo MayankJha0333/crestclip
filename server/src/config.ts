@@ -214,6 +214,11 @@ export const config = {
   jobMaxMinutes: num('JOB_MAX_MINUTES', 150),
   /** Same for one clip render. */
   renderMaxMinutes: num('RENDER_MAX_MINUTES', 30),
+  /** A job that does nothing at all for this long (no progress, no AI answer, no output from its tools) is stuck:
+   *  its worker restarts and the job re-runs once — instead of holding its slot until JOB_MAX_MINUTES. */
+  jobIdleMinutes: num('JOB_IDLE_MINUTES', 30),
+  /** A job that waited in line this long without starting (e.g. no worker running) is cancelled and refunded. */
+  queueMaxWaitHours: num('QUEUE_MAX_WAIT_HOURS', 24),
   x264Preset: env('X264_PRESET', 'medium'),
 };
 

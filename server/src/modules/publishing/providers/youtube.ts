@@ -49,7 +49,7 @@ export const youtube = {
     return { ...t, access: r.access_token, expiresAt: Date.now() + r.expires_in * 1000 };
   },
   async revoke(t: Tokens) {
-    await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(t.refresh || t.access)}`, { method: 'POST' }).catch(() => {});
+    await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(t.refresh || t.access)}`, { method: 'POST', signal: AbortSignal.timeout(15_000) }).catch(() => {});
   },
   /** Resumable upload. Scheduled posts are uploaded right away as private with publishAt — YouTube makes them public on time. */
   async publish(token: string, post: PostRow, file: string): Promise<{ id: string; url: string; note?: string }> {
@@ -72,6 +72,7 @@ export const youtube = {
         'x-upload-content-length': String(size),
       },
       body: JSON.stringify({ snippet: { title, description, tags, categoryId: '22' }, status }),
+      signal: AbortSignal.timeout(60_000),
     });
     if (!init.ok) throw new Error(`YouTube refused the upload (${init.status}): ${(await init.text()).slice(0, 300)}`);
     const uploadUrl = init.headers.get('location');

@@ -18,7 +18,8 @@ export async function connectDb(): Promise<Db> {
   if (database) return database;
   if (!config.mongoUri) throw new Error('MONGODB_URI is not set in .env — CrestClip needs a MongoDB database (for example a free MongoDB Atlas cluster).');
   // ignoreUndefined: a field set to undefined is left out (as JSON does), not saved as null
-  client = new MongoClient(config.mongoUri, { appName: 'crestclip', serverSelectionTimeoutMS: 15_000, ignoreUndefined: true });
+  // socketTimeoutMS: a call on a connection that silently died fails after 2 min instead of waiting forever
+  client = new MongoClient(config.mongoUri, { appName: 'crestclip', serverSelectionTimeoutMS: 15_000, socketTimeoutMS: 120_000, ignoreUndefined: true });
   await client.connect();
   database = client.db(config.mongoDb);
   await createIndexes(database);

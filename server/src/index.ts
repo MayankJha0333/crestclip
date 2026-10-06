@@ -2,7 +2,7 @@ import './lib/quiet.js';
 import { createApp } from './app.js';
 import { config } from './config.js';
 import './infra/jobs.js';
-import { initQueue, repairQueue, startWorkers, watchFailures } from './infra/queue.js';
+import { initQueue, queueHealth, repairQueue, startWorkers, watchFailures } from './infra/queue.js';
 import { startLocalHttps } from './infra/localhttps.js';
 import { startToolUpkeep } from './infra/tools.js';
 import { startAutopilot } from './modules/autopilot/autopilot.engine.js';
@@ -74,4 +74,6 @@ if (has('scheduler')) {
   const repair = () => void repairQueue().catch((e) => console.warn('[start] queue repair failed:', (e as Error).message));
   setTimeout(repair, 5000);
   setInterval(repair, 10 * 60_000).unref();
+  // cancel jobs that waited too long; warn when no worker is connected or Redis is nearly full
+  setInterval(() => void queueHealth().catch((e) => console.warn('[queue] health check failed:', (e as Error).message)), 60_000).unref();
 }

@@ -27,6 +27,7 @@ import { endSectionMode, footageFor, footageSavings, infoJsonPath, prefetchFoota
 import { classifyFileLink, downloadFileLink, fileLinkLabel } from './filelink.js';
 import type { CaptionStyle, Layout, ProjectOptions, ReframePlan, Segment, Signals, TimeRange, Word } from '../types.js';
 import { withClusterLock } from '../infra/shared.js';
+import { touch } from '../lib/activity.js';
 
 type Stage = 'fetch' | 'listen' | 'transcribe' | 'moments' | 'render';
 const STAGE_RANGE: Record<Stage, [number, number]> = {
@@ -41,6 +42,7 @@ const progressWrites = new Map<string, Promise<void>>();
 
 /** Show progress. Writes go out one after another per project, and never hold up (or break) the work itself. */
 function stage(id: string, s: Stage, frac = 0, detail = '') {
+  touch(); // progress = the job is alive
   const [a, b] = STAGE_RANGE[s];
   const patch = { stage: s, progress: +(a + (b - a) * Math.max(0, Math.min(1, frac))).toFixed(1), stageDetail: detail };
   const write = (progressWrites.get(id) ?? Promise.resolve()).then(() => projects.update(id, patch)).catch((e) => console.warn(`[project ${id}] progress:`, (e as Error).message));
@@ -375,7 +377,7 @@ async function fetchClipFootage(projectId: string, list: ClipRow[]) {
 
 /** Project thumbnail from the video's poster image (section mode has no local video yet). */
 async function remoteThumbnail(url: string, out: string, work: string) {
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
   if (!res.ok) throw new Error(`thumbnail ${res.status}`);
   const tmp = path.join(work, 'poster.img');
   fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));

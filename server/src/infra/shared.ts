@@ -90,15 +90,21 @@ const RENEW = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('
  * download the same video's parts at once). The lock renews itself while `fn` runs and frees itself if the process
  * dies. `wait: true` waits its turn; `wait: false` returns BUSY when someone else holds it. No Redis → just runs.
  */
-export async function withClusterLock<T>(name: string, fn: () => Promise<T>, opts: { wait: boolean; ttlMs?: number }): Promise<T | typeof BUSY> {
+export async function withClusterLock<T>(
+  name: string,
+  fn: () => Promise<T>,
+  opts: { wait: boolean; ttlMs?: number; maxWaitMs?: number },
+): Promise<T | typeof BUSY> {
   const r = await redis();
   if (!r) return fn();
   const key = `${PREFIX}lock:${name}`;
   const ttl = opts.ttlMs ?? 60_000;
   const token = `${process.pid}-${Math.random().toString(36).slice(2)}`;
+  const giveUpAt = Date.now() + (opts.maxWaitMs ?? 20 * 60_000); // never wait forever behind a stuck holder
   for (;;) {
     if ((await r.set(key, token, 'PX', ttl, 'NX')) === 'OK') break;
     if (!opts.wait) return BUSY;
+    if (Date.now() > giveUpAt) throw new Error(`Another worker has been busy with this (${name}) for too long — try again in a few minutes.`);
     await new Promise((res) => setTimeout(res, 1000));
   }
   const renew = setInterval(() => void r.eval(RENEW, 1, key, token, String(ttl)).catch(() => {}), ttl / 3);

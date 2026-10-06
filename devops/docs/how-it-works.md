@@ -60,15 +60,21 @@ started several times — a setting called `ROLE` tells each copy what its job i
 
 What keeps it from getting messy:
 
-| Problem | What happens now |
-|---|---|
-| A worker crashes or freezes | its job goes to another worker within ~3 min |
-| A job runs too long (150 min) | its worker restarts and the job re-runs **once**, cleanly |
-| A job gets stuck **twice** | it stops for good: project marked failed, credits refunded |
-| We deploy while a job runs | the worker hands the job back straight away; another worker continues it |
-| Two workers want the same clip | a shared lock — the second one waits its turn |
-| Redis is emptied / a crash before queueing | every 10 min the scheduler re-queues unfinished work it finds in the database |
-| A post is due while two processes run | a post can only be claimed once — never posted twice |
+| Problem | What happens now | Limit (setting) |
+|---|---|---|
+| A worker crashes or freezes | its job goes to another worker | ~3 min |
+| A job goes **silent** (no progress, no AI answer, no tool output) | its worker restarts, the job re-runs **once** | 30 min (`JOB_IDLE_MINUTES`) |
+| A job runs **too long** overall | same: restart + one clean re-run | 150 min video, 30 min render (`JOB_MAX_MINUTES`, `RENDER_MAX_MINUTES`) |
+| A job gets stuck **twice** | it stops for good: marked failed, credits refunded | — |
+| A job **waits in line too long** (e.g. no worker running) | cancelled, marked failed, credits refunded | 24 h (`QUEUE_MAX_WAIT_HOURS`) |
+| Jobs wait but **no worker is connected** | loud warning in the logs every minute | after 5 min |
+| We deploy while a job runs | the worker hands the job back at once; another continues it | — |
+| Two workers want the same clip | a shared lock — the second waits its turn | gives up after 20 min |
+| A download / web call / database call hangs | it's cut off and the step fails cleanly | 3 min download, 15 s–30 min web calls, 2 min database |
+| Redis is emptied / a crash before queueing | the scheduler re-queues unfinished work from the database | every 10 min |
+| Redis fills up | warning in the logs; old finished jobs are cleared automatically | warns at 80% of 1 GB |
+| A job writes a huge log | only its newest 500 lines are kept | — |
+| A post is due while two processes run | a post can only be claimed once — never posted twice | — |
 
 ## 3. Settings (secrets)
 

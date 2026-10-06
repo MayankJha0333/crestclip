@@ -6,6 +6,7 @@ import { Redis } from 'ioredis';
 import { config } from '../config.js';
 import { clips, projects } from '../db/index.js';
 import { ensureRedis } from './redis.js';
+import { activity } from '../lib/activity.js';
 
 /**
  * CrestClip's work queue.
@@ -118,6 +119,13 @@ export function initQueue(): Promise<void> {
   return ready;
 }
 export const queueMode = () => mode;
+/** Another connection for a worker / event listener. Its errors are already reported once by `conn` ("[queue] redis:"),
+ *  so they're silenced here instead of flooding the log while Redis is down. */
+function dup(): Redis {
+  const c = conn!.duplicate();
+  c.on('error', () => {});
+  return c;
+}
 /** For the /admin/queues dashboard. */
 export const bullQueues = () => Object.values(queues).filter(Boolean) as BullQueue[];
 
@@ -176,7 +184,8 @@ async function add(
       attempts: kind === 'render' ? 2 : 1, // projects and picks handle (and refund) their own errors; renders get one retry
       backoff: { type: 'fixed', delay: 30_000 },
       removeOnComplete: { age: 2 * 86400, count: 1000 }, // keep two days of history for the dashboard
-      removeOnFail: { age: 14 * 86400 },
+      removeOnFail: { age: 14 * 86400, count: 2000 },
+      keepLogs: 500, // a job's own log lines (dashboard) — the newest 500, so a long job can't fill Redis
     });
   } catch (e) {
     console.error(`  [queue] couldn't queue ${kind} ${key}:`, (e as Error).message);
@@ -234,7 +243,7 @@ function hookConsole() {
 
 /** How long a worker may go without renewing a job's lock before another worker takes the job over. */
 const LOCK_MS = Number(process.env.QUEUE_LOCK_MS) || 3 * 60_000;
-const running = new Map<string, { kind: JobKind; since: number; job: Job; token?: string }>();
+const running = new Map<string, { kind: JobKind; since: number; job: Job; token?: string; act: { last: number } }>();
 /** Put these running jobs straight back in line (not counted as "stuck"), so another worker picks them up now. */
 async function handBack(skip?: string) {
   await Promise.all(
@@ -254,9 +263,11 @@ export async function startWorkers(): Promise<boolean> {
     const w = new Worker(
       name,
       async (job, token) => {
-        running.set(job.id!, { kind: job.name as JobKind, since: Date.now(), job, token });
+        const act = { last: Date.now() };
+        running.set(job.id!, { kind: job.name as JobKind, since: Date.now(), job, token, act });
         try {
-          await current.run(job, () => runJob(job.name as JobKind, job.data as Data));
+          // `act` is touched by everything the job does (progress, AI answers, tool output) — see lib/activity.ts
+          await activity.run(act, () => current.run(job, () => runJob(job.name as JobKind, job.data as Data)));
         } finally {
           running.delete(job.id!);
           // edited while it ran → once more with the latest settings
@@ -268,7 +279,7 @@ export async function startWorkers(): Promise<boolean> {
         }
       },
       {
-        connection: conn!.duplicate(),
+        connection: dup(),
         prefix: PREFIX,
         name: `${os.hostname()}-${process.pid}`, // which container — shown in the dashboard's worker list
         concurrency: Math.max(1, concurrency),
@@ -292,8 +303,15 @@ export async function startWorkers(): Promise<boolean> {
     if (leaving) return;
     for (const [id, r] of running) {
       const max = (r.kind === 'render' ? config.renderMaxMinutes : config.jobMaxMinutes) * 60_000;
-      if (Date.now() - r.since > max) {
-        console.error(`  [queue] ✗ ${id} has run ${Math.round((Date.now() - r.since) / 60_000)} min (limit ${max / 60_000}) — restarting this worker so it re-runs cleanly`);
+      const idle = config.jobIdleMinutes * 60_000;
+      const why =
+        Date.now() - r.since > max
+          ? `has run ${Math.round((Date.now() - r.since) / 60_000)} min (limit ${max / 60_000})`
+          : Date.now() - r.act.last > idle
+            ? `has done nothing for ${Math.round((Date.now() - r.act.last) / 60_000)} min (limit ${idle / 60_000})`
+            : '';
+      if (why) {
+        console.error(`  [queue] ✗ ${id} ${why} — restarting this worker so it re-runs cleanly`);
         leaving = true;
         // the other jobs here are fine: put them back in line first; only the stuck one counts as stuck
         void handBack(id).finally(() => setTimeout(() => process.exit(1), 500));
@@ -336,12 +354,45 @@ export async function repairQueue() {
   }
 }
 
+/**
+ * Every minute, from the scheduler:
+ *   - a job that waited in line longer than QUEUE_MAX_WAIT_HOURS is cancelled and refunded (it would otherwise
+ *     show "Waiting" forever, e.g. if workers can't start);
+ *   - loud warnings in the log (and so on /admin/logs) when jobs wait but no worker is connected, or Redis is
+ *     nearly full.
+ */
+export async function queueHealth() {
+  await initQueue();
+  if (mode !== 'redis') return;
+  const maxWait = config.queueMaxWaitHours * 3600_000;
+  for (const name of ['cc-videos', 'cc-renders'] as const) {
+    const q = queues[name]!;
+    const waiting = await q.getJobs(['waiting', 'prioritized'], 0, 1000);
+    for (const job of waiting) {
+      if (Date.now() - job.timestamp < maxWait) continue;
+      if ((await job.getState()) === 'active') continue; // a worker took it just now
+      await job.remove().catch(() => {});
+      await giveUps.get(job.name as JobKind)?.(job.data as Data, `It waited more than ${config.queueMaxWaitHours} hours without starting and was cancelled. Please try again.`);
+      console.error(`  [queue] ✗ ${job.id} waited over ${config.queueMaxWaitHours} h — cancelled and refunded`);
+    }
+    if (waiting.length) {
+      const workers = await q.getWorkers().catch(() => []);
+      const oldest = Math.round((Date.now() - Math.min(...waiting.map((j) => j.timestamp))) / 60_000);
+      if (!workers.length && oldest >= 5) console.error(`  [queue] ✗ ${waiting.length} job(s) waiting in ${name} for up to ${oldest} min and NO worker is connected — check the worker containers`);
+    }
+  }
+  const info = await conn!.info('memory').catch(() => '');
+  const used = Number(info.match(/used_memory:(\d+)/)?.[1] ?? 0);
+  const max = Number(info.match(/maxmemory:(\d+)/)?.[1] ?? 0);
+  if (max && used / max > 0.8) console.error(`  [queue] ✗ Redis is ${Math.round((used / max) * 100)}% full — new jobs will be refused when it's full`);
+}
+
 /** When a job fails for good (stuck twice), tell its project/clip and refund — once, from the scheduler. */
 export async function watchFailures() {
   await initQueue();
   if (mode !== 'redis') return;
   for (const name of ['cc-videos', 'cc-renders'] as const) {
-    const events = new QueueEvents(name, { connection: conn!.duplicate(), prefix: PREFIX });
+    const events = new QueueEvents(name, { connection: dup(), prefix: PREFIX });
     events.on('failed', ({ jobId: id, failedReason }) => {
       void (async () => {
         const job = await queues[name]!.getJob(id);

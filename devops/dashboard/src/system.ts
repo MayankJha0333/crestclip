@@ -50,16 +50,18 @@ export async function overview(conn: Redis, queues: ReturnType<typeof makeQueues
     webHealth(),
     Promise.all(
       queues.map(async (q) => {
-        const [counts, workers] = await Promise.all([
+        const [counts, workers, line] = await Promise.all([
           q.queue.getJobCounts('active', 'waiting', 'prioritized', 'delayed', 'failed', 'completed'),
           // each worker holds two connections — count distinct worker names, not connections
           q.queue
             .getWorkers()
             .then((ws) => new Set(ws.map((w) => String((w as { rawname?: string }).rawname ?? w.addr))).size)
             .catch(() => 0),
+          q.queue.getJobs(['waiting', 'prioritized'], 0, 300).catch(() => []),
         ]);
+        const oldest = line.length ? Math.min(...line.map((j) => j.timestamp)) : 0;
         const n = (k: string) => Number(counts[k] ?? 0);
-        return { name: q.name, label: q.label, workers, active: n('active'), waiting: n('waiting') + n('prioritized') + n('delayed'), failed: n('failed'), completed: n('completed') };
+        return { name: q.name, label: q.label, workers, active: n('active'), waiting: n('waiting') + n('prioritized') + n('delayed'), failed: n('failed'), completed: n('completed'), longestWaitMin: oldest ? Math.round((Date.now() - oldest) / 60_000) : 0 };
       }),
     ),
     conn.info('memory').catch(() => ''),

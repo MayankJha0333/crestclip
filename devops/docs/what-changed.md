@@ -36,6 +36,22 @@ Needed so the app can run as several copies at once without stepping on itself.
 | `pipeline/transcribe.ts` | each transcribed chunk is saved | a job that restarts doesn't pay for the AI again |
 | `modules/projects/*`, `web/…/ProcessingCard.tsx` | "In line · N videos ahead" | people see their place in the queue |
 
+## Queue safety rules (added after)
+
+Nothing can wait forever any more. A silent job (30 min) or an over-long one (150 min) re-runs once, then fails with
+a refund. A job waiting over 24 h is cancelled with a refund. Locks, downloads, web calls and database calls all
+have time limits. Logs are capped, and the logs warn when no worker is connected or Redis is nearly full. Full
+table: `docs/how-it-works.md` → "Jobs and workers".
+
+| File | Change |
+|---|---|
+| `lib/activity.ts` (new) | "this job is still doing something" — touched by progress, AI answers and tool output |
+| `infra/queue.ts` | silent-job watchdog, waited-too-long cancel, no-worker / Redis-full warnings, log cap |
+| `infra/shared.ts` | a lock wait gives up after 20 min |
+| `db/connection.ts` | database calls time out after 2 min |
+| `pipeline/process.ts`, `publishing/providers/youtube.ts`, `billing/razorpay.ts` | time limits on the last web calls without one |
+| `devops/dashboard` | Overview shows "Longest wait" |
+
 ## Earlier fixes (same week)
 
 | Commit | Fix |
