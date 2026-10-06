@@ -39,7 +39,7 @@ let extraArgsOk: boolean | null = null;
 // ---------------- proxy: rotating residential addresses (YTDLP_PROXY) ----------------
 
 /** YouTube blocking this address, or the proxy itself failing: worth retrying from a fresh address. */
-const BLOCKED = /Sign in to confirm|not a bot|HTTP Error 403|HTTP Error 429|Too Many Requests|Tunnel connection failed|ProxyError|407 Proxy|Unable to connect to proxy|Connection reset|Read timed out|timed out/i;
+const BLOCKED = /Sign in to confirm|not a bot|HTTP Error 403|HTTP Error 429|Too Many Requests|Tunnel connection failed|ProxyError|407 Proxy|Unable to connect to proxy|Connection reset|Read timed out|timed out|stalled: no progress/i;
 /** How often each video's address was swapped, so its later steps (download, captions) reuse the one that worked. */
 const rotation = new Map<string, number>();
 /** Videos YouTube blocked when fetched directly: all their later steps go through the proxy (same exit address). */
@@ -105,8 +105,8 @@ function baseArgs(): string[] {
   // the plugin's default is 127.0.0.1:4416; only a different address needs saying
   if (config.ytdlpPotUrl && config.ytdlpPotUrl !== 'http://127.0.0.1:4416') a.push('--extractor-args', `youtubepot-bgutilhttp:base_url=${config.ytdlpPotUrl}`);
   if (extraArgsOk !== false) a.push(...config.ytdlpExtraArgs);
-  // Use CrestClip's own ffmpeg for merging/cutting, so no system ffmpeg is needed.
-  if (path.isAbsolute(config.ffmpeg)) a.push('--ffmpeg-location', config.ffmpeg);
+  // ffmpeg for merging/cutting — one that can open web addresses (see config.ytdlpFfmpeg)
+  if (path.isAbsolute(config.ytdlpFfmpeg)) a.push('--ffmpeg-location', config.ytdlpFfmpeg);
   return a;
 }
 
@@ -264,6 +264,8 @@ export async function fetchComments(url: string, max = 400): Promise<Comment[]> 
 }
 
 // YouTube sometimes answers 403 for one player client but not another; try a few before giving up.
+/** A download that prints nothing for this long is stuck (dead proxy address, frozen connection): stop it and retry. */
+const STALL_MS = 3 * 60_000;
 const YT_CLIENT_FALLBACKS = [null, 'youtube:player_client=tv,web_safari', 'youtube:player_client=mweb,android_vr'];
 const RETRYABLE = /403|Forbidden|Requested format is not available|fragment|HTTP error|Server returned|Invalid data found|expired/i;
 const VIDEO_FORMAT = 'bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/b';
@@ -272,13 +274,13 @@ const VIDEO_FORMAT = 'bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=10
  * Download with fallbacks: first reuse the saved page info (skips re-reading YouTube — much faster),
  * then read the link fresh, then try other YouTube player clients if YouTube blocks one.
  */
-async function downloadWithFallbacks(opts: { url: string; infoJson?: string | null; args: string[]; timeoutMs: number; onLine?: (line: string) => void; cleanup: () => void }) {
+async function downloadWithFallbacks(opts: { url: string; infoJson?: string | null; args: string[]; timeoutMs: number; idleTimeoutMs?: number; onLine?: (line: string) => void; cleanup: () => void }) {
   const fresh = opts.infoJson && fs.existsSync(opts.infoJson) && Date.now() - fs.statSync(opts.infoJson).mtimeMs < 4 * 3600_000;
   const attempts: (string[] | null)[] = [...(fresh ? [['--load-info-json', opts.infoJson as string]] : []), ...YT_CLIENT_FALLBACKS.map((c) => [...(c ? ['--extractor-args', c] : []), opts.url])];
   let lastErr: unknown = null;
   for (const [i, src] of attempts.entries()) {
     try {
-      await ytdlp([...opts.args, '--newline', ...(src ?? [])], { timeoutMs: opts.timeoutMs, onLine: opts.onLine ? (l) => opts.onLine!(l) : undefined });
+      await ytdlp([...opts.args, '--newline', ...(src ?? [])], { timeoutMs: opts.timeoutMs, idleTimeoutMs: opts.idleTimeoutMs ?? STALL_MS, onLine: opts.onLine ? (l) => opts.onLine!(l) : undefined });
       return;
     } catch (e) {
       lastErr = e;
@@ -307,7 +309,8 @@ export async function download(url: string, dir: string, onProgress: (pct: numbe
     url,
     infoJson,
     args: ['-f', VIDEO_FORMAT, '--merge-output-format', 'mp4', '-o', path.join(dir, 'source.%(ext)s')],
-    timeoutMs: 3 * 60 * 60 * 1000,
+    // one stuck download used to hold the only job slot for hours, so nothing else started
+    timeoutMs: 90 * 60 * 1000,
     onLine: progressLine(onProgress),
     cleanup: removePartials(dir, 'source.'),
   });

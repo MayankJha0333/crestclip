@@ -175,6 +175,12 @@ export const config = {
   ffmpeg: customBin('FFMPEG_PATH', 'ffmpeg') || bundledBin('ffmpeg-static') || 'ffmpeg',
   ffprobe: customBin('FFPROBE_PATH', 'ffprobe') || bundledBin('ffprobe-static') || 'ffprobe',
   ffmpegSource: customBin('FFMPEG_PATH', 'ffmpeg') ? 'custom' : bundledBin('ffmpeg-static') ? 'built in' : 'system',
+  /**
+   * The ffmpeg yt-dlp uses to cut parts straight from YouTube. NOT the npm build: that one is fully static and crashes
+   * (segfault, "ffmpeg exited with code -11") whenever it has to look up a web address. The system ffmpeg (installed
+   * in the Dockerfile) can; local renders keep using `ffmpeg` above.
+   */
+  ytdlpFfmpeg: customBin('YTDLP_FFMPEG_PATH', 'ffmpeg') || (fs.existsSync('/usr/bin/ffmpeg') ? '/usr/bin/ffmpeg' : '') || customBin('FFMPEG_PATH', 'ffmpeg') || bundledBin('ffmpeg-static') || 'ffmpeg',
 
   // Limits
   maxUploadMb: num('MAX_UPLOAD_MB', 4096),

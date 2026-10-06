@@ -3,6 +3,8 @@ import { spawn } from 'node:child_process';
 interface RunOptions {
   cwd?: string;
   timeoutMs?: number;
+  /** Kill the command if it prints nothing for this long (a stuck download), instead of waiting for `timeoutMs`. */
+  idleTimeoutMs?: number;
   onLine?: (line: string, stream: 'stdout' | 'stderr') => void;
   maxBuffer?: number; // bytes kept for stdout
 }
@@ -26,13 +28,30 @@ export function run(cmd: string, args: string[], opts: RunOptions = {}): Promise
     let err = '';
     let lineBufs = { stdout: '', stderr: '' };
     let timer: NodeJS.Timeout | undefined;
+    let idle: NodeJS.Timeout | undefined;
+    const stop = () => {
+      if (timer) clearTimeout(timer);
+      if (idle) clearTimeout(idle);
+    };
     if (opts.timeoutMs) {
       timer = setTimeout(() => {
+        stop();
         child.kill('SIGKILL');
-        reject(new ProcError(`${cmd} timed out after ${Math.round(opts.timeoutMs! / 1000)}s`, null, err.slice(-4000)));
+        reject(new ProcError(`${cmd} ran too long and was stopped (limit ${Math.round(opts.timeoutMs! / 60_000)} min)`, null, err.slice(-4000)));
       }, opts.timeoutMs);
     }
+    const poke = () => {
+      if (!opts.idleTimeoutMs) return;
+      if (idle) clearTimeout(idle);
+      idle = setTimeout(() => {
+        stop();
+        child.kill('SIGKILL');
+        reject(new ProcError(`${cmd} stalled: no progress for ${Math.round(opts.idleTimeoutMs! / 1000)}s`, null, err.slice(-4000)));
+      }, opts.idleTimeoutMs);
+    };
+    poke();
     const feed = (stream: 'stdout' | 'stderr', chunk: string) => {
+      poke();
       if (!opts.onLine) return;
       lineBufs[stream] += chunk;
       const parts = lineBufs[stream].split(/\r|\n/);
@@ -51,11 +70,11 @@ export function run(cmd: string, args: string[], opts: RunOptions = {}): Promise
       feed('stderr', d);
     });
     child.on('error', (e) => {
-      if (timer) clearTimeout(timer);
+      stop();
       reject(new ProcError(`Could not start "${cmd}": ${e.message}`, null, ''));
     });
     child.on('close', (code) => {
-      if (timer) clearTimeout(timer);
+      stop();
       if (code === 0) resolve({ stdout: out, stderr: err });
       else reject(new ProcError(`${cmd} exited with code ${code}: ${err.trim().split('\n').slice(-3).join(' | ')}`, code, err.slice(-4000)));
     });

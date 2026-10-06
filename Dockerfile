@@ -1,11 +1,13 @@
 # CrestClip — one container with the API and the built web app.
-# ffmpeg (with captions) ships via npm and yt-dlp is managed by the app itself; the only system packages are fonts.
+# ffmpeg (with captions) ships via npm and yt-dlp is managed by the app itself; system packages: fonts + ffmpeg for yt-dlp.
 FROM node:22-bookworm-slim
 
 WORKDIR /app
 # Fonts for captions in non-Latin scripts (Devanagari, Bengali, Tamil, Arabic…): the caption fonts in server/assets
 # cover Latin letters only, and libass falls back to these for everything else.
-RUN apt-get update && apt-get install -y --no-install-recommends fontconfig fonts-noto-core && rm -rf /var/lib/apt/lists/*
+# System ffmpeg: only for yt-dlp cutting parts straight from YouTube — the npm ffmpeg is fully static and crashes
+# (segfault) on any web address. Renders keep using the npm one.
+RUN apt-get update && apt-get install -y --no-install-recommends fontconfig fonts-noto-core ffmpeg && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json* ./
 COPY server/package.json server/
 COPY web/package.json web/
