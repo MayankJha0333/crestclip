@@ -2,11 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
 import { withRequiredTags } from './instructions.js';
-import { clips as clipDb, projects, type ClipDefaults, type ClipRow, type ProjectRow } from '../db/index.js';
+import { clips as clipDb, projects, type AiUsage, type ClipDefaults, type ClipRow, type ProjectRow } from '../db/index.js';
 import { limiter, pool, run } from '../lib/proc.js';
 import { projectDir } from '../lib/paths.js';
 import { buildAss, wordsInRange, type EmojiCue } from './captions.js';
-import { part, uploadToGcs, deleteFromGcs, usage } from './gemini.js';
+import { part, uploadToGcs, deleteFromGcs, usage, usageTotals, withUsageLedger } from './gemini.js';
 import { removeFromCloud, saveToCloud } from '../infra/cloudStore.js';
 import { extractAudio, extractAudioRange, hasLibass, loudnessPerSecond, makeProxy, probe, silences as findSilences, thumbnail } from './media.js';
 import { aiScore, describeClips, ensurePeakCandidate, findMoments, junkTitle, rankClips, snapClips, snapRange } from './moments.js';
@@ -50,7 +50,34 @@ function stage(id: string, s: Stage, frac = 0, detail = '') {
 /** Wait for queued progress writes, so the final status isn't overwritten by a late one. */
 const progressSaved = (id: string) => progressWrites.get(id) ?? Promise.resolve();
 
+/** Clip a project, keeping a ledger of its AI calls; the totals are saved on the project (aiUsage) and logged. */
 export async function processProject(id: string) {
+  const { lines } = await withUsageLedger(() => runProject(id));
+  if (!lines.length) return;
+  const t = usageTotals(lines);
+  const byLabel = new Map<string, AiUsage['byLabel'][number]>();
+  for (const l of lines) {
+    const key = `${l.label}|${l.model}`;
+    const row = byLabel.get(key) ?? { label: l.label, model: l.model, calls: 0, text: 0, audio: 0, video: 0, image: 0, cached: 0, output: 0, ms: 0 };
+    row.calls++;
+    row.text += l.text;
+    row.audio += l.audio;
+    row.video += l.video;
+    row.image += l.image;
+    row.cached += l.cached;
+    row.output += l.output;
+    row.ms += l.ms;
+    byLabel.set(key, row);
+  }
+  const aiUsage: AiUsage = { ...t, byLabel: [...byLabel.values()] };
+  await projects.update(id, { aiUsage }).catch(() => {});
+  // for the server log only — never shown in the app
+  console.log(
+    `[project ${id}] AI usage: ${t.calls} calls · in ${(t.text / 1000).toFixed(0)}K text + ${(t.audio / 1000).toFixed(0)}K audio + ${(t.video / 1000).toFixed(0)}K video + ${(t.image / 1000).toFixed(0)}K image tokens · out ${(t.output / 1000).toFixed(1)}K (${(t.thoughts / 1000).toFixed(1)}K thinking)`,
+  );
+}
+
+async function runProject(id: string) {
   const p = await projects.get(id);
   if (!p) return;
   const dir = projectDir(id);

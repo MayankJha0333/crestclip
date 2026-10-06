@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { credits, users, type UserRow } from '../../db/index.js';
+import { clips, credits, projects, users, type UserRow } from '../../db/index.js';
 import { asyncHandler, validate } from '../../lib/http.js';
 import { requireAdmin, requireUser } from '../auth/auth.middleware.js';
 import { adminAdjustCredits, adminSetPlan } from '../billing/billing.service.js';
@@ -56,5 +56,16 @@ adminRouter.post(
     );
     await adminAdjustCredits(req.params.id, body.delta, body.note);
     res.json(await row(req.params.id));
+  }),
+);
+
+/** Admins: what a project cost in AI tokens (saved when it finished), to put a price on a clip. */
+adminRouter.get(
+  '/admin/projects/:id/usage',
+  asyncHandler(async (req, res) => {
+    const p = await projects.get(req.params.id);
+    if (!p) return res.status(404).json({ error: 'Not found' });
+    const clipCount = (await clips.forProject(p.id)).length;
+    res.json({ id: p.id, title: p.title, duration: p.duration, clipCount, aiUsage: p.aiUsage ?? null });
   }),
 );

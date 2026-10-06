@@ -5,6 +5,20 @@ import { users } from './users.js';
 import { planOf } from '../modules/billing/plans.js';
 import type { ProjectOptions, Segment, Signals } from '../types.js';
 
+/** Totals of a project's AI calls, by token kind, plus one line per kind of call. */
+export interface AiUsage {
+  calls: number;
+  text: number;
+  audio: number;
+  video: number;
+  image: number;
+  cached: number;
+  output: number;
+  thoughts: number;
+  ms: number;
+  byLabel: { label: string; model: string; calls: number; text: number; audio: number; video: number; image: number; cached: number; output: number; ms: number }[];
+}
+
 export interface ProjectRow {
   id: string;
   /** owner */
@@ -43,6 +57,8 @@ export interface ProjectRow {
   mediaPath: string | null;
   thumbPath: string | null;
   aiNotes: string | null;
+  /** AI tokens this project used (saved when it finishes), so its real cost can be read off the database */
+  aiUsage?: AiUsage | null;
 }
 
 const col = () => collection<Doc<ProjectRow>>(COLLECTIONS.projects);
@@ -74,6 +90,7 @@ const UPDATABLE = [
   'mediaPath',
   'thumbPath',
   'aiNotes',
+  'aiUsage',
   'creditsCharged',
   'errorCode',
 ] as const;

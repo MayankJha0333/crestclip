@@ -1,5 +1,6 @@
 import fs from 'node:fs';
-import { GoogleGenAI, type Part, ThinkingLevel, MediaResolution } from '@google/genai';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { GoogleGenAI, type GenerateContentResponse, type Part, ThinkingLevel, MediaResolution } from '@google/genai';
 import { config } from '../config.js';
 import { gcs } from '../infra/cloudStore.js';
 import { sleep } from '../lib/proc.js';
@@ -68,6 +69,76 @@ interface Usage {
 }
 export const usage: Usage = { input: 0, output: 0, calls: 0 };
 
+/** One AI call as the cost ledger records it (tokens by kind, so a price can be put on each). */
+export interface UsageLine {
+  label: string;
+  model: string;
+  /** prompt tokens by kind — Gemini bills audio and video input at their own rates */
+  text: number;
+  audio: number;
+  video: number;
+  image: number;
+  /** prompt tokens served from the cache (cheaper) */
+  cached: number;
+  /** answer tokens (thinking included — billed as output) */
+  output: number;
+  thoughts: number;
+  ms: number;
+}
+
+/**
+ * A per-job ledger: everything inside `withUsageLedger(fn)` (a project being clipped, a re-render) gets its AI calls
+ * recorded, however many jobs run at the same time. The project saves the totals, so the real cost of a clip can
+ * be read off the database instead of guessed.
+ */
+const ledgers = new AsyncLocalStorage<UsageLine[]>();
+export async function withUsageLedger<T>(fn: () => Promise<T>): Promise<{ result: T; lines: UsageLine[] }> {
+  const lines: UsageLine[] = [];
+  const result = await ledgers.run(lines, fn);
+  return { result, lines };
+}
+
+/** Totals over a ledger (or any list of lines). */
+export function usageTotals(lines: UsageLine[]) {
+  const t = { calls: lines.length, text: 0, audio: 0, video: 0, image: 0, cached: 0, output: 0, thoughts: 0, ms: 0 };
+  for (const l of lines) {
+    t.text += l.text;
+    t.audio += l.audio;
+    t.video += l.video;
+    t.image += l.image;
+    t.cached += l.cached;
+    t.output += l.output;
+    t.thoughts += l.thoughts;
+    t.ms += l.ms;
+  }
+  return t;
+}
+
+function record(label: string, model: string, started: number, meta: GenerateContentResponse['usageMetadata']) {
+  const byKind = (details: { modality?: string; tokenCount?: number }[] | undefined, kind: string) =>
+    (details ?? []).filter((d) => String(d.modality ?? '').toUpperCase() === kind).reduce((a, d) => a + (d.tokenCount ?? 0), 0);
+  const prompt = meta?.promptTokenCount ?? 0;
+  const details = meta?.promptTokensDetails;
+  const audio = byKind(details, 'AUDIO');
+  const video = byKind(details, 'VIDEO');
+  const image = byKind(details, 'IMAGE');
+  const text = details?.length ? byKind(details, 'TEXT') : Math.max(0, prompt - audio - video - image);
+  const line: UsageLine = {
+    label,
+    model,
+    text,
+    audio,
+    video,
+    image,
+    cached: meta?.cachedContentTokenCount ?? 0,
+    output: (meta?.candidatesTokenCount ?? 0) + (meta?.thoughtsTokenCount ?? 0),
+    thoughts: meta?.thoughtsTokenCount ?? 0,
+    ms: Date.now() - started,
+  };
+  ledgers.getStore()?.push(line);
+  return line;
+}
+
 /** Call Gemini and get back parsed JSON that matches `schema`. Retries on rate limits / transient errors. */
 export async function generateJson<T>(c: JsonCall): Promise<T> {
   const model = c.model ?? config.model;
@@ -77,6 +148,7 @@ export async function generateJson<T>(c: JsonCall): Promise<T> {
   let schemaField: 'responseJsonSchema' | 'responseSchema' = 'responseJsonSchema';
   let useMediaRes = Boolean(c.lowMediaRes);
   for (let attempt = 0; attempt < 6; attempt++) {
+    const started = Date.now();
     try {
       const res = await ai().models.generateContent({
         model,
@@ -95,6 +167,7 @@ export async function generateJson<T>(c: JsonCall): Promise<T> {
       usage.calls++;
       usage.input += res.usageMetadata?.promptTokenCount ?? 0;
       usage.output += res.usageMetadata?.candidatesTokenCount ?? 0;
+      record(c.label ?? 'call', model, started, res.usageMetadata);
       const text = res.text ?? '';
       if (!text.trim()) throw new Error(`Gemini returned an empty response (${res.candidates?.[0]?.finishReason ?? 'unknown'})`);
       try {
