@@ -183,7 +183,7 @@ export async function processProject(id: string) {
       }
       if (!noSpeech) {
         stage(id, 'transcribe', 0, 'Listening to the video…');
-        const got = await transcribe(audio, duration, work, (d, t) => stage(id, 'transcribe', d / t, `Transcribing · part ${d} of ${t}`), sil);
+        const got = await transcribe(audio, duration, work, (d, t) => stage(id, 'transcribe', d / t, `Transcribing · part ${d} of ${t}`), sil, p.options.captionLanguage ?? 'auto');
         if (tooLittleSpeech(got.segments, duration)) noSpeech = true;
         else segments = await withMeasuredTimes(got.segments, info?.webpageUrl, dir);
       }
@@ -685,7 +685,7 @@ async function redoTranscript(projectId: string): Promise<string[]> {
       fs.mkdirSync(work, { recursive: true });
       await extractAudio(p.mediaPath, audio);
     }
-    const tr = await transcribe(audio, p.duration, work, () => {}, silencesFor(projectId));
+    const tr = await transcribe(audio, p.duration, work, () => {}, silencesFor(projectId), p.options.captionLanguage ?? 'auto');
     for (const f of fs.readdirSync(work)) if (f.startsWith('chunk_')) fs.rmSync(path.join(work, f), { force: true });
     if (!tr.segments.length) return [];
     segs = await withMeasuredTimes(tr.segments, p.sourceUrl, dir);
@@ -771,7 +771,7 @@ async function ensureTranscript(projectId: string, ranges: TimeRange[], onProgre
     try {
       const audio = path.join(sub, 'audio.mp3');
       await extractAudioRange(foot.src, s0 - foot.offset, e0 - s0, audio);
-      const tr = await transcribe(audio, e0 - s0, sub, (d, t) => onProgress?.(i + d / t, missing.length));
+      const tr = await transcribe(audio, e0 - s0, sub, (d, t) => onProgress?.(i + d / t, missing.length), [], p.options.captionLanguage ?? 'auto');
       const shifted = tr.segments.map((sg) => ({ ...sg, s: sg.s + s0, e: sg.e + s0, words: sg.words.map((w) => ({ ...w, s: w.s + s0, e: w.e + s0 })) }));
       segs = [...segs.filter((sg) => sg.e <= s0 || sg.s >= e0), ...shifted].sort((a, b) => a.s - b.s);
       cov.push({ start: s0, end: e0 });

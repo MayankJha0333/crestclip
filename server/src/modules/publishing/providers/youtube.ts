@@ -56,7 +56,7 @@ export const youtube = {
     const size = fs.statSync(file).size;
     const title = (post.title || 'New Short').slice(0, 100);
     const description = (post.caption || '').slice(0, 5000);
-    const tags = [...description.matchAll(/#([\p{L}\p{N}_]+)/gu)].map((m) => m[1]).slice(0, 15);
+    const tags = [...description.matchAll(/#([\p{L}\p{M}\p{N}_]+)/gu)].map((m) => m[1]).slice(0, 15);
     const scheduled = post.scheduledAt && post.scheduledAt > Date.now() + 60_000;
     const status: Record<string, unknown> = {
       privacyStatus: scheduled ? 'private' : post.privacy || 'public',

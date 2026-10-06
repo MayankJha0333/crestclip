@@ -33,6 +33,8 @@ export interface LogoChoice {
   opacity: number; // 20-100 (%)
 }
 
+export type CaptionLanguage = 'auto' | 'roman' | 'english';
+
 export interface ProjectOptions {
   platform: Platform;
   length: LengthPref;
@@ -46,6 +48,13 @@ export interface ProjectOptions {
   music?: string; // default track for new clips (see MusicSettings.track)
   musicVolume?: number;
   pace?: Pace;
+  /**
+   * The language and script of captions, hooks and titles:
+   *  'auto'    = as spoken, in its own script (Hindi in Devanagari)
+   *  'roman'   = as spoken, in English letters (Hinglish — how people type in chat)
+   *  'english' = translated into English
+   */
+  captionLanguage?: CaptionLanguage;
   emoji?: boolean; // emoji next to key words in captions
   flashForward?: boolean; // open on a short tease of the best line, then start the story
   /** Clip exactly these parts (picked on the graph) instead of letting Gemini choose. */

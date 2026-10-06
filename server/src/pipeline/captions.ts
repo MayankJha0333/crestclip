@@ -165,7 +165,7 @@ function groupWords(words: Word[], st: StyleDef): Word[][] {
   return groups;
 }
 
-const norm = (w: string) => w.toLowerCase().replace(/[^\p{L}\p{N}$%'-]/gu, '');
+const norm = (w: string) => w.toLowerCase().replace(/[^\p{L}\p{M}\p{N}$%'-]/gu, '');
 
 /** The key word this spoken word is (exact, or a short ending like "fail" → "failed"), if any. */
 function keywordOf(w: string, kws: Keyword[]): Keyword | undefined {

@@ -5,7 +5,7 @@ import { config } from '../config.js';
 import { pool, run } from '../lib/proc.js';
 import { deleteFromGcs, generateJson, part, uploadToGcs } from './gemini.js';
 import { framesAt, sceneCuts } from './media.js';
-import { cleanTitle, rangeFor } from './moments.js';
+import { cleanTitle, rangeFor, wordingRule } from './moments.js';
 import { formatTime } from './signals.js';
 import { spokenWords } from './transcribe.js';
 import type { ClipCandidate, ProjectOptions, Segment, Signals } from '../types.js';
@@ -350,7 +350,8 @@ export async function findVisualMoments(input: {
         : `part ${i + 1} of ${windows.length}: ${formatTime(w.start)}–${formatTime(w.end)} of a ${formatTime(duration)} video. ${watch.mode === 'relative' && !watch.framesOnly ? `Give times in seconds from the START OF THIS PART (0 = ${formatTime(w.start)}).` : 'Give times in seconds on the full video’s timeline.'}`;
       const prompt = `VIDEO: "${input.title}"${input.channel ? ` by ${input.channel}` : ''} — nobody talks in it.
 You are watching ${where}
-Target clip length: ${range.label}. Hard limits: ${range.min}–${range.max} s.${short ? `\nThis video is short: return the 1–${Math.min(3, ask)} best cuts. Using almost the whole video is fine when all of it is good.` : `\nReturn the ${ask} best clip candidates, best first.`}
+Target clip length: ${range.label}. Hard limits: ${range.min}–${range.max} s.
+${options.captionLanguage === 'english' || !options.captionLanguage ? '' : wordingRule(options)}${short ? `\nThis video is short: return the 1–${Math.min(3, ask)} best cuts. Using almost the whole video is fine when all of it is good.` : `\nReturn the ${ask} best clip candidates, best first.`}
 ${options.focus ? `Creator's focus request: "${options.focus}" — prioritize moments that match it.` : ''}
 ${options.rules?.length ? `\nTHE CREATOR'S RULES — every clip MUST follow these:\n${options.rules.map((r) => `- ${r}`).join('\n')}` : ''}
 ${options.instructions && !options.rules?.length ? `\nTHE CREATOR'S INSTRUCTIONS (follow them):\n${options.instructions.slice(0, 2500)}` : ''}

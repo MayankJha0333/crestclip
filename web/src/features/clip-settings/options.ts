@@ -62,3 +62,10 @@ export const CAPTIONS: Record<CaptionStyle, { name: string; style: CSSProperties
   none: { name: 'No captions', words: ['—'], style: { color: '#fff', fontWeight: 800, fontSize: 16, opacity: 0.6 }, active: {} },
 };
 export const CAPTION_ORDER: CaptionStyle[] = ['pop', 'clay', 'neon', 'comic', 'minimal', 'none'];
+
+/** Captions, hooks and titles: which language and script. */
+export const CAPTION_LANGUAGES: { value: 'auto' | 'roman' | 'english'; label: string; hint: string }[] = [
+  { value: 'auto', label: 'As spoken', hint: 'In the video’s own language and script — Hindi captions in Devanagari (हिंदी), English in English.' },
+  { value: 'roman', label: 'Hinglish / Roman', hint: 'As spoken, but in English letters — the way people type in chat ("main hota na"). Common on Indian Reels.' },
+  { value: 'english', label: 'English', hint: 'Everything translated into English, whatever language is spoken.' },
+];

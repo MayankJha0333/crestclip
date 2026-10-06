@@ -143,7 +143,10 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
   const peek = useLinkPeek(mode === 'link' && links.length === 1 && !folderLink && linkInfos0(links[0], ytOk) ? links[0] : null);
   const knownDur = mode === 'upload' ? fileDur : peek?.duration ?? null;
   useEffect(() => {
-    if (knownDur && !countTouched && !brief0(instructions)) setOpts((o) => (o.clipCount === suggestedClips(knownDur) ? o : { ...o, clipCount: suggestedClips(knownDur) }));
+    if (!knownDur || countTouched || brief0(instructions)) return;
+    // a first-timer on the free credits starts with 3 clips, so one try doesn't use up most of the month
+    const n = Math.min(suggestedClips(knownDur), balance <= 60 ? 3 : 20, Math.max(1, Math.floor(balance / perClip)));
+    setOpts((o) => (o.clipCount === n ? o : { ...o, clipCount: n }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [knownDur, countTouched]);
   const wait = waitMinutes(knownDur, opts.clipCount);

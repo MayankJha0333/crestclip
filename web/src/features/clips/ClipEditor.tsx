@@ -4,7 +4,7 @@ import { api, type CaptionStyle, type Clip, type Layout, type Motion, type Music
 import { cn } from '../../lib/cn';
 import { fmtPrecise, fmtTime } from '../../lib/format';
 import { Button, ConfirmDialog, Dialog, FieldLabel, Input, Segmented, Tabs, Textarea, Toggle } from '../../components/ui';
-import { CaptionPicker } from '../clip-settings/CaptionPicker';
+import { CaptionPicker, CaptionSample } from '../clip-settings/CaptionPicker';
 import { MotionPicker } from '../clip-settings/MotionPicker';
 import { MusicPicker } from '../clip-settings/MusicPicker';
 import { LAYOUTS, PACES } from '../clip-settings/options';
@@ -99,6 +99,8 @@ export function ClipEditor({ clip, siblings = [], onClose, onSaved }: { clip: Cl
   }, [lines, tab]);
 
   const hashtags = tags.split(/[\s,]+/).filter(Boolean);
+  // hook or caption look changed → show a mock-up on the left instead of the old render
+  const textPreview = hook !== clip.hook || showHook !== clip.showHook || captionStyle !== clip.captionStyle;
   const changed: Record<Tab, boolean> = {
     trim: Math.abs(start - clip.start) > 0.01 || Math.abs(end - clip.end) > 0.01 || pace !== clip.pace,
     text: hook !== clip.hook || showHook !== clip.showHook || captionStyle !== clip.captionStyle || emoji !== clip.emoji || flashForward !== clip.flashForward,
@@ -202,10 +204,33 @@ export function ClipEditor({ clip, siblings = [], onClose, onSaved }: { clip: Cl
         <div className="grid gap-6 lg:grid-cols-[230px_minmax(0,1fr)] lg:gap-8">
           {/* the current render */}
           <div className="flex flex-col items-center gap-3 lg:items-stretch">
-            <ClipVideo clip={clip} className="max-w-[150px] sm:max-w-[180px] lg:max-w-none" />
+            {textPreview ? (
+              // a mock-up of the hook and caption style on a frame of the clip — the real thing comes with the rebuild
+              <div className="relative aspect-[9/16] w-full max-w-[150px] overflow-hidden rounded-[22px] bg-media shadow-lift sm:max-w-[180px] lg:max-w-none" aria-label="Preview of your text changes">
+                {clip.thumbUrl && <img src={clip.thumbUrl} alt="" className="absolute inset-0 size-full object-cover opacity-60" />}
+                <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,.35)_0%,transparent_25%,transparent_55%,rgba(0,0,0,.5)_100%)]" />
+                {showHook && hook.trim() && (
+                  <span className="absolute top-[7%] left-1/2 max-w-[88%] -translate-x-1/2 -rotate-2 rounded-lg bg-white px-2.5 py-1 text-center font-[Poppins] text-[11px] leading-tight font-extrabold text-[#1e1b2b] shadow-lift">
+                    {hook}
+                  </span>
+                )}
+                {captionStyle !== 'none' && (
+                  <div key={captionStyle} className="absolute inset-x-0 top-[56%] grid animate-pop-in place-items-center px-3">
+                    <CaptionSample style={captionStyle} scale={0.7} />
+                  </div>
+                )}
+                <span className="absolute bottom-2.5 left-1/2 -translate-x-1/2 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-extrabold whitespace-nowrap text-white backdrop-blur-sm">Preview of your changes</span>
+              </div>
+            ) : (
+              <ClipVideo clip={clip} className="max-w-[150px] sm:max-w-[180px] lg:max-w-none" />
+            )}
             <p className="flex gap-2 rounded-2xl bg-row px-3 py-2.5 text-xs text-ink-3 shadow-flat">
               <Info size={14} className="mt-px shrink-0" />
-              {rebuild.length ? 'This is the current version. Your changes show after you save.' : 'This is the current version of the clip.'}
+              {textPreview
+                ? 'A mock-up of your hook and caption style. Save & rebuild to see the real clip.'
+                : rebuild.length
+                  ? 'This is the current version. Your changes show after you save.'
+                  : 'This is the current version of the clip.'}
             </p>
           </div>
 

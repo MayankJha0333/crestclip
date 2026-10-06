@@ -14,6 +14,7 @@ const DEFAULT_OPTIONS: ProjectOptions = {
   music: 'auto',
   musicVolume: 15,
   pace: 'natural',
+  captionLanguage: 'auto',
   emoji: false,
   flashForward: false,
 };

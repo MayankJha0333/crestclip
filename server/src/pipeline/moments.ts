@@ -152,6 +152,14 @@ function transcriptForPrompt(segs: Segment[]): string {
   return lines.join('\n');
 }
 
+/** How the AI should write titles, hooks and descriptions for this project. */
+export function wordingRule(o: Pick<ProjectOptions, 'captionLanguage'>): string {
+  const c = o.captionLanguage ?? 'auto';
+  if (c === 'english') return 'WRITE title, hook, hooks and description in English, whatever language is spoken.';
+  if (c === 'roman') return 'WRITE title, hook, hooks and description in the language the video is spoken in, but in Latin (English) letters — Hinglish for Hindi ("Ye sach hai?"), the way people type in chat. keywords are copied from the transcript as written there.';
+  return 'WRITE title, hook, hooks and description in the language the video is spoken in, in its own script (a Hindi video gets Devanagari hooks and titles; an English video English ones). keywords are copied from the transcript as written there.';
+}
+
 export async function findMoments(input: {
   segments: Segment[];
   duration: number;
@@ -181,6 +189,7 @@ Duration: ${formatTime(duration)} (${duration.toFixed(0)} s)
 Clips are posted to TikTok, YouTube Shorts and Instagram Reels.
 Target clip length: ${range.label}. Hard limits: ${range.min}–${range.max} s.
 Return the ${ask} best clip candidates, best first.
+${wordingRule(options)}
 ${options.focus ? `Creator's focus request: "${options.focus}" — prioritize moments that match it.` : ''}
 ${options.rules?.length ? `\nTHE CREATOR'S RULES — every clip MUST follow these (skip moments that would break them):\n${options.rules.map((r) => `- ${r}`).join('\n')}` : ''}
 ${options.instructions && !options.rules?.length ? `\nTHE CREATOR'S INSTRUCTIONS (follow them):\n${options.instructions.slice(0, 2500)}` : ''}
@@ -240,6 +249,7 @@ Target clip length: ${range.label}. Hard limits: ${range.min}–${range.max} s.
 
 THE MOST RE-WATCHED MOMENT of this video, by its own viewers, is ${formatTime(top.start)}–${formatTime(top.end)} (${top.start.toFixed(0)}s–${top.end.toFixed(0)}s).
 Return exactly 1 clip. It MUST contain that moment (or at least the second ${mid.toFixed(0)}s), start on the hook that sets it up and end right after it pays off. Follow every rule above about edges.
+${wordingRule(options)}
 ${options.rules?.length ? `\nTHE CREATOR'S RULES — the clip MUST follow these:\n${options.rules.map((r) => `- ${r}`).join('\n')}` : ''}
 
 TRANSCRIPT AROUND IT (format: [start-end seconds] speaker: text):
@@ -335,7 +345,7 @@ function parseKeywords(v: unknown): Keyword[] {
   for (const k of Array.isArray(v) ? v : []) {
     const w = String((k as Keyword)?.w ?? '')
       .toLowerCase()
-      .replace(/[^\p{L}\p{N}$%'-]/gu, '');
+      .replace(/[^\p{L}\p{M}\p{N}$%'-]/gu, '');
     const emoji = [...String((k as Keyword)?.emoji ?? '').trim()].slice(0, 2).join('');
     if (w.length < 2 || out.some((x) => x.w === w)) continue;
     out.push(emoji ? { w, emoji } : { w });
@@ -577,6 +587,7 @@ export async function describeClips(input: {
   const prompt = `VIDEO: "${input.title}"${input.channel ? ` by ${input.channel}` : ''}
 Clips are posted to TikTok, YouTube Shorts and Instagram Reels.
 The creator hand-picked these moments. Write the packaging for each one (post title, hook options, key words, caption, hashtags) and score it honestly with the rubric. Use "index" = the CLIP number. Set teaser_start and teaser_end to -1 (no teaser for hand-picked clips).
+${wordingRule(input.options)}
 
 ${blocks}`;
   try {

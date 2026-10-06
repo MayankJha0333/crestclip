@@ -77,7 +77,7 @@ export async function clipDownload(id: string, user: UserRow): Promise<{ file: s
   if (!(await ensureLocal(c.filePath))) throw new HttpError(404, 'This clip is not rendered yet.');
   const safe =
     (c.title || 'clip')
-      .replace(/[^\p{L}\p{N} _-]+/gu, '')
+      .replace(/[^\p{L}\p{M}\p{N} _-]+/gu, '')
       .trim()
       .slice(0, 60) || 'clip';
   return { file: c.filePath!, name: `${safe}.mp4` };

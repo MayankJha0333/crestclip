@@ -38,7 +38,7 @@ export async function speechGaps(src: string, start: number, dur: number): Promi
 }
 
 const BAND = 12; // seconds: how far the transcript's time for a word may be from its measured time
-const key = (w: string) => w.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+const key = (w: string) => w.toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
 
 /**
  * Put measured word times (see fetchWordTimings) on the transcript. The two word lists are matched in order — an
@@ -149,7 +149,7 @@ export function phrasesInRange(segs: Segment[], start: number, end: number): Phr
 }
 
 const SNAP = 0.4; // how far a phrase edge may move to meet the real start/end of speech
-const weight = (w: string) => Math.max(2, w.replace(/[^\p{L}\p{N}]/gu, '').length + 1);
+const weight = (w: string) => Math.max(2, w.replace(/[^\p{L}\p{M}\p{N}]/gu, '').length + 1);
 
 /**
  * Pin phrases to the measured speech and spread their words over the spoken parts. `gaps` are pauses (relative

@@ -15,6 +15,7 @@ export const optionsFields = z.object({
   music: z.string().max(40).default('auto'),
   musicVolume: z.coerce.number().min(0).max(100).default(15),
   pace: z.enum(['off', 'natural', 'fast']).default('natural'),
+  captionLanguage: z.enum(['auto', 'roman', 'english']).default('auto'),
   emoji: z.coerce.boolean().default(false),
   flashForward: z.coerce.boolean().default(false),
   ranges: z

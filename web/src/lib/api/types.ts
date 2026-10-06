@@ -52,6 +52,8 @@ export interface MusicLibrary {
   ai: { available: boolean; fake: boolean; ok: boolean | null; detail: string };
 }
 
+export type CaptionLanguage = 'auto' | 'roman' | 'english';
+
 export interface ProjectOptions {
   platform: Platform;
   length: LengthPref;
@@ -65,6 +67,8 @@ export interface ProjectOptions {
   music: string;
   musicVolume: number;
   pace: Pace;
+  /** captions, hooks and titles: 'auto' = as spoken in its own script · 'roman' = as spoken in English letters (Hinglish) · 'english' = translated */
+  captionLanguage?: CaptionLanguage;
   emoji: boolean;
   flashForward: boolean;
   ranges?: TimeRange[];

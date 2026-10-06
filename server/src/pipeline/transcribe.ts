@@ -4,7 +4,7 @@ import { config } from '../config.js';
 import { pool } from '../lib/proc.js';
 import { cutAudio } from './media.js';
 import { generateJson, part } from './gemini.js';
-import type { Segment, Word } from '../types.js';
+import type { CaptionLanguage, Segment, Word } from '../types.js';
 
 // Seconds per transcription request. Gemini's timestamps drift the further into a file it gets: on 8-minute chunks the
 // captions ran 5–30 s behind the voice by the end of each chunk. Measured on a TED talk against its official subtitles:
@@ -40,6 +40,14 @@ Every phrase must have accurate start and end timestamps in seconds (decimals al
 Label speakers S1, S2, ... consistently within this file. Mark laughter or applause as [laughs] / [applause] inside the text only when clearly audible.
 Never invent speech. If there is no speech, return an empty list.`;
 
+/** What the person chose for the words on screen (New clips → More options → Caption language). */
+export const SCRIPT_RULE: Record<CaptionLanguage, string> = {
+  auto: 'Write each language in its own script: Hindi, Marathi and Nepali in Devanagari, Bengali in Bengali script, Tamil in Tamil script, Arabic and Urdu in Arabic script, and so on. Never romanise. English words said inside another language stay in Latin letters.',
+  roman:
+    'Write EVERYTHING in Latin (English) letters. Speech in Hindi, Urdu, Punjabi, Tamil or any other language is romanised the way people type it in chat (Hinglish: "main hota na", "kya baat hai"), NOT translated. English stays English.',
+  english: 'Translate every phrase into natural, idiomatic English (keep names and brand words). The timestamps stay those of the original speech.',
+};
+
 /** Chunk boundaries placed in the middle of pauses so no word is cut in half between two requests. */
 function chunkPlan(duration: number, silences: { s: number; e: number }[]) {
   const bounds = [0];
@@ -67,8 +75,10 @@ export async function transcribe(
   workDir: string,
   onProgress: (done: number, total: number) => void,
   silences: { s: number; e: number }[] = [],
+  script: CaptionLanguage = 'auto',
 ): Promise<{ segments: Segment[]; language: string }> {
   if (config.fakeAi) return fakeTranscript(duration);
+  const sys = `${system}\n${SCRIPT_RULE[script]}`;
 
   const chunks = chunkPlan(duration, silences);
   let done = 0;
@@ -79,7 +89,7 @@ export async function transcribe(
     const ask = () =>
       generateJson<RawChunk>({
         model: config.fastModel,
-        system,
+        system: sys,
         parts: [part.file(file, 'audio/mp3'), part.text(`Transcribe this ${Math.round(c.dur)}-second audio chunk. Work out which language is spoken and return its name too.`)],
         schema,
         audioTimestamp: true,
@@ -204,7 +214,7 @@ function cleanTimeline(segs: { s: number; e: number; text: string; speaker?: str
 function withWords(segs: { s: number; e: number; text: string; speaker?: string }[]): Segment[] {
   return segs.map((seg) => {
     const tokens = seg.text.split(/\s+/).filter(Boolean);
-    const weights = tokens.map((t) => Math.max(2, t.replace(/[^\p{L}\p{N}]/gu, '').length + 1));
+    const weights = tokens.map((t) => Math.max(2, t.replace(/[^\p{L}\p{M}\p{N}]/gu, '').length + 1));
     const total = weights.reduce((a, b) => a + b, 0) || 1;
     const span = seg.e - seg.s;
     let t = seg.s;

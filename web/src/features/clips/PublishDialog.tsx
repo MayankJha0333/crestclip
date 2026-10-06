@@ -16,7 +16,7 @@ import { readLocal, writeLocal } from '../../lib/storage';
 const LAST_KEY = 'crestclip:last-post-accounts';
 /** what each network allows */
 const LIMITS = { youtubeTitle: 100, youtubeDescription: 5000, instagramCaption: 2200, instagramHashtags: 30 };
-const countTags = (text: string) => (text.match(/#[\p{L}\p{N}_]+/gu) ?? []).length;
+const countTags = (text: string) => (text.match(/#[\p{L}\p{M}\p{N}_]+/gu) ?? []).length;
 
 const nextHour = () => {
   const d = new Date(Date.now() + 3600_000);

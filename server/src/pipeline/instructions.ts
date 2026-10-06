@@ -233,7 +233,7 @@ function readBriefPlain(text: string): CampaignBrief {
     contentType: /ugc/i.test(t) ? 'UGC' : /faceless/i.test(t) ? 'faceless' : 'clipping',
     minSeconds: secs ? Number(secs[1]) : minS ? Number(minS[1]) : null,
     maxSeconds: secs ? Number(secs[2]) : maxS ? Number(maxS[1]) : null,
-    requiredHashtags: uniq(t.match(/#[\p{L}\p{N}_]{2,40}/gu) ?? []).slice(0, 12),
+    requiredHashtags: uniq(t.match(/#[\p{L}\p{M}\p{N}_]{2,40}/gu) ?? []).slice(0, 12),
     requiredMentions: uniq((t.match(/(?:^|\s)@[\w.]{2,30}/g) ?? []).map((m) => m.trim().replace(/\.+$/, ''))).slice(0, 8),
     requiredCaptionText: null,
     rules: uniq(rules).slice(0, 20),

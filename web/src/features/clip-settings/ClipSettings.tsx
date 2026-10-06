@@ -4,7 +4,7 @@ import type { ProjectOptions } from '../../lib/api';
 import { Button, FieldLabel, Segmented, Sheet, Toggle } from '../../components/ui';
 import { MotionPicker } from './MotionPicker';
 import { MusicPicker } from './MusicPicker';
-import { LAYOUTS, MOTIONS, PACES } from './options';
+import { CAPTION_LANGUAGES, LAYOUTS, MOTIONS, PACES } from './options';
 
 const musicName = (t: string) => (t === 'none' ? 'no music' : t === 'auto' ? 'auto music' : t.startsWith('upload:') ? 'your track' : `${t} music`);
 
@@ -16,7 +16,9 @@ const musicName = (t: string) => (t === 'none' ? 'no music' : t === 'auto' ? 'au
 export function ClipSettings({ value, onChange }: { value: ProjectOptions; onChange: (o: ProjectOptions) => void }) {
   const [open, setOpen] = useState(false);
   const set = <K extends keyof ProjectOptions>(k: K, v: ProjectOptions[K]) => onChange({ ...value, [k]: v });
+  const lang = CAPTION_LANGUAGES.find((l) => l.value === (value.captionLanguage ?? 'auto')) ?? CAPTION_LANGUAGES[0];
   const summary = [
+    `captions ${lang.label.toLowerCase()}`,
     value.pace === 'off' ? 'pauses kept' : `${value.pace} pause cuts`,
     `${MOTIONS.find((m) => m.value === value.motion)?.label.toLowerCase()} motion`,
     musicName(value.music),
@@ -53,6 +55,11 @@ export function ClipSettings({ value, onChange }: { value: ProjectOptions; onCha
         }
       >
         <div className="flex flex-col gap-7">
+          <section>
+            <FieldLabel>Caption language</FieldLabel>
+            <Segmented label="Caption language" size="sm" value={lang.value} onChange={(v) => set('captionLanguage', v)} options={CAPTION_LANGUAGES.map((o) => ({ value: o.value, label: o.label }))} />
+            <p className="mt-2 text-[13px] text-ink-3">{lang.hint} Hooks and titles follow the same choice.</p>
+          </section>
           <section>
             <FieldLabel>Cut pauses</FieldLabel>
             <Segmented label="Cut pauses" value={value.pace} onChange={(v) => set('pace', v)} options={PACES.map((o) => ({ value: o.value, label: o.label }))} />
