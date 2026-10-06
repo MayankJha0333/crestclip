@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Ship the code on this computer straight to crestclip.com, skipping GitHub Actions (for when its queue is slow).
 #
-#   ./deploy/push-from-mac.sh
+#   ./devops/server/push-from-mac.sh
 #
 # It builds the same Docker image GitHub would, uploads it as "main", and waits until crestclip.com runs it.
 # The server picks it up within a minute and goes back to the old version by itself if the new one doesn't start.
 # Needs: Docker Desktop running, and gcloud logged in (gcloud auth login) with access to peakclip-510216.
 # Skips GitHub's "does the image start" test — the server's own roll-back covers that.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 REGISTRY=us-central1-docker.pkg.dev
 IMAGE=$REGISTRY/peakclip-510216/crestclip/app

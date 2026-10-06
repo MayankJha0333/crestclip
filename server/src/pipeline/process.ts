@@ -26,6 +26,7 @@ import { download, downloadAudio, fetchComments, fetchInfo, fetchWordTimings, ty
 import { endSectionMode, footageFor, footageSavings, infoJsonPath, prefetchFootage, readFootage, startSectionMode } from './footage.js';
 import { classifyFileLink, downloadFileLink, fileLinkLabel } from './filelink.js';
 import type { CaptionStyle, Layout, ProjectOptions, ReframePlan, Segment, Signals, TimeRange, Word } from '../types.js';
+import { withClusterLock } from '../infra/shared.js';
 
 type Stage = 'fetch' | 'listen' | 'transcribe' | 'moments' | 'render';
 const STAGE_RANGE: Record<Stage, [number, number]> = {
@@ -410,7 +411,8 @@ export function renderClipJob(clipId: string): Promise<void> {
   }
   const job = (async () => {
     try {
-      await renderSlot(() => renderOnce(clipId));
+      // one render of a clip at a time across every worker (they share the clip's files); a second one waits its turn
+      await withClusterLock(`render:${clipId}`, () => renderSlot(() => renderOnce(clipId)), { wait: true });
     } finally {
       inflight.delete(clipId);
       if (again.delete(clipId)) await renderClipJob(clipId);

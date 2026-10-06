@@ -80,6 +80,9 @@ export const config = {
     return (env('INSTAGRAM_REDIRECT_BASE') || (this.publicUrl.startsWith('https://') ? this.publicUrl : `https://localhost:${this.httpsPort}`)).replace(/\/$/, '');
   },
   secretKey: env('SECRET_KEY'),
+  /** The data/secret.key file's contents (64 hex characters), kept in Secret Manager so a new server can read existing
+   *  connected accounts. Wins over the file when set. */
+  secretKeyHex: env('SECRET_KEY_HEX'),
 
   // Accounts
   /** emails that are admins (comma-separated). The very first account is always an admin. */
@@ -195,8 +198,22 @@ export const config = {
   // Background music: Google's Lyria model on Vertex AI (same project/credits as Gemini)
   musicModel: env('MUSIC_MODEL', 'lyria-002'),
   musicLocation: env('MUSIC_LOCATION', 'us-central1'),
+  /** Videos one process works on at once (with ROLE=worker: per worker container). */
   jobConcurrency: num('JOB_CONCURRENCY', 1),
+  /** Clip encodes one process runs at once, across all its videos (per worker container). */
   renderConcurrency: num('RENDER_CONCURRENCY', 2),
+  /**
+   * What this process does — one image, several jobs (docker-compose.prod.yml runs each as its own container):
+   *   web       — the website + API (several copies behind Caddy's load balancer). Only queues work.
+   *   worker    — takes video/render jobs from the Redis queue. Scale by adding containers.
+   *   scheduler — exactly one: posting at the booked time, Autopilot, storage cleanup, queue repair.
+   *   all       — everything in one process (local development; the default).
+   */
+  role: (['web', 'worker', 'scheduler'].includes(env('ROLE')) ? env('ROLE') : 'all') as 'web' | 'worker' | 'scheduler' | 'all',
+  /** A video job running longer than this is stopped and re-run once in a fresh worker; a second time it fails. */
+  jobMaxMinutes: num('JOB_MAX_MINUTES', 150),
+  /** Same for one clip render. */
+  renderMaxMinutes: num('RENDER_MAX_MINUTES', 30),
   x264Preset: env('X264_PRESET', 'medium'),
 };
 

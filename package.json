@@ -2,17 +2,19 @@
   "name": "crestclip",
   "private": true,
   "version": "0.1.0",
-  "description": "CrestClip — AI clipping that finds the most-watched moments of any video and turns them into ready-to-post shorts. Powered by Gemini on Vertex AI.",
+  "description": "CrestClip \u2014 AI clipping that finds the most-watched moments of any video and turns them into ready-to-post shorts. Powered by Gemini on Vertex AI.",
   "workspaces": [
     "server",
-    "web"
+    "web",
+    "devops/dashboard"
   ],
   "scripts": {
     "predev": "node scripts/ensure-deps.mjs",
     "dev": "npm run doctor --silent; concurrently -k -n api,web -c magenta,cyan \"npm:dev -w server\" \"npm:dev -w web\"",
     "build": "npm run build -w web && npm run typecheck -w server",
     "start": "npm run start -w server",
-    "doctor": "npm run doctor -w server --silent"
+    "doctor": "npm run doctor -w server --silent",
+    "dashboard": "npm run dev -w devops/dashboard"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"

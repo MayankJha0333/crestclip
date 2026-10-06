@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { aiReady } from '../../config.js';
 import { credits, projects, type ClipRow, type ProjectRow, type UserRow } from '../../db/index.js';
-import { enqueueJob, enqueueProject, enqueueRender } from '../../infra/queue.js';
+import { enqueuePick, enqueueProject, enqueueRender } from '../../infra/queue.js';
 import { HttpError } from '../../lib/http.js';
 import { projectDir } from '../../lib/paths.js';
 import { classifyFileLink, fileLinkLabel } from '../../pipeline/filelink.js';
@@ -51,7 +51,7 @@ export async function createFromLink(user: UserRow, url: string, options: Projec
   requireAi();
   await assertHasCredits(user, clipsAsked(options));
   const p = await projectFromLink(user.id, url, await applyInstructions(options, user.id));
-  enqueueProject(p.id);
+  enqueueProject(p.id, true);
   return p;
 }
 
@@ -72,7 +72,7 @@ export async function createFromLinks(user: UserRow, links: string[], options: P
   const group = urls.length > 1 ? await projects.create({ userId: user.id, sourceType: 'group', options: understood }) : null;
   const made: ProjectRow[] = [];
   for (const u of urls) made.push(await projectFromLink(user.id, u, understood, group?.id ?? null)); // in the order given
-  for (const p of made) enqueueProject(p.id);
+  for (const p of made) enqueueProject(p.id, true);
   return { group: group ? (await projects.get(group.id))! : null, made, options: understood };
 }
 
@@ -162,7 +162,7 @@ export async function createFromFolder(user: UserRow, url: string, options: Proj
     made.push(
       await projects.create({ userId: user.id, sourceType: 'upload', sourceUrl: driveFileUrl(p.file.id), title: cleanTitle(p.file.name), options: understood, parentId: group?.id ?? null }),
     );
-  for (const p of made) enqueueProject(p.id);
+  for (const p of made) enqueueProject(p.id, true);
   return {
     group: group ? (await projects.get(group.id))! : null,
     made,
@@ -208,7 +208,7 @@ export async function createFromUpload(user: UserRow, file: { path: string; orig
   const dest = path.join(dir, `source${ext}`);
   fs.renameSync(file.path, dest);
   await projects.update(p.id, { mediaPath: dest });
-  enqueueProject(p.id);
+  enqueueProject(p.id, true);
   return (await projects.get(p.id))!;
 }
 
@@ -218,7 +218,7 @@ export async function retryProject(id: string, user: UserRow) {
   const list = p.sourceType === 'group' ? (await projects.children(p.id)).filter((k) => k.status === 'failed') : [p];
   for (const k of list) {
     await projects.update(k.id, { status: 'queued', error: null, errorCode: null, stage: 'queued', progress: 0 });
-    enqueueProject(k.id);
+    enqueueProject(k.id, true);
   }
 }
 
@@ -250,14 +250,17 @@ export async function addPickedClips(user: UserRow, p: ProjectRow, ranges: TimeR
   }
   if (paid && created.length < asked) await credits.reduceSpend(paid, creditsForClips(created.length), `Picked parts · ${created.length} clip${created.length === 1 ? '' : 's'}`);
   const ids = created.map((c) => c.id);
-  enqueueJob(`pick:${projectId}:${ids.join(',')}`, async () => {
-    try {
-      await preparePickedClips(projectId, ids);
-    } catch (e) {
-      if (paid) await credits.refund(paid, 'Refund · picked parts couldn’t be prepared');
-      throw e;
-    }
-    for (const id of ids) enqueueRender(id);
-  });
+  void enqueuePick({ projectId, ids, paid: paid ?? null });
   return created;
+}
+
+/** The queued half of addPickedClips (runs on a worker): fetch the picked parts, then render each clip. */
+export async function runPick(d: { projectId: string; ids: string[]; paid: string | null }) {
+  try {
+    await preparePickedClips(d.projectId, d.ids);
+  } catch (e) {
+    if (d.paid) await credits.refund(d.paid, 'Refund · picked parts couldn’t be prepared');
+    throw e;
+  }
+  for (const id of d.ids) void enqueueRender(id);
 }

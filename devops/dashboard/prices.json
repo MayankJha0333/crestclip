@@ -1,0 +1,36 @@
+{
+  "_read_me": "Prices the Costs page uses for its estimates (USD). Edit any number here and redeploy. The real bill per service comes from Google's billing export when it's switched on (see devops/README.md, step 6) — that always wins over these estimates.",
+  "_checked": "2026-10-07",
+
+  "server": {
+    "_source": "https://gcloud-compute.com/asia-south1.html (on-demand, no discounts)",
+    "machinePerMonth": {
+      "asia-south1": { "e2-medium": 29.38, "e2-standard-2": 58.75, "e2-standard-4": 117.51, "e2-standard-8": 235.02 },
+      "us-central1": { "e2-medium": 24.46, "e2-standard-2": 48.92, "e2-standard-4": 97.84, "e2-standard-8": 195.67 }
+    },
+    "diskPerGbMonth": 0.12,
+    "_disk_note": "Balanced persistent disk, asia-south1",
+    "publicIpPerMonth": 3.65,
+    "_ip_note": "An external IPv4 address in use: $0.005 per hour"
+  },
+
+  "ai": {
+    "_source": "Third-party price trackers (getmaxim.ai, Oct 2026) — Google's own page didn't list these models yet. Check https://cloud.google.com/vertex-ai/generative-ai/pricing and correct if needed.",
+    "_assumptions": "Audio and video input are priced like text input, and cached input at 10% of input — Google often charges these differently, so treat AI numbers as estimates until billing export is on.",
+    "modelsPerMillionTokens": {
+      "gemini-3.8-flash": { "input": 0.75, "audio": 0.75, "cached": 0.075, "output": 3.75 },
+      "gemini-3.5-flash-lite": { "input": 0.3, "audio": 0.3, "cached": 0.03, "output": 2.5 }
+    },
+    "fallbackModel": "gemini-3.8-flash",
+    "musicPer30Seconds": 0.06,
+    "_music_source": "Lyria 2 (lyria-002), https://cloud.google.com/vertex-ai/generative-ai/pricing"
+  },
+
+  "otherMonthly": [
+    { "name": "MongoDB Atlas (free tier)", "perMonth": 0 },
+    { "name": "Redis (runs on the server — no extra cost)", "perMonth": 0 },
+    { "name": "Secret Manager (inside the free tier)", "perMonth": 0 },
+    { "name": "DataImpulse proxy ($1 per GB used — put your monthly average here)", "perMonth": 0 },
+    { "name": "Domain crestclip.com (yearly price ÷ 12 — fill in)", "perMonth": 0 }
+  ]
+}

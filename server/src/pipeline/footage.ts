@@ -5,6 +5,7 @@ import { projects, type ProjectRow } from '../db/index.js';
 import { probe } from './media.js';
 import { pool } from '../lib/proc.js';
 import { download, downloadSections, type Section } from './ytdlp.js';
+import { withClusterLock } from '../infra/shared.js';
 
 /**
  * "Footage" = where the pixels for a clip come from.
@@ -73,7 +74,8 @@ function planRanges(ranges: { start: number; end: number }[], duration: number) 
 const locks = new Map<string, Promise<unknown>>();
 function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const prev = locks.get(key) ?? Promise.resolve();
-  const next = prev.catch(() => {}).then(fn);
+  // in this process, then across every worker (they share the project's folder and footage.json)
+  const next = prev.catch(() => {}).then(() => withClusterLock(`footage:${key}`, fn, { wait: true, ttlMs: 120_000 }) as Promise<T>);
   locks.set(key, next);
   next.finally(() => locks.get(key) === next && locks.delete(key)).catch(() => {});
   return next;

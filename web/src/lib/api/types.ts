@@ -190,6 +190,8 @@ export interface Project {
   status: 'queued' | 'processing' | 'done' | 'failed';
   stage: string | null;
   stageDetail: string | null;
+  /** queued: videos running before this one (0 = starting now); null = unknown */
+  queueAhead?: number | null;
   progress: number;
   error: string | null;
   /** set when the person can fix the failure by upgrading or buying credits */

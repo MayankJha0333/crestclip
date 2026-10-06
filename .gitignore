@@ -7,3 +7,6 @@ data/
 credentials/
 *-key.json
 web/dist-server/
+
+# production settings pulled for editing (devops/secrets/secrets.sh) — never committed
+devops/secrets/*.env

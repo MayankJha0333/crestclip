@@ -59,6 +59,16 @@ export function createApp() {
   app.set('trust proxy', 'loopback'); // real client IPs behind a local reverse proxy (rate limits)
   // keep the raw bytes too: Razorpay webhooks are signed over the exact body
   app.use(express.json({ limit: '2mb', verify: (req, _res, buf) => ((req as Request).rawBody = Buffer.from(buf)) }));
+  // The admin pages (/admin: jobs, live logs, costs — devops/dashboard) sit behind Caddy, which first asks this:
+  // 204 for a signed-in CrestClip admin, 401 for anyone else. One log-in for the app and the admin pages.
+  app.get('/admin/gate', attachUser, (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    if (req.user?.isAdmin) return res.sendStatus(204);
+    res
+      .status(401)
+      .type('html')
+      .send('<p style="font:16px system-ui;margin:40px">Sign in to CrestClip with an admin account, then open this page again. <a href="/login">Sign in</a></p>');
+  });
   // who is signed in: only the API and private media need it (page files, fonts and scripts don't)
   app.use(['/api', '/media'], attachUser);
 
@@ -95,7 +105,7 @@ export function createApp() {
     app.use('/assets', express.static(path.join(config.webDist, 'assets'), { index: false, maxAge: '1y', immutable: true }));
     app.use(express.static(config.webDist, { index: false, maxAge: '1h' }));
     // every other address gets the app page, with its own title, tags and the page built into HTML (see seo.ts)
-    app.get(/^\/(?!api|media).*/, asyncHandler(sendAppPage));
+    app.get(/^\/(?!api|media|admin\/).*/, asyncHandler(sendAppPage));
   }
 
   app.use(errorHandler);

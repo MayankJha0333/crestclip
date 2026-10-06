@@ -11,6 +11,13 @@ const STAGES = [
   { key: 'render', label: 'Reframe & render' },
 ];
 
+/** "Starting…" or "In line · 2 videos ahead", instead of a worker nobody can see. */
+function queuedText(ahead: number | null | undefined) {
+  if (ahead == null) return 'Starting soon…';
+  if (ahead <= 0) return 'Starting…';
+  return `In line · ${ahead === 1 ? '1 video' : `${ahead} videos`} ahead of this one`;
+}
+
 /** Where a project is in the pipeline, step by step. */
 export function ProcessingCard({ p }: { p: Project }) {
   const idx = STAGES.findIndex((s) => s.key === p.stage);
@@ -37,7 +44,7 @@ export function ProcessingCard({ p }: { p: Project }) {
       </ol>
       <Progress value={p.progress} className="mt-6 h-5" label="Progress" />
       <p className="mt-3 font-bold text-ink-2">
-        {p.status === 'queued' ? 'Waiting for a free worker…' : p.stageDetail || 'Working…'} <span className="text-ink-3">· {Math.round(p.progress)}%</span>
+        {p.status === 'queued' ? queuedText(p.queueAhead) : p.stageDetail || 'Working…'} <span className="text-ink-3">· {Math.round(p.progress)}%</span>
       </p>
     </Card>
   );

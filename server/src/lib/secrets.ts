@@ -6,6 +6,7 @@ import { config } from '../config.js';
 /** Encrypts small secrets (OAuth tokens) for the local database with AES-256-GCM. */
 
 function key(): Buffer {
+  if (/^[0-9a-f]{64}$/i.test(config.secretKeyHex)) return Buffer.from(config.secretKeyHex, 'hex');
   if (config.secretKey) return crypto.createHash('sha256').update(config.secretKey).digest();
   const file = path.join(config.dataDir, 'secret.key');
   if (!fs.existsSync(file)) {

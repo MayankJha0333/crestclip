@@ -84,35 +84,12 @@ The image needs no system packages. The build pre-downloads yt-dlp so the first 
 
 ### Launching it for real (one Google Cloud machine + automatic deploys)
 
-CrestClip runs on one Compute Engine VM (an always-on machine) in the same project as your credits. The app,
-Redis and Caddy (free automatic HTTPS) run together from `docker-compose.prod.yml` in `/opt/crestclip`.
-Cloud Run doesn't fit: it refuses uploads over 32 MB, and its disk is wiped on every restart.
+Everything about running CrestClip in production — the server layout (website ×2 behind a load balancer, workers,
+scheduler, Redis), deploys, settings in Google Secret Manager, and the admin pages (jobs, live logs, costs) — lives
+in **[`devops/`](devops/README.md)**. Start with `devops/README.md`.
 
-**Every push to `main` deploys itself** (`.github/workflows/pipeline.yml`):
-
-1. **Check** — server types, web app types and build (also on pull requests).
-2. **Image** — build the Docker image, start it against a test MongoDB + Redis and check it answers. On `main`,
-   upload it to Artifact Registry and tag it `main`. GitHub logs in to Google without a stored key (Workload
-   Identity Federation) and can only upload images — it never logs in to the server.
-3. **Live** — the server checks for a new `main` every minute (`deploy/pull-deploy.sh`, a systemd timer), takes the
-   compose file and Caddyfile out of the new image, switches, waits for `/api/live`, and goes back to the previous
-   version by itself if the new one doesn't start. GitHub waits until `https://crestclip.com/api/live` reports the
-   new commit.
-
-One-time setup:
-
-1. Service account `crestclip-server` with **Vertex AI User** ("Agent Platform User") and **Logs Writer**, plus
-   **Storage Admin** on your bucket.
-2. VM `crestclip-server-mumbai` in `asia-south1-a` (Mumbai, next to the MongoDB Atlas cluster) with that service account (e2-standard-4, Ubuntu 24.04, 50 GB, HTTP + HTTPS allowed) and a
-   static IP. Point the domain's A record at it. In MongoDB Atlas → Network Access, allow the IP.
-3. Run `deploy/gcp-setup.sh` in Cloud Shell and add the GitHub variable `GCP_WIF_PROVIDER` it prints
-   (Settings → Secrets and variables → Actions → Variables).
-4. On the server: put the settings in `/opt/crestclip/.env` and `/opt/crestclip/data/secret.key`, upload
-   `deploy/server-install.sh` + `deploy/pull-deploy.sh` and run `sudo bash server-install.sh`.
-5. Push to `main` (or Actions → CI/CD → Run workflow). Watch the server: `journalctl -u crestclip-update -f`.
-
-Keep `data/secret.key` — connected YouTube/Instagram accounts can't be read without it. Run only one server against
-the same database (Autopilot would otherwise post twice). `/api/live` is a public "is it up, which version?" check.
+In short: push to `main` → GitHub tests and uploads the image → the server switches by itself, one piece at a time.
+Settings: `./devops/secrets/secrets.sh edit`. Admin pages: `https://crestclip.com/admin/`.
 
 ### Clip storage: Cloud Storage + 7-day auto-delete
 

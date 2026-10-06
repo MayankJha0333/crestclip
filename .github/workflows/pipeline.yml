@@ -4,11 +4,12 @@
 #                                  2. Build the app image and test that it starts
 #   Pushes to main only:              … upload it to Google Artifact Registry and mark it as "main"
 #                                  3. Wait until crestclip.com runs it — the server checks for a new "main"
-#                                     every minute and switches by itself (deploy/pull-deploy.sh), going back to
+#                                     every minute and switches by itself (devops/server/update.sh), going back to
 #                                     the old version if the new one doesn't start.
 #
 # GitHub never logs in to the server and stores no keys: it uploads with a keyless Google login.
-# One-time setup: deploy/gcp-setup.sh (Cloud Shell) → GitHub variable GCP_WIF_PROVIDER; deploy/server-install.sh (server).
+# One-time setup: devops/gcp/setup.sh (Cloud Shell) → GitHub variable GCP_WIF_PROVIDER; devops/server/install.sh (server).
+# Everything about running it lives in devops/ — start with devops/README.md.
 
 name: CI/CD
 
@@ -43,6 +44,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: Server types
         run: npm run typecheck -w server
+      - name: Admin dashboard types
+        run: npm run typecheck -w devops/dashboard
       - name: Web app types + build
         run: npm run build -w web
 
@@ -84,9 +87,26 @@ jobs:
           curl -fsS http://127.0.0.1:8787/ | grep -q 'id="root"'
           curl -fsS http://127.0.0.1:8787/api/billing/plans >/dev/null
           echo "✓ the image starts, reaches the database and serves the web app"
+      - name: A worker and the admin pages start too
+        run: |
+          docker run -d --name worker --network host -e ROLE=worker -e CRESTCLIP_FAKE_AI=1 \
+            -e MONGODB_URI=mongodb://127.0.0.1:27017 -e MONGODB_DB=ci -e REDIS_URL=redis://127.0.0.1:6379 crestclip:test
+          docker run -d --name dashboard --network host -e MONGODB_URI=mongodb://127.0.0.1:27017 -e MONGODB_DB=ci \
+            -e REDIS_URL=redis://127.0.0.1:6379 crestclip:test node_modules/.bin/tsx devops/dashboard/src/server.ts
+          for i in $(seq 1 45); do docker logs worker 2>&1 | grep -q 'worker ready' && break; sleep 2; done
+          docker logs worker 2>&1 | grep -q 'worker ready' || { docker logs worker | tail -40; exit 1; }
+          for i in $(seq 1 30); do curl -fsS -o /dev/null http://127.0.0.1:8790/admin/healthz && break; sleep 2; done
+          curl -fsS http://127.0.0.1:8790/admin/ | grep -q 'Workers connected'
+          curl -fsS -o /dev/null http://127.0.0.1:8790/admin/queues/
+          # the app's admin check says no to strangers
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/admin/gate)" = 401
+          echo "✓ worker takes jobs from Redis, admin pages answer, /admin is locked"
       - name: App logs
         if: always()
-        run: docker logs app 2>&1 | tail -80 || true
+        run: |
+          docker logs app 2>&1 | tail -80 || true
+          docker logs worker 2>&1 | tail -30 || true
+          docker logs dashboard 2>&1 | tail -30 || true
 
       - name: Log in to Google (keyless)
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
@@ -124,5 +144,5 @@ jobs:
           done
           echo "✗ The server didn't switch to this version within 15 minutes."
           echo "  It most likely didn't start and the server went back to the previous version."
-          echo "  See why on the server:  journalctl -u crestclip-update -n 120"
+          echo "  See why on the server:  sudo journalctl -u crestclip-update -n 120"
           exit 1

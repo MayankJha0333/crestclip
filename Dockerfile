@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends fontconfig font
 COPY package.json package-lock.json* ./
 COPY server/package.json server/
 COPY web/package.json web/
+COPY devops/dashboard/package.json devops/dashboard/
 RUN npm install --no-audit --no-fund
 
 COPY . .

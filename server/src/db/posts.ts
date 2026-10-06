@@ -109,7 +109,17 @@ export const posts = {
   forSlot: (autopilotId: string, slotKey: string) => list({ autopilotId, slotKey }),
   scheduledForAutopilot: (autopilotId: string) => list({ autopilotId, status: 'scheduled' }),
   allScheduledAutopilot: () => list({ autopilotId: { $ne: null }, status: 'scheduled' }),
-  stuck: () => list({ status: { $in: ['uploading', 'processing'] } }),
+  /** Posts left mid-upload by a process that stopped. Only ones untouched for 30 min: a younger one may be uploading
+   *  right now in another process (a website copy's "post now"), and resetting it would post the clip twice. */
+  stuck: () => list({ status: { $in: ['uploading', 'processing'] }, updatedAt: { $lt: now() - 30 * 60_000 } }),
+  /**
+   * Take a booked post for uploading: true for exactly one caller, however many processes try at once (the scheduler
+   * and a "post now" click on a website copy), so a clip is never posted twice.
+   */
+  async claim(id: string, attempts: number): Promise<boolean> {
+    const r = await col().updateOne({ _id: id, status: 'scheduled' }, { $set: { status: 'uploading', attempts, error: null, updatedAt: now() } });
+    return r.modifiedCount === 1;
+  },
   async update(id: string, patch: Partial<Pick<PostRow, 'status' | 'remoteId' | 'remoteUrl' | 'error' | 'attempts' | 'scheduledAt' | 'slotKey'>>) {
     await col().updateOne({ _id: id }, { $set: setFields(patch, ['status', 'remoteId', 'remoteUrl', 'error', 'attempts', 'scheduledAt', 'slotKey']) });
   },

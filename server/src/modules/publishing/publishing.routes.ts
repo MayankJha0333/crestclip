@@ -15,11 +15,14 @@ publishingRouter.get(
   }),
 );
 
-publishingRouter.get('/connect/:platform/start', (req, res) => {
-  const platform = req.params.platform;
-  if (!service.isPlatform(platform)) return res.status(404).send('Unknown platform');
-  res.redirect(service.connectUrl(platform, me(req)));
-});
+publishingRouter.get(
+  '/connect/:platform/start',
+  asyncHandler(async (req, res) => {
+    const platform = req.params.platform;
+    if (!service.isPlatform(platform)) return res.status(404).send('Unknown platform');
+    res.redirect(await service.connectUrl(platform, me(req)));
+  }),
+);
 
 publishingRouter.get(
   '/connect/:platform/callback',

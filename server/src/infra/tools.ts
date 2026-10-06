@@ -129,7 +129,7 @@ async function downloadYt(): Promise<void> {
   const url = `https://github.com/yt-dlp/yt-dlp/releases/latest/download/${asset}`;
   const res = await fetch(url, { redirect: 'follow' });
   if (!res.ok || !res.body) throw new Error(`Download failed (${res.status})`);
-  const tmp = `${managedYt}.download`;
+  const tmp = `${managedYt}.${process.pid}-${Date.now()}.download`; // unique: several containers share data/bin
   fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
   fs.chmodSync(tmp, 0o755);
   fs.renameSync(tmp, managedYt);
@@ -195,11 +195,12 @@ export function ensureYtdlp(force = false): Promise<void> {
 }
 
 /** Start-up + daily upkeep. */
-export function startToolUpkeep() {
+/** `updates`: also check for yt-dlp updates every few hours — one process does this (the scheduler), not every copy. */
+export function startToolUpkeep(opts: { updates: boolean } = { updates: true }) {
   ensureFfmpeg().then(() => log(`ffmpeg: ${ffmpegSource()} → ${ffmpegPath()}`));
   void ensureYtdlp().then(() => ytStatus.version && log(`yt-dlp ${ytStatus.version} (${ytStatus.source})`));
   // daily-ish update check
-  setInterval(() => void ensureYtdlp(), 6 * 3600_000).unref();
+  if (opts.updates) setInterval(() => void ensureYtdlp(), 6 * 3600_000).unref();
   // a tool that failed (computer asleep, no internet, a slow first start) is tried again every 5 minutes, not hours later
   setInterval(() => {
     if (ytStatus.state === 'error') void ensureYtdlp();

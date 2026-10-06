@@ -67,7 +67,7 @@ exploreRouter.get(
   asyncHandler(async (req, res) => {
     const url = validate(z.string().url(), req.query.url, 'Paste a full YouTube link.');
     if (!youtubeId(url)) throw new HttpError(400, 'The free preview works with YouTube links. Sign up to clip podcasts, Twitch and your own files.');
-    rateLimit(`peek:${req.ip}`, 30, 60 * 60_000, 'That’s a lot of previews — sign up to keep going, or try again in an hour.');
+    await rateLimit(`peek:${req.ip}`, 30, 60 * 60_000, 'That’s a lot of previews — sign up to keep going, or try again in an hour.');
     await assertPublicUrl(url);
     const p = await service.preview(url).catch(sourceFailed);
     const avg = p.curve?.length ? p.curve.reduce((a, b) => a + b, 0) / p.curve.length : 0;

@@ -1,0 +1,157 @@
+# CrestClip on one Google Cloud VM. One app image, run as several containers that each do one job:
+#
+#   caddy       HTTPS for crestclip.com + load balancer: spreads visitors over web-1 and web-2, skips one that's down
+#   web-1/2     the website + API (two copies: one can restart during a deploy while the other keeps serving)
+#   worker ×N   take video and render jobs from the Redis queue (N = WORKERS in sizing.env)
+#   scheduler   exactly one: posts at the booked time, Autopilot, storage cleanup, queue repair
+#   redis       the job queue (kept on disk, so a restart loses nothing)
+#   pot         YouTube token helper for yt-dlp
+#   dashboard   admin pages: overview, jobs, costs           → crestclip.com/admin/
+#   dozzle      live logs of every container                  → crestclip.com/admin/logs/
+#
+# Settings: /opt/crestclip/.env, written by update.sh from Google Secret Manager (secret "crestclip-env") —
+# edit them with devops/secrets/secrets.sh, never on the server. Sizing (how many workers): sizing.env next to this file.
+# Everything uses the machine's own network on 127.0.0.1; only Caddy's ports 80/443 are open to the internet.
+#
+#   By hand on the server:  cd /opt/crestclip && sudo docker compose -f devops/server/docker-compose.prod.yml \
+#                             --env-file deploy.env --env-file devops/server/sizing.env up -d
+#   Logs:                   crestclip.com/admin/logs/   (or: sudo docker logs -f crestclip-web-1-1)
+
+name: crestclip
+
+x-logs: &logs
+  logging:
+    driver: json-file
+    options: { max-size: 20m, max-file: '3' }
+
+x-env: &env
+  NODE_ENV: production
+  DATA_DIR: /data
+  REDIS_URL: redis://127.0.0.1:6379
+  # On Google Cloud the machine's own service account is used — no key file needed
+  GOOGLE_APPLICATION_CREDENTIALS: ''
+  # Mac paths from a copied .env don't exist here; the image has its own tools
+  FFMPEG_PATH: ''
+  FFPROBE_PATH: ''
+  YTDLP_PATH: ''
+  # YouTube blocks cloud servers, so yt-dlp goes through DataImpulse home-internet addresses when blocked.
+  # No password: this server's IP is whitelisted in DataImpulse (Manage Whitelist IPs). {port} = one sticky
+  # address per video (10000-20000). Set here (not in the secret) so an old value in .env can't override it.
+  YTDLP_PROXY: 'http://gw.dataimpulse.com:{port}'
+  YTDLP_PROXY_MODE: fallback
+  YTDLP_PROXY_RETRIES: '2'
+
+x-app: &app
+  image: ${IMAGE:?IMAGE is not set — the updater (devops/server/update.sh) writes it to deploy.env}
+  restart: unless-stopped
+  network_mode: host
+  init: true
+  volumes:
+    - /opt/crestclip/.env:/app/.env:ro
+    - /opt/crestclip/data:/data
+  depends_on: [redis, pot]
+  <<: *logs
+
+x-web-health: &webhealth
+  # the website copy answers /api/live (Caddy also checks this every 5 s before sending visitors)
+  test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:'+process.env.PORT+'/api/live').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+  interval: 15s
+  timeout: 5s
+  retries: 3
+  start_period: 60s
+
+services:
+  web-1:
+    <<: *app
+    environment: { <<: *env, ROLE: web, PORT: '8787' }
+    healthcheck: *webhealth
+    stop_grace_period: 15s
+
+  web-2:
+    <<: *app
+    environment: { <<: *env, ROLE: web, PORT: '8788' }
+    healthcheck: *webhealth
+    stop_grace_period: 15s
+
+  worker:
+    <<: *app
+    environment:
+      <<: *env
+      ROLE: worker
+      JOB_CONCURRENCY: ${WORKER_JOBS:-2}
+      RENDER_CONCURRENCY: ${WORKER_RENDERS:-2}
+    deploy:
+      replicas: ${WORKERS:-2}
+    # on a deploy, a worker hands its unfinished jobs back to the queue; another worker re-runs them
+    stop_grace_period: 30s
+
+  scheduler:
+    <<: *app
+    environment: { <<: *env, ROLE: scheduler }
+    stop_grace_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    network_mode: host
+    # appendonly: every change is written to disk (jobs survive a restart). noeviction: never silently drop a job
+    # when memory is full (the queue library requires it) — the dashboard shows Redis memory.
+    command: ['redis-server', '--bind', '127.0.0.1', '--port', '6379', '--appendonly', 'yes', '--appendfsync', 'everysec', '--maxmemory', '1gb', '--maxmemory-policy', 'noeviction']
+    volumes:
+      - redis:/data
+    <<: *logs
+
+  # PO-token helper for YouTube: yt-dlp asks it (on 127.0.0.1:4416) for the "proof of origin" token YouTube now
+  # expects from real players. Free; the standard fix for "Sign in to confirm you're not a bot" on cloud servers.
+  pot:
+    image: brainicism/bgutil-ytdlp-pot-provider:latest
+    restart: unless-stopped
+    network_mode: host
+    init: true
+    <<: *logs
+
+  dashboard:
+    image: ${IMAGE}
+    restart: unless-stopped
+    network_mode: host
+    init: true
+    command: ['node_modules/.bin/tsx', 'devops/dashboard/src/server.ts']
+    environment: { <<: *env, DASHBOARD_PORT: '8790', WEB_PORTS: '8787,8788' }
+    volumes:
+      - /opt/crestclip/.env:/app/.env:ro
+      - /opt/crestclip/data:/data:ro
+      # read-only: container list + CPU/memory for the Overview and Costs pages
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on: [redis]
+    <<: *logs
+
+  dozzle:
+    image: amir20/dozzle:latest
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      DOZZLE_ADDR: 127.0.0.1:8081
+      DOZZLE_BASE: /admin/logs
+      DOZZLE_NO_ANALYTICS: 'true'
+      DOZZLE_FILTER: label=com.docker.compose.project=crestclip
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    <<: *logs
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      DOMAIN: ${DOMAIN:-crestclip.com}
+    volumes:
+      - /opt/crestclip/devops/server/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    <<: *logs
+
+volumes:
+  # same names as before (project "crestclip"), so the queue data and HTTPS certificates are kept
+  redis: {}
+  caddy_data: {}
+  caddy_config: {}

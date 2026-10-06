@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { clips, projects, type ClipSummary, type ProjectRow } from '../../db/index.js';
 import { projectDir, toMediaUrl } from '../../lib/paths.js';
 import { readFootage } from '../../pipeline/footage.js';
+import { projectQueuePosition } from '../../infra/queue.js';
 import { cloudOn } from '../../infra/cloudStore.js';
 import { publicClips } from '../clips/clips.presenter.js';
 
@@ -56,6 +57,8 @@ export function publicProject(p: ProjectRow, withDetail = false) {
     stage: p.stage,
     // progress text only while working: finished projects saved before may hold download sizes and AI usage
     stageDetail: p.status === 'queued' || p.status === 'processing' ? p.stageDetail : null,
+    /** queued: how many videos run before this one (0 = starting now) */
+    queueAhead: p.status === 'queued' ? projectQueuePosition(p.id) : null,
     progress: p.progress,
     error: publicError(p.error),
     /** 'credits' | 'plan_limit' — the person can fix it by upgrading */

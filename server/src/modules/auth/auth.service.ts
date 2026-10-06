@@ -4,6 +4,7 @@ import { config } from '../../config.js';
 import { sessions, users, type UserRow } from '../../db/index.js';
 import { HttpError } from '../../lib/http.js';
 import { refreshAccount } from '../billing/billing.service.js';
+import { hitShared, putShared, takeShared } from '../../infra/shared.js';
 
 const scrypt = promisify(crypto.scrypt) as (pw: string, salt: Buffer, len: number, opts: crypto.ScryptOptions) => Promise<Buffer>;
 const SCRYPT = { N: 16384, r: 8, p: 1 };
@@ -23,15 +24,10 @@ async function checkPassword(pw: string, stored: string | null): Promise<boolean
   return crypto.timingSafeEqual(want, got);
 }
 
-// ---------------- simple in-memory rate limits (per server process) ----------------
-const hits = new Map<string, number[]>();
+// ---------------- rate limits (shared by every app copy through Redis) ----------------
 /** Allow `max` attempts per `windowMs` for this key; throws 429 after that. */
-export function rateLimit(key: string, max: number, windowMs: number, message: string) {
-  const t = Date.now();
-  const list = (hits.get(key) ?? []).filter((x) => t - x < windowMs);
-  if (list.length >= max) throw new HttpError(429, message);
-  list.push(t);
-  hits.set(key, list);
+export async function rateLimit(key: string, max: number, windowMs: number, message: string) {
+  if ((await hitShared(`rl:${key}`, windowMs)) > max) throw new HttpError(429, message);
 }
 
 // ---------------- accounts ----------------
@@ -67,15 +63,14 @@ export const endSession = async (token: string) => await sessions.remove(token);
 
 export const googleLoginReady = () => Boolean(config.googleLoginClientId && config.googleLoginClientSecret);
 const googleRedirect = () => `${config.publicUrl}/api/auth/google/callback`;
-const pending = new Map<string, { next: string; at: number }>();
 
 /** Only send people back inside the app. */
 const safeNext = (n: unknown) => (typeof n === 'string' && /^\/app(\/|$|\?)/.test(n) ? n : '/app');
 
-export function googleStartUrl(next: unknown): string {
+export async function googleStartUrl(next: unknown): Promise<string> {
   const state = crypto.randomBytes(16).toString('hex');
-  pending.set(state, { next: safeNext(next), at: Date.now() });
-  for (const [k, v] of pending) if (Date.now() - v.at > 600_000) pending.delete(k);
+  // kept in Redis, so the sign-in finishes even when Google's reply reaches the other app copy
+  await putShared(`google-login:${state}`, { next: safeNext(next) }, 600_000);
   return `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
     client_id: config.googleLoginClientId,
     redirect_uri: googleRedirect(),
@@ -88,8 +83,7 @@ export function googleStartUrl(next: unknown): string {
 
 /** Google sent the person back: find or make their account. Returns the account and where to go next. */
 export async function googleFinish(q: Record<string, unknown>): Promise<{ user: UserRow; next: string; isNew: boolean }> {
-  const p = pending.get(String(q.state ?? ''));
-  pending.delete(String(q.state ?? ''));
+  const p = q.state ? await takeShared<{ next: string }>(`google-login:${String(q.state)}`) : null;
   if (q.error) throw new HttpError(400, String(q.error_description ?? q.error));
   if (!p) throw new HttpError(400, 'That sign-in link expired. Please try again.');
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {

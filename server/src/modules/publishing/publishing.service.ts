@@ -7,6 +7,7 @@ import { HttpError } from '../../lib/http.js';
 import { open, seal, sign, verify } from '../../lib/secrets.js';
 import type { CreatePosts } from './publishing.schemas.js';
 import { instagram, isConfigured, platformName, providers, youtube, type Platform, type Tokens } from './providers/index.js';
+import { putShared, takeShared } from '../../infra/shared.js';
 
 /**
  * Publishing — post clips to YouTube (Shorts) and Instagram (Reels), now or on a schedule.
@@ -14,12 +15,10 @@ import { instagram, isConfigured, platformName, providers, youtube, type Platfor
  */
 
 // ---------------- connecting accounts (OAuth) ----------------
-// pending OAuth "state" values (CSRF protection), 10 min lifetime
-const states = new Map<string, { platform: Platform; userId: string; at: number }>();
-function newState(platform: Platform, userId: string) {
+// pending OAuth "state" values (CSRF protection), 10 min lifetime — in Redis, so any app copy can finish the connect
+async function newState(platform: Platform, userId: string) {
   const s = crypto.randomBytes(16).toString('hex');
-  states.set(s, { platform, userId, at: Date.now() });
-  for (const [k, v] of states) if (Date.now() - v.at > 600_000) states.delete(k);
+  await putShared(`connect:${s}`, { platform, userId }, 600_000);
   return s;
 }
 
@@ -31,16 +30,15 @@ const settingsPage = `${config.publicUrl}/app/settings`;
 const settingsUrl = (q: Record<string, string>) => `${settingsPage}?${new URLSearchParams(q)}`;
 
 /** Where to send the browser to start connecting an account. */
-export function connectUrl(platform: Platform, user: UserRow): string {
+export async function connectUrl(platform: Platform, user: UserRow): Promise<string> {
   if (!isConfigured(platform)) return `${settingsPage}?error=${encodeURIComponent(`${platformName(platform)} isn’t set up yet — add its app keys to .env (see the setup steps).`)}`;
-  return providers[platform].authUrl(newState(platform, user.id));
+  return providers[platform].authUrl(await newState(platform, user.id));
 }
 
 /** The platform sent the person back: save the account. Returns where to send the browser next. */
 export async function finishConnect(platform: Platform, query: Record<string, unknown>): Promise<string> {
   const state = String(query.state ?? '');
-  const pending = states.get(state);
-  states.delete(state);
+  const pending = state ? await takeShared<{ platform: Platform; userId: string }>(`connect:${state}`) : null;
   if (query.error) return settingsUrl({ error: String(query.error_description ?? query.error_reason ?? query.error) });
   if (!pending || pending.platform !== platform) return settingsUrl({ error: 'That sign-in link expired. Please try connecting again.' });
   try {
@@ -128,7 +126,7 @@ export async function runPost(postId: string) {
     if (!conn) return await posts.update(post.id, { status: 'failed', error: 'The account was disconnected.' });
     if (!clip?.filePath || !(await ensureLocal(clip.filePath)))
       return await posts.update(post.id, { status: 'failed', error: 'The clip isn’t rendered (or was deleted). Re-render it and try again.' });
-    await posts.update(post.id, { status: 'uploading', attempts: post.attempts + 1, error: null });
+    if (!(await posts.claim(post.id, post.attempts + 1))) return; // another process took it a moment ago
     const token = await accessToken(conn);
     const res: { id: string; url: string; note?: string } =
       conn.platform === 'youtube' ? await youtube.publish(token, post, clip.filePath) : await instagram.publish(token, conn.accountId, post, videoLink(post.id));
@@ -232,9 +230,13 @@ export function startScheduler() {
       .due()
       .then((due) => due.forEach((p) => void runPost(p.id)))
       .catch((e) => console.warn('[posts] scheduler:', (e as Error).message));
-  void (async () => {
-    for (const p of await posts.stuck()) await posts.update(p.id, { status: 'scheduled', error: 'Restarted after an interruption' });
-  })().catch((e) => console.warn('[posts] could not resume interrupted posts:', (e as Error).message));
+  // posts left half-uploaded by a process that stopped go back in line (checked now and every 10 minutes)
+  const resume = () =>
+    void (async () => {
+      for (const p of await posts.stuck()) await posts.update(p.id, { status: 'scheduled', error: 'Restarted after an interruption' });
+    })().catch((e) => console.warn('[posts] could not resume interrupted posts:', (e as Error).message));
+  resume();
+  setInterval(resume, 10 * 60_000).unref();
   setTimeout(tick, 5000);
   setInterval(tick, 30_000).unref();
 }

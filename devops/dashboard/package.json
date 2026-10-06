@@ -1,0 +1,26 @@
+{
+  "name": "@crestclip/devops-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "description": "CrestClip admin pages: system overview, jobs (Bull Board), costs. Runs as its own container next to the app.",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "dev": "tsx watch src/server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bull-board/api": "^9.10.4",
+    "@bull-board/express": "^9.10.4",
+    "bullmq": "^5.81.5",
+    "express": "^4.21.2",
+    "ioredis": "^5.11.1",
+    "mongodb": "^6.21.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.13.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

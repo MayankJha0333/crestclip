@@ -30,7 +30,7 @@ authRouter.post(
   '/auth/login',
   asyncHandler(async (req, res) => {
     const body = validate(z.object({ email, password: z.string().min(1).max(200) }), req.body, 'Enter your email and password.');
-    service.rateLimit(`login:${req.ip}:${body.email}`, 10, 15 * 60_000, 'Too many tries. Wait 15 minutes and try again.');
+    await service.rateLimit(`login:${req.ip}:${body.email}`, 10, 15 * 60_000, 'Too many tries. Wait 15 minutes and try again.');
     const user = await service.logIn(body);
     const s = await service.startSession(user.id);
     setSessionCookie(res, s.token, s.expiresAt);
@@ -67,7 +67,7 @@ authRouter.post(
   requireUser,
   asyncHandler(async (req, res) => {
     const body = validate(z.object({ current: z.string().max(200).default(''), next: password }), req.body, (i) => i ?? 'Check the passwords.');
-    service.rateLimit(`pw:${me(req).id}`, 10, 15 * 60_000, 'Too many tries. Wait 15 minutes.');
+    await service.rateLimit(`pw:${me(req).id}`, 10, 15 * 60_000, 'Too many tries. Wait 15 minutes.');
     await service.changePassword(me(req), body.current, body.next);
     res.json({ ok: true });
   }),
@@ -79,17 +79,20 @@ authRouter.post(
   requireUser,
   asyncHandler(async (req, res) => {
     const body = validate(z.object({ email: z.string().max(200) }), req.body, 'Type your email address to confirm.');
-    service.rateLimit(`delete:${me(req).id}`, 5, 15 * 60_000, 'Too many tries. Wait 15 minutes.');
+    await service.rateLimit(`delete:${me(req).id}`, 5, 15 * 60_000, 'Too many tries. Wait 15 minutes.');
     await deleteAccount(me(req), body.email);
     clearSessionCookie(res);
     res.json({ ok: true });
   }),
 );
 
-authRouter.get('/auth/google/start', (req, res) => {
-  if (!service.googleLoginReady()) return res.redirect(`${config.publicUrl}/login?error=${encodeURIComponent('Google sign-in isn’t set up on this server.')}`);
-  res.redirect(service.googleStartUrl(req.query.next));
-});
+authRouter.get(
+  '/auth/google/start',
+  asyncHandler(async (req, res) => {
+    if (!service.googleLoginReady()) return res.redirect(`${config.publicUrl}/login?error=${encodeURIComponent('Google sign-in isn’t set up on this server.')}`);
+    res.redirect(await service.googleStartUrl(req.query.next));
+  }),
+);
 
 authRouter.get('/auth/google/callback', async (req, res) => {
   try {

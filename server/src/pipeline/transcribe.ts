@@ -85,7 +85,11 @@ export async function transcribe(
   let lang = '';
   const results = await pool(chunks, 8, async (c, i) => {
     const file = path.join(workDir, `chunk_${String(i).padStart(3, '0')}.mp3`);
-    await cutAudio(audioPath, file, c.start, c.dur);
+    // each chunk's answer is kept next to its audio: a restart mid-way (deploy, crash) picks up where it stopped
+    // instead of paying for the whole video again; the key holds the script choice and the chunk's exact bounds
+    const cacheFile = path.join(workDir, `chunk_${String(i).padStart(3, '0')}.${script}.${Math.round(c.start)}-${Math.round(c.dur)}.json`);
+    const cached = readChunkCache(cacheFile);
+    if (!cached) await cutAudio(audioPath, file, c.start, c.dur);
     const ask = () =>
       generateJson<RawChunk>({
         model: config.fastModel,
@@ -97,11 +101,14 @@ export async function transcribe(
         maxOutputTokens: 8192,
         label: `transcribe chunk ${i + 1}/${chunks.length}`,
       });
-    let r = await ask();
-    for (let tries = 1; tries < 3 && badTimes(r.segments || [], c.dur); tries++) r = await ask();
-    if (badTimes(r.segments || [], c.dur)) {
-      console.warn(`[transcribe] chunk ${i + 1}: timestamps still broken after 3 tries — spreading its phrases evenly`);
-      r = { ...r, segments: spreadEvenly(r.segments || [], c.dur) };
+    let r = cached ?? (await ask());
+    if (!cached) {
+      for (let tries = 1; tries < 3 && badTimes(r.segments || [], c.dur); tries++) r = await ask();
+      if (badTimes(r.segments || [], c.dur)) {
+        console.warn(`[transcribe] chunk ${i + 1}: timestamps still broken after 3 tries — spreading its phrases evenly`);
+        r = { ...r, segments: spreadEvenly(r.segments || [], c.dur) };
+      }
+      writeChunkCache(cacheFile, r);
     }
     done++;
     onProgress(done, chunks.length);
@@ -126,6 +133,22 @@ export async function transcribe(
 }
 
 type RawChunk = { language?: string; segments: { s: number; e: number; sp?: string; t: string }[] };
+
+function readChunkCache(file: string): RawChunk | null {
+  try {
+    const r = JSON.parse(fs.readFileSync(file, 'utf8')) as RawChunk;
+    return Array.isArray(r?.segments) ? r : null;
+  } catch {
+    return null;
+  }
+}
+function writeChunkCache(file: string, r: RawChunk) {
+  try {
+    fs.writeFileSync(file, JSON.stringify(r));
+  } catch {
+    /* a full disk only loses the shortcut */
+  }
+}
 
 /** Words actually spoken (sound tags like [music] or [laughs] don't count). */
 export function spokenWords(segs: { text: string }[]): number {

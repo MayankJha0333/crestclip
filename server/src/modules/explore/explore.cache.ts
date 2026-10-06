@@ -28,8 +28,9 @@ function persist() {
       fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
       // keep the feeds + recent searches/peeks, newest last
       const entries = [...cache.entries()].filter(([, v]) => Date.now() - v.at < MAX_STALE).slice(-250);
-      fs.writeFileSync(`${cacheFile}.tmp`, JSON.stringify(entries));
-      fs.renameSync(`${cacheFile}.tmp`, cacheFile);
+      const tmp = `${cacheFile}.${process.pid}-${Date.now()}.tmp`; // unique: both website copies save this file
+      fs.writeFileSync(tmp, JSON.stringify(entries));
+      fs.renameSync(tmp, cacheFile);
     } catch {
       /* best effort */
     }
