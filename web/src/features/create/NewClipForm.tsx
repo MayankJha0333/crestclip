@@ -5,7 +5,7 @@ import { api, saveOptions, savedOptions, type ProjectOptions } from '../../lib/a
 import { cn } from '../../lib/cn';
 import { fmtTime } from '../../lib/format';
 import { toast } from '../../lib/toast';
-import { Badge, Button, FieldLabel, Progress, Segmented, Select } from '../../components/ui';
+import { Badge, Button, FieldLabel, Progress, Segmented, Select, Toggle } from '../../components/ui';
 import { CaptionPicker } from '../clip-settings/CaptionPicker';
 import { ClipSettings } from '../clip-settings/ClipSettings';
 import { LENGTHS } from '../clip-settings/options';
@@ -44,6 +44,38 @@ function useFileDuration(file: File | null) {
   }, [file]);
   return dur;
 }
+
+/** A single YouTube link's length (and title), read in about a second, so the form can size the project before anything is spent. */
+function useLinkPeek(url: string | null) {
+  const [peek, setPeek] = useState<{ url: string; duration: number; title: string } | null>(null);
+  useEffect(() => {
+    if (!url) return setPeek(null);
+    let gone = false;
+    const t = setTimeout(() => {
+      api
+        .peek(url)
+        .then((p) => !gone && setPeek({ url, duration: p.duration, title: p.title }))
+        .catch(() => !gone && setPeek(null));
+    }, 500);
+    return () => {
+      gone = true;
+      clearTimeout(t);
+    };
+  }, [url]);
+  return peek && peek.url === url ? peek : null;
+}
+
+const linkInfos0 = (u: string, ytOk: boolean) => detectLink(u, { youtube: ytOk })?.kind === 'youtube';
+const brief0 = (t: string) => Boolean(previewInstructions(t).length);
+
+/** How many clips a video of this length usually holds: 3 under 10 min, 6 up to an hour, 10 above. */
+export const suggestedClips = (seconds: number) => (seconds < 10 * 60 ? 3 : seconds <= 60 * 60 ? 6 : 10);
+
+/**
+ * A rough wait, in minutes: reading the audio and finding moments grow with the video, rendering with the clips.
+ * (Measured on the live server: a 14-min talk with 5 clips takes about 6 minutes end to end.)
+ */
+export const waitMinutes = (seconds: number | null, clips: number) => Math.max(2, Math.round(2 + (seconds ? (seconds / 60) * 0.12 : 3) + clips * 0.5));
 
 /** Numbered step with a dot that turns into a check when the step is done. */
 function Step({ n, title, hint, done, children, last }: { n: number; title: string; hint?: ReactNode; done?: boolean; children: ReactNode; last?: boolean }) {
@@ -95,6 +127,8 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
   // what this will cost: credits per clip × clips × videos (unused clips are given back)
   const perClip = account.credits.perClip;
   const tooLong = mode === 'upload' && fileDur != null && fileDur > plan.maxVideoMinutes * 60;
+  // true once the person sets the clip count by hand — then the video's length no longer changes it
+  const [countTouched, setCountTouched] = useState(false);
 
   // links in the list, plus one still being typed (counts too, so Enter isn't required)
   const links = [...new Set([...items, ...splitLinks(draft)])].slice(0, MAX_VIDEOS);
@@ -105,6 +139,14 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
   const folder = useFolderPreview(folderMixed ? null : folderLink);
   const folderVideos = folder.status === 'ready' ? folder.data.willClip : 0;
   const videos = mode === 'upload' ? 1 : folderLink ? Math.max(1, folderVideos) : Math.max(1, links.length);
+  // one YouTube link: its length, so the clip count and the wait can be sized to the video
+  const peek = useLinkPeek(mode === 'link' && links.length === 1 && !folderLink && linkInfos0(links[0], ytOk) ? links[0] : null);
+  const knownDur = mode === 'upload' ? fileDur : peek?.duration ?? null;
+  useEffect(() => {
+    if (knownDur && !countTouched && !brief0(instructions)) setOpts((o) => (o.clipCount === suggestedClips(knownDur) ? o : { ...o, clipCount: suggestedClips(knownDur) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [knownDur, countTouched]);
+  const wait = waitMinutes(knownDur, opts.clipCount);
   const cost = opts.clipCount * perClip * videos;
   const linkInfos = links.map((u) => ({ url: u, info: detectLink(u, { youtube: ytOk }) }));
   const brief = previewInstructions(instructions);
@@ -402,18 +444,36 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
             <div>
               <FieldLabel>Clips</FieldLabel>
               <div className="inline-flex items-center gap-1.5 rounded-full bg-sunken p-1 shadow-well">
-                <Button size="icon-sm" className="size-8" aria-label="Fewer clips" disabled={opts.clipCount <= 1} onClick={() => set('clipCount', opts.clipCount - 1)}>
+                <Button
+                  size="icon-sm"
+                  className="size-8"
+                  aria-label="Fewer clips"
+                  disabled={opts.clipCount <= 1}
+                  onClick={() => {
+                    setCountTouched(true);
+                    set('clipCount', opts.clipCount - 1);
+                  }}
+                >
                   <Minus size={14} />
                 </Button>
                 <b className="min-w-6 text-center font-display text-lg" aria-live="polite">
                   {opts.clipCount}
                 </b>
-                <Button size="icon-sm" className="size-8" aria-label="More clips" disabled={opts.clipCount >= 20} onClick={() => set('clipCount', opts.clipCount + 1)}>
+                <Button
+                  size="icon-sm"
+                  className="size-8"
+                  aria-label="More clips"
+                  disabled={opts.clipCount >= 20}
+                  onClick={() => {
+                    setCountTouched(true);
+                    set('clipCount', opts.clipCount + 1);
+                  }}
+                >
                   <Plus size={14} />
                 </Button>
               </div>
               <small className="mt-1 block text-xs text-ink-3">
-                {opts.clipCount * perClip} credits{videos > 1 ? ' per video' : ''}
+                {knownDur ? `${fmtTime(knownDur)} video · ` : ''}~{wait} min wait{videos > 1 ? ' per video' : ''}
               </small>
             </div>
             <label className="flex flex-col">
@@ -438,6 +498,16 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
           <FieldLabel>Caption style</FieldLabel>
           <CaptionPicker compact value={opts.captionStyle} onChange={(v) => set('captionStyle', v)} />
         </div>
+
+        <label className="flex items-center justify-between gap-3 rounded-2xl bg-row px-3.5 py-2.5 shadow-flat">
+          <span className="min-w-0">
+            <b className="block text-sm">Background music</b>
+            <span className="block text-xs text-ink-3">{opts.music === 'none' ? 'Off — just the video’s own sound' : 'On, quietly under the voice · change the mood in More options'}</span>
+          </span>
+          <Toggle checked={opts.music !== 'none'} onChange={(on) => set('music', on ? 'auto' : 'none')}>
+            <span className="sr-only">Background music</span>
+          </Toggle>
+        </label>
 
         <LogoPicker value={opts.logo} onChange={(v) => set('logo', v)} ask={textLogo} />
 
@@ -464,8 +534,8 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
               {!busy && <Wand2 size={20} />}
               {submitLabel}
             </Button>
-            <p className="mt-2.5 text-center text-xs text-ink-3">
-              Uses up to {cost.toLocaleString()} credits ({perClip} per clip) · you have {balance.toLocaleString()}
+            <p className="mt-2.5 text-center text-xs text-ink-3" title={`${cost.toLocaleString()} of your ${balance.toLocaleString()} credits (${perClip} per clip); clips that don’t come out are refunded`}>
+              Up to {(opts.clipCount * videos).toLocaleString()} clip{opts.clipCount * videos === 1 ? '' : 's'} · you can make {Math.floor(balance / perClip).toLocaleString()} more
               {cost > balance &&
                 (folderLink ? (
                   <b className="mt-1 block text-warn-ink">The AI will pick only as many videos as your credits cover.</b>

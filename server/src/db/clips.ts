@@ -42,6 +42,8 @@ export interface ClipRow {
   flashForward: boolean;
   /** length of the rendered video; null until rendered */
   outDuration: number | null;
+  /** the judge's one line on what holds this clip back */
+  weakest?: string | null;
 }
 
 /** The few clip fields a list card needs. */
@@ -183,6 +185,7 @@ export const clips = {
         teaser: c.teaser ?? null,
         emoji: defaults.emoji,
         flashForward: Boolean(defaults.flashForward && c.teaser),
+        weakest: c.weakest ?? null,
         outDuration: null,
       };
     });

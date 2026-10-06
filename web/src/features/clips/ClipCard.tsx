@@ -9,7 +9,7 @@ import { ScoreRing } from '../../components/brand/ScoreRing';
 import { postLabel, SOCIAL, TONE_BADGE } from '../schedule/postStatus';
 import { ClipVideo } from './ClipVideo';
 import { PublishDialog } from './PublishDialog';
-import { CATEGORY_TONE, RubricBars } from './scoreBits';
+import { CATEGORY_TONE, RubricBars, scoreDrivers } from './scoreBits';
 import { track } from '../../lib/analytics';
 
 /**
@@ -34,6 +34,7 @@ export function ClipCard({
   onChanged: () => void;
 }) {
   const [why, setWhy] = useState(false);
+  const [detail, setDetail] = useState(false);
   const [posting, setPosting] = useState(false);
   const [busy, setBusy] = useState(false);
   const working = clip.status === 'pending' || clip.status === 'rendering';
@@ -140,17 +141,45 @@ export function ClipCard({
           </button>
           {why && (
             <div className="mt-3 flex flex-col gap-3">
-              <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-xl bg-row px-3 py-2 shadow-flat">
-                  <span className="block text-xs font-bold text-ink-3">AI virality</span>
-                  <b className="font-display text-xl">{clip.aiScore}</b>
+              {clip.rubric && (
+                <div className="flex flex-col gap-1.5 text-sm">
+                  {scoreDrivers(clip.rubric).strong.length > 0 && (
+                    <p className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-xs font-bold text-ink-3">Works:</span>
+                      {scoreDrivers(clip.rubric).strong.map((d) => (
+                        <Badge key={d} tone="good">
+                          {d}
+                        </Badge>
+                      ))}
+                      {clip.audienceScore != null && audienceKind === 'audience' && clip.audienceScore >= 70 && <Badge tone="orange">Rewatched more than {clip.audienceScore}% of the video</Badge>}
+                    </p>
+                  )}
+                  {(clip.weakest || scoreDrivers(clip.rubric).weak) && (
+                    <p className="text-ink-2">
+                      <span className="text-xs font-bold text-ink-3">Holding it back: </span>
+                      {clip.weakest ?? scoreDrivers(clip.rubric).weak}
+                    </p>
+                  )}
                 </div>
-                <div className="rounded-xl bg-row px-3 py-2 shadow-flat">
-                  <span className="block text-xs font-bold text-ink-3">{audienceKind === 'audience' ? 'Rewatched more than' : 'Energy vs. the rest'}</span>
-                  <b className="font-display text-xl">{clip.audienceScore == null ? '—' : audienceKind === 'audience' ? `${clip.audienceScore}% of video` : `${clip.audienceScore}/100`}</b>
-                </div>
-              </div>
-              {clip.rubric && <RubricBars rubric={clip.rubric} />}
+              )}
+              <button type="button" onClick={() => setDetail((o) => !o)} aria-expanded={detail} className="self-start text-xs font-extrabold text-ink-3 hover:text-ink">
+                {detail ? 'Hide the numbers' : 'See the numbers'}
+              </button>
+              {detail && (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-xl bg-row px-3 py-2 shadow-flat">
+                      <span className="block text-xs font-bold text-ink-3">Clip quality (AI judge)</span>
+                      <b className="font-display text-xl">{clip.aiScore}</b>
+                    </div>
+                    <div className="rounded-xl bg-row px-3 py-2 shadow-flat">
+                      <span className="block text-xs font-bold text-ink-3">{audienceKind === 'audience' ? 'Rewatched more than' : 'Energy vs. the rest'}</span>
+                      <b className="font-display text-xl">{clip.audienceScore == null ? '—' : audienceKind === 'audience' ? `${clip.audienceScore}% of video` : `${clip.audienceScore}/100`}</b>
+                    </div>
+                  </div>
+                  {clip.rubric && <RubricBars rubric={clip.rubric} />}
+                </>
+              )}
             </div>
           )}
         </div>

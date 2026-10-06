@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ChevronRight, Clapperboard, ExternalLink, Film, Hourglass, Layers, ListChecks, RotateCcw, Trash2, Tv, XCircle } from 'lucide-react';
+import { ArrowLeft, AudioLines, ChevronRight, Clapperboard, ExternalLink, Film, Flame, Hourglass, Layers, ListChecks, RotateCcw, Scissors, Trash2, Tv, XCircle } from 'lucide-react';
 import { api, type Project } from '../../lib/api';
-import { deletesIn, fmtTime, fmtViews } from '../../lib/format';
+import { deletesIn, fmtTime, fmtViews, retryable } from '../../lib/format';
+import { HeatChart } from '../media/HeatChart';
 import { usePolling } from '../../lib/hooks';
 import { useCachedState } from '../../lib/cache';
 import { Badge, Button, Card, EmptyState, Progress, Skeleton, Spinner, Tabs } from '../../components/ui';
@@ -108,7 +109,7 @@ function SingleProject({ p, load }: { p: Project; load: () => void }) {
         }
         actions={
           <>
-            {p.status === 'failed' && (
+            {p.status === 'failed' && retryable(p.error, p.errorCode) && (
               <Button variant="primary" onClick={() => api.retry(p.id).then(load)}>
                 <RotateCcw size={18} /> Try again
               </Button>
@@ -135,9 +136,12 @@ function SingleProject({ p, load }: { p: Project; load: () => void }) {
             </UpgradeCallout>
           ) : (
             <Card tone="flat" className="bg-bad-bg p-5 text-bad-ink shadow-none">
-              <b>Something went wrong</b>
+              <b>{retryable(p.error, p.errorCode) ? 'Something went wrong' : 'This video can’t be clipped'}</b>
               <p className="mt-1 font-semibold">{p.error}</p>
-              {(p.creditsCharged ?? 0) === 0 && <p className="mt-2 text-sm">Your credits for this video were given back.</p>}
+              <p className="mt-2 text-sm">
+                {(p.creditsCharged ?? 0) === 0 && 'Your credits for this video were given back. '}
+                {retryable(p.error, p.errorCode) ? 'This is usually a hiccup — press Try again.' : 'Running it again would end the same way, so there’s no retry button here.'}
+              </p>
             </Card>
           ))}
 
@@ -167,6 +171,30 @@ function SingleProject({ p, load }: { p: Project; load: () => void }) {
           />
         ) : clips.length ? (
           <>
+            {p.signals && p.duration && p.signals.curveKind !== 'none' && (
+              <Card className="p-4 sm:p-5">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <b className="inline-flex items-center gap-1.5 font-display">
+                    {p.signals.curveKind === 'audience' ? <Flame size={16} className="text-accent" /> : <AudioLines size={16} className="text-accent" />}
+                    {p.signals.curveKind === 'audience' ? 'Where viewers rewatch' : 'Where the energy spikes'}
+                    <span className="text-sm font-semibold text-ink-3">· numbered bands are your clips</span>
+                  </b>
+                  {hasSource && (
+                    <Button size="sm" onClick={() => setTab('source')}>
+                      <Scissors size={14} /> Pick your own parts
+                    </Button>
+                  )}
+                </div>
+                <HeatChart
+                  curve={p.signals.curve}
+                  duration={p.duration}
+                  kind={p.signals.curveKind}
+                  height={120}
+                  bands={clips.flatMap((c) => (c.segments?.length ? c.segments : [{ start: c.start, end: c.end }]).map((r) => ({ id: c.id, start: r.start, end: r.end, rank: rank.get(c.id) ?? 0 })))}
+                  onPick={openClip}
+                />
+              </Card>
+            )}
             <p className="-mb-2 text-sm font-bold text-ink-3">
               {clips.length} clips · {ready} ready
             </p>
@@ -237,7 +265,7 @@ function GroupProject({ p, load }: { p: Project; load: () => void }) {
         }
         actions={
           <>
-            {anyFailed && !working && (
+            {anyFailed && !working && parts.some((x) => x.status === 'failed' && retryable(x.error, x.errorCode)) && (
               <Button variant="primary" onClick={() => api.retry(p.id).then(load)}>
                 <RotateCcw size={18} /> Retry failed videos
               </Button>
@@ -253,6 +281,19 @@ function GroupProject({ p, load }: { p: Project; load: () => void }) {
       <DeleteProjectDialog project={deleting ? { ...p, clipCount: clips.length } : null} onCancel={() => setDeleting(false)} onDeleted={() => nav('/app/projects')} />
 
       {p.aiNotes && <p className="mt-4 max-w-3xl px-1 text-[15px] text-ink-2">🤖 {p.aiNotes}</p>}
+
+      {anyFailed && !working && (
+        <Card tone="flat" className="mt-4 bg-bad-bg p-4 text-bad-ink shadow-none">
+          {failureLines(parts).map((l) => (
+            <p key={l.reason} className="text-sm font-semibold">
+              <XCircle size={14} className="mr-1.5 inline -translate-y-px" />
+              {l.count === 1 ? '1 video' : `${l.count} videos`}: {l.reason}
+              {!l.retryable && <span className="font-normal"> — running them again would end the same way</span>}
+            </p>
+          ))}
+          <p className="mt-1.5 text-xs">Nothing was charged for videos that failed. The Videos tab shows each one.</p>
+        </Card>
+      )}
 
       {rules.length > 0 && (
         <div className="mt-4 flex flex-wrap items-center gap-1.5 px-1">
@@ -349,6 +390,20 @@ function GroupProject({ p, load }: { p: Project; load: () => void }) {
       </div>
     </>
   );
+}
+
+/** Failed videos of a group, grouped by reason: "8 videos: No speech…" instead of eight red rows. */
+function failureLines(parts: Project[]) {
+  const by = new Map<string, { reason: string; count: number; retryable: boolean }>();
+  for (const x of parts) {
+    if (x.status !== 'failed') continue;
+    const reason = (x.error || 'Failed').replace(/\s+/g, ' ').trim();
+    const key = reason.toLowerCase().slice(0, 60);
+    const row = by.get(key) ?? { reason, count: 0, retryable: retryable(x.error, x.errorCode) };
+    row.count++;
+    by.set(key, row);
+  }
+  return [...by.values()].sort((a, b) => b.count - a.count);
 }
 
 /** "Kept until 9 Oct": projects and their clips are deleted after the storage time. */

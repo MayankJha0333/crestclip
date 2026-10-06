@@ -125,6 +125,8 @@ export interface ClipCandidate {
   keywords?: Keyword[];
   /** the punchiest 1–3 s inside the clip, for a flash-forward opening (absolute seconds) */
   teaser?: TimeRange | null;
+  /** the judge's one line on what holds this clip back ("Why this score" shows it) */
+  weakest?: string | null;
 }
 
 export interface CropHold {

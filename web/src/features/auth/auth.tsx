@@ -48,8 +48,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       setMe(await api.me());
-    } catch {
-      setMe(null);
+    } catch (e) {
+      // only a real "not signed in" answer logs the person out; a server restart or a network blip keeps what we have
+      const status = (e as { status?: number }).status;
+      if (status === 401 || status === 403) setMe(null);
+      else setMeState((cur) => (cur === undefined ? null : cur));
     }
   }, [setMe]);
   // visits count per account, not per browser (random account ID only — never the email)

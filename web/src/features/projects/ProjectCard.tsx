@@ -23,7 +23,7 @@ export function ProjectCard({ p, onDelete }: { p: Project; onDelete: (p: Project
           {p.thumbUrl ? <img src={p.thumbUrl} alt="" loading="lazy" className="size-full object-cover" /> : <Film size={30} className="text-white/50" />}
           {left && (
             <span className="absolute top-2 left-2" title={`Kept until ${left.until} — download or post the clips before then`}>
-              <Badge tone={left.soon ? 'warn' : undefined}>
+              <Badge tone={left.soon ? 'warn' : 'good'}>
                 <Hourglass size={12} /> {left.text}
               </Badge>
             </span>

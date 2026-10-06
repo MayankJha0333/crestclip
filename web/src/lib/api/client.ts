@@ -38,11 +38,21 @@ import type {
 /** Fired when the server says "please log in" (the session ended) — the app sends the person to the login page. */
 export const LOGGED_OUT = 'crestclip:logged-out';
 
+/** An API error carries the HTTP status, so callers can tell "please log in" (401) from a server or network hiccup. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
+  }
+}
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   const body = await res.json().catch(() => ({}));
   if (res.status === 401 && !url.startsWith('/api/auth/')) window.dispatchEvent(new Event(LOGGED_OUT));
-  if (!res.ok) throw new Error((body as { error?: string }).error || `Request failed (${res.status})`);
+  if (!res.ok) throw new ApiError((body as { error?: string }).error || `Request failed (${res.status})`, res.status);
   return body as T;
 }
 const json = (method: string, data: unknown): RequestInit => ({ method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) });

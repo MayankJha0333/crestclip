@@ -42,10 +42,21 @@ export function timeAgo(ms: number) {
   return `${Math.floor(d / 86400)} d ago`;
 }
 
-/** Storage time left: "Deletes in 5 days" (soon = today or tomorrow). */
+/**
+ * Storage time left. Reads as a promise ("Kept until 11 Oct") while there's time, and as a warning only in the
+ * last two days ("Deletes tomorrow"). `soon` = two days or less.
+ */
 export function deletesIn(expiresAt: number | null | undefined): { text: string; until: string; soon: boolean } | null {
   if (!expiresAt) return null;
   const days = Math.ceil((expiresAt - Date.now()) / 86400_000);
   const until = new Date(expiresAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-  return { text: days <= 0 ? 'Deletes today' : days === 1 ? 'Deletes tomorrow' : `Deletes in ${days} days`, until, soon: days <= 1 };
+  const soon = days <= 2;
+  return { text: days <= 0 ? 'Deletes today' : days === 1 ? 'Deletes tomorrow' : soon ? `Deletes in ${days} days` : `Kept until ${until}`, until, soon };
 }
+
+/**
+ * A failure nothing will change by running the video again: the plan's limits, a file with no picture, not a video.
+ * Network and AI hiccups are the ones worth a retry.
+ */
+export const retryable = (error: string | null | undefined, errorCode?: string | null) =>
+  !errorCode && !/no video track|isn[’']t a video|not a video|min long\. The limit|plan clips videos up to|over your plan|no talking, and the picture|couldn[’']t be read/i.test(error ?? '');

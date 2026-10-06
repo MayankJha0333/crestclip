@@ -134,6 +134,8 @@ export interface Clip {
   reason: string;
   category: string;
   rubric: Rubric | null;
+  /** the judge's one line on what holds this clip back */
+  weakest?: string | null;
   aiScore: number;
   audienceScore: number | null;
   peakScore: number;

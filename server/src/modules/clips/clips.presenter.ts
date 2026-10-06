@@ -41,6 +41,7 @@ function present(c: ClipRow, clipPosts: PostRow[]) {
     reason: c.reason,
     category: c.category,
     rubric: c.rubric,
+    weakest: c.weakest ?? null,
     aiScore: c.aiScore,
     audienceScore: c.audienceScore,
     peakScore: c.peakScore,

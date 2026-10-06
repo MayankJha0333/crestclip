@@ -239,7 +239,7 @@ export async function judgeClips<T extends ClipCandidate>(input: {
   for (let i = 0; i < clips.length; i += perCall) batches.push(clips.slice(i, i + perCall).map((_, j) => i + j));
 
   const range = rangeFor(input.options);
-  const graded = new Map<number, Rubric>();
+  const graded = new Map<number, { rubric: Rubric; weakest: string | null }>();
   const decoyScores: number[] = [];
   const tag = input.label ?? input.title.slice(0, 40);
 
@@ -284,7 +284,7 @@ export async function judgeClips<T extends ClipCandidate>(input: {
         const c = byId.get(it.id);
         if (!c) continue;
         if (it.pick == null) decoyScores.push(aiScore(toRubric(c)));
-        else graded.set(it.pick, toRubric(c));
+        else graded.set(it.pick, { rubric: toRubric(c), weakest: String(c.weakest ?? '').trim().slice(0, 200) || null });
       }
     } catch (e) {
       console.warn(`[judge] ${tag}: grading failed, keeping the picker's scores —`, (e as Error).message);
@@ -294,10 +294,10 @@ export async function judgeClips<T extends ClipCandidate>(input: {
   });
   if (input.visual) fs.rmSync(path.join(input.visual.work, 'judge'), { recursive: true, force: true });
 
-  const out = clips.map((c, i) => (graded.has(i) ? { ...c, rubric: graded.get(i)! } : c));
+  const out = clips.map((c, i) => (graded.has(i) ? { ...c, rubric: graded.get(i)!.rubric, weakest: graded.get(i)!.weakest } : c));
   const avg = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
   const before = avg(clips.map((c) => aiScore(c.rubric)));
-  const after = avg([...graded.values()].map(aiScore));
+  const after = avg([...graded.values()].map((g) => aiScore(g.rubric)));
   console.log(`[judge] ${tag}: graded ${graded.size}/${clips.length} · picks ${before} → ${after} · random cuts ${avg(decoyScores) ?? '—'}`);
   return out;
 }
