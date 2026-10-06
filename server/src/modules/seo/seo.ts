@@ -124,11 +124,11 @@ ${nav()}`,
       body: `<h1>Refunds &amp; cancellation</h1>${nav()}`,
     },
     '/shipping': {
-      title: `Shipping & delivery — ${NAME}`,
+      title: `Delivery of digital goods — ${NAME}`,
       description: `${NAME} is software delivered online — nothing is shipped.`,
       changefreq: 'yearly',
       priority: '0.2',
-      body: `<h1>Shipping &amp; delivery</h1>${nav()}`,
+      body: `<h1>Delivery of digital goods</h1>${nav()}`,
     },
     '/signup': {
       title: `Start free — ${NAME}`,

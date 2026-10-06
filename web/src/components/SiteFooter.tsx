@@ -13,7 +13,7 @@ export const LEGAL_LINKS = [
   { to: '/terms', label: 'Terms' },
   { to: '/privacy', label: 'Privacy' },
   { to: '/refunds', label: 'Refunds' },
-  { to: '/shipping', label: 'Shipping' },
+  { to: '/shipping', label: 'Delivery' },
 ];
 
 export function SiteFooter({ owner }: { owner?: string }) {

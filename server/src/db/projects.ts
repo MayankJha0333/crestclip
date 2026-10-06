@@ -1,6 +1,8 @@
 import { config } from '../config.js';
 import { collection, COLLECTIONS, fromDoc, newId, now, setFields, stamp, type Doc } from './connection.js';
 import { inDataDir } from '../lib/paths.js';
+import { users } from './users.js';
+import { planOf } from '../modules/billing/plans.js';
 import type { ProjectOptions, Segment, Signals } from '../types.js';
 
 export interface ProjectRow {
@@ -83,8 +85,9 @@ export const projects = {
   async create(p: { userId: string; sourceType: 'url' | 'upload' | 'group'; sourceUrl?: string; title?: string; options: ProjectOptions; parentId?: string | null }): Promise<ProjectRow> {
     // a group only holds its videos; its status is worked out from them
     const status = p.sourceType === 'group' ? 'done' : 'queued';
-    // a video inside a multi-video project goes with the project
+    // a video inside a multi-video project goes with the project; otherwise the owner's plan says how long it's kept
     const parentExpiry = p.parentId ? (await this.get(p.parentId))?.expiresAt : null;
+    const storageDays = parentExpiry ? 0 : planOf((await users.get(p.userId))?.plan).storageDays;
     const at = stamp();
     const row: Doc<ProjectRow> = {
       _id: newId(),
@@ -93,7 +96,7 @@ export const projects = {
       errorCode: null,
       createdAt: at,
       updatedAt: at,
-      expiresAt: parentExpiry ?? at + config.retentionDays * 86400_000,
+      expiresAt: parentExpiry ?? at + storageDays * 86400_000,
       sourceType: p.sourceType,
       sourceUrl: p.sourceUrl ?? null,
       title: p.title ?? null,

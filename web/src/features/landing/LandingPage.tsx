@@ -14,6 +14,7 @@ import { initialPlans } from '../../lib/initialData';
 import { money } from '../billing/money';
 import { PlanCards } from '../billing/PlanCards';
 import { SiteFooter } from '../../components/SiteFooter';
+import { PeakPreview } from './PeakPreview';
 
 function SectionTitle({ eyebrow, title, sub, left }: { eyebrow: string; title: React.ReactNode; sub?: string; left?: boolean }) {
   return (
@@ -43,9 +44,14 @@ export function LandingPage() {
       .then(setPricing)
       .catch(() => {});
   }, []);
+  // a YouTube link shows its replay peaks right here, before any account; other links go to the app (sign-in first when needed)
+  const [preview, setPreview] = useState<string | null>(null);
   const go = (e: React.FormEvent) => {
     e.preventDefault();
-    nav(url.trim() ? `/app?url=${encodeURIComponent(url.trim())}` : '/app');
+    const u = url.trim();
+    if (!u) return nav('/app');
+    if (/youtu\.be\/|youtube\.com\//i.test(u)) return setPreview(u);
+    nav(`/app?url=${encodeURIComponent(u)}`);
   };
 
   return (
@@ -110,11 +116,12 @@ export function LandingPage() {
               className="min-w-0 flex-1 basis-[calc(100%-50px)] bg-transparent px-1 py-3 text-[17px] font-semibold text-ink outline-none placeholder:text-ink-3 sm:basis-auto"
             />
             <Button type="submit" variant="primary" className="w-full sm:w-auto">
-              <Wand2 size={18} /> Find the peaks
+              <Wand2 size={18} /> Show me the peaks
             </Button>
           </form>
+          {preview && <PeakPreview url={preview} signedIn={Boolean(me)} onClose={() => setPreview(null)} />}
           <div className="mt-5 flex flex-wrap gap-4.5">
-            {['No editing skills needed', 'Clips in minutes', 'You own every export'].map((t) => (
+            {['See the peaks before you sign up', 'Clips in minutes', 'You own every export'].map((t) => (
               <span key={t} className="inline-flex items-center gap-1.5 text-sm font-bold text-ink-2">
                 <Check size={16} className="text-mint-d" /> {t}
               </span>
@@ -126,7 +133,7 @@ export function LandingPage() {
 
       <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2.5 pb-5 font-extrabold">
         <span className="text-ink-3">Works with</span>
-        {['YouTube', 'Podcasts', 'Twitch VODs', 'Google Drive', 'Zoom & webinars', 'Your uploads'].map((s) => (
+        {['YouTube', 'Twitch VODs', 'Google Drive', 'Dropbox & OneDrive', 'Any .mp4 link', 'Your uploads'].map((s) => (
           <Badge key={s}>{s}</Badge>
         ))}
       </div>
@@ -266,6 +273,15 @@ export function LandingPage() {
           ) : (
             <div className="h-96" />
           )}
+          {pricing?.policy?.length ? (
+            <ul className="mx-auto mt-8 grid max-w-3xl gap-2.5 sm:grid-cols-2">
+              {pricing.policy.map((line) => (
+                <li key={line} className="flex items-start gap-2.5 rounded-2xl bg-surface px-4 py-3 font-bold shadow-clay-sm">
+                  <Check size={18} className="mt-0.5 shrink-0 text-mint-d" /> {line}
+                </li>
+              ))}
+            </ul>
+          ) : null}
           {pricing && (
             <p className="mt-6 text-center text-ink-3">
               Need more in a busy month? Add {pricing.topup.credits} credits ({Math.floor(pricing.topup.credits / pricing.creditsPerClip)} clips) for {money(pricing.topup.price)} — on any plan.

@@ -5,7 +5,7 @@ import { ContactDetails, LegalLayout, Section, SupportEmail } from './LegalLayou
 export function ShippingPage() {
   const b = useBusiness();
   return (
-    <LegalLayout title="Shipping & delivery" policy intro={`${b.name} is an online service — nothing is shipped to you.`} business={b}>
+    <LegalLayout title="Delivery of digital goods" policy intro={`${b.name} is an online service — nothing is shipped to you.`} business={b}>
       <Section title="How you receive what you buy">
         <ul>
           <li>

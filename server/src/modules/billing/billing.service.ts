@@ -2,7 +2,7 @@ import { config } from '../../config.js';
 import { site } from '../system/system.service.js';
 import { credits, creditsVersion, NotEnoughCredits, payments, projects, users, type PlanId, type UserRow } from '../../db/index.js';
 import { HttpError } from '../../lib/http.js';
-import { CREDITS_PER_CLIP, creditsForClips, CURRENCY, PLAN_ORDER, PLANS, planOf, TOPUP, type Plan } from './plans.js';
+import { CREDITS_PER_CLIP, creditsForClips, CURRENCY, PLAN_ORDER, PLANS, planOf, POLICY_LINES, TOPUP, type Plan } from './plans.js';
 import { planForRazorpayPlan, razorpay, razorpayPlanId, razorpayReady, toCents, validOrderPayment, validSubscriptionPayment, validWebhook, type RzPayment, type RzSubscription } from './razorpay.js';
 
 const DAY = 86400_000;
@@ -106,7 +106,7 @@ async function downgrade(user: UserRow, why: string) {
 /** A plan as the app shows it (price in US dollars, and how many clips its credits make). */
 export const publicPlan = (p: Plan) => ({ ...p, currency: CURRENCY, clips: Math.floor(p.credits / CREDITS_PER_CLIP) });
 /** The public pricing table (landing page, pricing page, Plan page). */
-export const plansInfo = () => ({ currency: CURRENCY, creditsPerClip: CREDITS_PER_CLIP, plans: PLAN_ORDER.map((id) => publicPlan(PLANS[id])), topup: TOPUP });
+export const plansInfo = () => ({ currency: CURRENCY, creditsPerClip: CREDITS_PER_CLIP, plans: PLAN_ORDER.map((id) => publicPlan(PLANS[id])), topup: TOPUP, policy: POLICY_LINES });
 
 type Summary = Awaited<ReturnType<typeof buildSummary>>;
 const summaryCache = new Map<string, { key: string; at: number; value: Summary }>();

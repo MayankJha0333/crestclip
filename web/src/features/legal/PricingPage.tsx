@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, type PlansInfo } from '../../lib/api';
+import { Check } from 'lucide-react';
 import { buttonClass } from '../../components/ui';
 import { PlanCards } from '../billing/PlanCards';
 import { money } from '../billing/money';
@@ -34,6 +35,15 @@ export function PricingPage() {
       ) : (
         <div className="h-96" />
       )}
+          {pricing?.policy?.length ? (
+            <ul className="mx-auto mt-6 grid max-w-3xl gap-2.5 sm:grid-cols-2">
+              {pricing.policy.map((line) => (
+                <li key={line} className="flex items-start gap-2.5 rounded-2xl bg-surface px-4 py-3 font-bold shadow-clay-sm">
+                  <Check size={18} className="mt-0.5 shrink-0 text-mint-d" /> {line}
+                </li>
+              ))}
+            </ul>
+          ) : null}
 
       <Section title="All prices">
         <ul>
@@ -62,8 +72,12 @@ export function PricingPage() {
           </li>
           <li>The price shown is the price you’re charged — no hidden fees. Your bank may show the amount in your own currency and may add its own conversion fee.</li>
           <li>
+            Projects and their clips are kept for {pricing?.plans.find((p) => p.id === 'free')?.storageDays ?? 7} days on Free and {pricing?.plans.find((p) => p.id === 'pro')?.storageDays ?? 30} days on
+            paid plans. Download or post a clip to keep it for good — exports are yours.
+          </li>
+          <li>
             You get a receipt for every payment on the Plan & credits page. Refunds follow our <Link to="/refunds">Refunds & cancellation policy</Link>; nothing is shipped — see{' '}
-            <Link to="/shipping">Shipping & delivery</Link>.
+            <Link to="/shipping">Delivery of digital goods</Link>.
           </li>
         </ul>
       </Section>

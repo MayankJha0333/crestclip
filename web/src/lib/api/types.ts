@@ -316,6 +316,18 @@ export interface Peek {
   hotspots: { start: number; end: number; value: number; source: string }[];
 }
 
+export interface PublicPeek {
+  title: string;
+  channel: string;
+  duration: number;
+  views: number | null;
+  thumbnail: string | null;
+  url: string;
+  curve: number[] | null;
+  /** the top replay peaks; `times` = how many times the video's average replay level */
+  peaks: { start: number; end: number; times: number | null }[];
+}
+
 // ---------- Autopilot ----------
 export interface AutopilotSource {
   kind: 'youtube_channel' | 'youtube_topic';
@@ -451,6 +463,8 @@ export interface Plan {
   autopilot: boolean;
   /** can paste YouTube links and browse YouTube in Explore (Creator and Pro) */
   youtubeSource?: boolean;
+  /** days a project and its clips are kept */
+  storageDays?: number;
   points: string[];
 }
 export interface PlansInfo {
@@ -458,6 +472,8 @@ export interface PlansInfo {
   creditsPerClip: number;
   plans: Plan[];
   topup: Topup;
+  /** the billing promises shown on the pricing page */
+  policy?: string[];
 }
 /** The one-off credit pack (price in US dollars). */
 export interface Topup {

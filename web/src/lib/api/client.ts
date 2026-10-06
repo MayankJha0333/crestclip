@@ -25,6 +25,7 @@ import type {
   Health,
   MusicLibrary,
   Peek,
+  PublicPeek,
   PostItem,
   Project,
   ProjectOptions,
@@ -167,6 +168,8 @@ export const api = {
   exploreSearch: (p: Record<string, string>) => req<{ items: ExploreItem[]; twitchApi: boolean }>(`/api/explore/search?${new URLSearchParams(p)}`),
   exploreChannel: (url: string, tab: string) => req<{ channel: ExploreChannel; items: ExploreItem[] }>(`/api/explore/channel?${new URLSearchParams({ url, tab })}`),
   peek: (url: string) => req<Peek>(`/api/explore/peek?${new URLSearchParams({ url })}`),
+  /** no account needed: title, length and the replay peaks of a YouTube link (the landing page) */
+  publicPeek: (url: string) => req<PublicPeek>(`/api/explore/public-peek?${new URLSearchParams({ url })}`),
   exploreDiscover: (source: ExploreSource, category: string) => req<{ sections: DiscoverSection[] }>(`/api/explore/discover?${new URLSearchParams({ source, category })}`),
   exploreCategories: () => req<{ youtube: { id: string; label: string }[]; twitch: string[] }>('/api/explore/categories'),
 

@@ -39,6 +39,8 @@ export interface Plan {
   autopilot: boolean;
   /** clip YouTube videos: paste YouTube links in New clips and browse YouTube in Explore */
   youtubeSource: boolean;
+  /** days a project and its clips are kept (RETENTION_DAYS on Free; paid plans keep them a month) */
+  storageDays: number;
   /** the list on the pricing cards (built from the limits above, so it never goes out of date) */
   points: string[];
 }
@@ -65,6 +67,7 @@ export const PLANS: Record<PlanId, Plan> = {
     scheduling: false,
     autopilot: false,
     youtubeSource: false,
+    storageDays: config.retentionDays,
     points: [], // filled in below from the limits
   },
   creator: {
@@ -82,6 +85,7 @@ export const PLANS: Record<PlanId, Plan> = {
     scheduling: true,
     autopilot: false,
     youtubeSource: true,
+    storageDays: Math.max(30, config.retentionDays),
     points: [],
   },
   pro: {
@@ -99,6 +103,7 @@ export const PLANS: Record<PlanId, Plan> = {
     scheduling: true,
     autopilot: true,
     youtubeSource: true,
+    storageDays: Math.max(30, config.retentionDays),
     points: [],
   },
 };
@@ -115,7 +120,7 @@ function cardPoints(p: Plan): string[] {
     `Videos up to ${length}`,
     `Up to ${MAX_CLIPS_PER_VIDEO} Clips per Video`,
     `${Math.round(config.maxUploadMb / 1024)} GB Max Upload`,
-    `${config.retentionDays}-Day Clip Storage`,
+    `${p.storageDays}-Day Clip Storage`,
     p.exportHeight >= 1920 ? '1080p Full HD Export' : '720p Export',
     p.crestclipWatermark ? 'Small CrestClip Watermark' : 'No Watermark · Add Your Own Logo',
     p.scheduling ? 'Post or Schedule to YouTube & Instagram' : 'Post to YouTube & Instagram',
@@ -127,6 +132,14 @@ function cardPoints(p: Plan): string[] {
 for (const p of Object.values(PLANS)) p.points = cardPoints(p);
 
 export const PLAN_ORDER: PlanId[] = ['free', 'creator', 'pro'];
+
+/** The billing promises, said out loud on the pricing page (each one answers a common complaint about clipping tools). */
+export const POLICY_LINES = [
+  'Pay per clip, not per minute of video',
+  'Clips that fail or don’t come out are refunded',
+  'Edits and re-renders are always free',
+  'Cancel any time and keep your files',
+];
 
 /** One-off credit pack (price in US dollars), for when the month's credits run out. */
 export const TOPUP = { credits: 100, price: 5, validDays: 365 };

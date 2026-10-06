@@ -21,7 +21,7 @@ import { systemRouter } from './modules/system/system.routes.js';
 import { watermarkRouter } from './modules/watermark/watermark.routes.js';
 
 /** API routes anyone can call (everything else needs a signed-in person). */
-const PUBLIC_API = [/^\/auth\//, /^\/billing\/(plans|webhook)$/, /^\/connect\/[a-z]+\/callback$/, /^\/site$/, /^\/live$/];
+const PUBLIC_API = [/^\/auth\//, /^\/billing\/(plans|webhook)$/, /^\/connect\/[a-z]+\/callback$/, /^\/site$/, /^\/live$/, /^\/explore\/public-peek$/];
 
 /**
  * Files under /media: only the owner's projects, watermark and music (plus shared mood tracks, emoji and the
