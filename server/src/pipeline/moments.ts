@@ -280,16 +280,18 @@ export function aiScore(r: Rubric): number {
   return Math.round(s * 10);
 }
 
+/** A clip with its final times and scores. */
+export type ScoredClip = ClipCandidate & { aiScore: number; audienceScore: number | null; peakScore: number };
+
 /**
- * Snap clip edges to real speech boundaries so clips never start or end mid-word,
- * enforce the length range, score, de-duplicate and keep the best N.
+ * Final edges for each candidate: on sentence boundaries (never mid-word), inside the length range. Drops ones that
+ * can't fit. Then the judge re-grades them, and rankClips scores, de-duplicates and keeps the best N.
  */
-export function finalizeClips(cands: ClipCandidate[], segs: Segment[], silences: { s: number; e: number }[], duration: number, signals: Signals | null, options: ProjectOptions) {
+export function snapClips(cands: ClipCandidate[], segs: Segment[], silences: { s: number; e: number }[], duration: number, options: ProjectOptions): ClipCandidate[] {
   const range = rangeFor(options);
   const minLen = Math.max(5, range.min * 0.8);
   const maxLen = range.max * 1.15;
-  const out: (ClipCandidate & { aiScore: number; audienceScore: number | null; peakScore: number })[] = [];
-
+  const out: ClipCandidate[] = [];
   for (const c of cands) {
     if (!(c.end > c.start) || c.start >= duration) continue;
     let { start, end } = snap(c.start, c.end, segs, silences, duration);
@@ -298,17 +300,22 @@ export function finalizeClips(cands: ClipCandidate[], segs: Segment[], silences:
     if (end - start < 3) continue;
     if (end - start < minLen * 0.75 && duration > minLen * 1.5) continue; // too short to stand alone
     if (end - start > maxLen + 4) end = start + maxLen;
+    out.push({ ...c, start: +start.toFixed(3), end: +end.toFixed(3), teaser: fitTeaser(c.teaser, start, end, silences) });
+  }
+  return out;
+}
 
+/** Score from the rubric (+ audience data), drop overlapping picks (the higher score stays), keep the best N. */
+export function rankClips(clips: ClipCandidate[], signals: Signals | null, duration: number, options: ProjectOptions): ScoredClip[] {
+  const out: ScoredClip[] = clips.map((c) => {
     const ai = aiScore(c.rubric);
-    const aud = rangeScore(signals, duration, start, end);
+    const aud = rangeScore(signals, duration, c.start, c.end);
     const isAudience = signals?.curveKind === 'audience';
     const peak = aud == null ? ai : isAudience ? Math.round(ai * 0.6 + aud * 0.4) : Math.round(ai * 0.88 + aud * 0.12);
-    out.push({ ...c, start: +start.toFixed(3), end: +end.toFixed(3), teaser: fitTeaser(c.teaser, start, end, silences), aiScore: ai, audienceScore: aud, peakScore: peak });
-  }
-
-  // de-duplicate overlapping picks (keep the higher score)
+    return { ...c, aiScore: ai, audienceScore: aud, peakScore: peak };
+  });
   out.sort((a, b) => b.peakScore - a.peakScore);
-  const kept: typeof out = [];
+  const kept: ScoredClip[] = [];
   for (const c of out) {
     const clash = kept.some((k) => overlap(k, c) > 0.35 * Math.min(k.end - k.start, c.end - c.start));
     if (!clash) kept.push(c);

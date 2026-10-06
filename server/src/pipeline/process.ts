@@ -9,7 +9,8 @@ import { buildAss, wordsInRange, type EmojiCue } from './captions.js';
 import { part, uploadToGcs, deleteFromGcs, usage } from './gemini.js';
 import { removeFromCloud, saveToCloud } from '../infra/cloudStore.js';
 import { extractAudio, extractAudioRange, hasLibass, loudnessPerSecond, makeProxy, probe, silences as findSilences, thumbnail } from './media.js';
-import { aiScore, describeClips, findMoments, finalizeClips, snapRange } from './moments.js';
+import { aiScore, describeClips, findMoments, rankClips, snapClips, snapRange } from './moments.js';
+import { judgeClips } from './judge.js';
 import { contentBand, planReframe } from './reframe.js';
 import { concatParts, faceOnFrame, mixMusic, planZooms, renderClip } from './render.js';
 import { emojiPng } from './emoji.js';
@@ -211,8 +212,8 @@ export async function processProject(id: string) {
 
     let cands: Awaited<ReturnType<typeof findMoments>>['clips'];
     let notes: string;
+    const source: VisualSource | null = info?.isYouTube ? { kind: 'youtube', url: info.webpageUrl } : pr.width ? { kind: 'file', src } : null;
     if (noSpeech) {
-      const source: VisualSource | null = info?.isYouTube ? { kind: 'youtube', url: info.webpageUrl } : pr.width ? { kind: 'file', src } : null;
       if (!source) throw new Error('This video has no talking, and the picture isn’t available to watch.');
       stage(id, 'moments', 0.1, 'No talking — watching the video for moments…');
       const found = await findVisualMoments({
@@ -264,8 +265,21 @@ export async function processProject(id: string) {
       cands = found.clips;
       notes = found.notes;
     }
-    let final = finalizeClips(cands, tr.segments, sil, duration, signals, p.options).map((c) => ({ ...c, hashtags: withRequiredTags(c.hashtags, p.options) }));
-    if (noSpeech && pr.width) final = await snapToShots(final, src, duration); // start and end on a camera cut
+    let picked = snapClips(cands, tr.segments, sil, duration, p.options);
+    if (noSpeech && pr.width) picked = await snapToShots(picked, src, duration); // start and end on a camera cut
+    // a separate, blind judge grades the clips (the picker marks its own picks far too kindly)
+    stage(id, 'moments', 0.96, 'Grading the clips…');
+    picked = await judgeClips({
+      clips: picked,
+      duration,
+      title: info?.title ?? p.title ?? 'Untitled',
+      channel: info?.channel ?? '',
+      options: p.options,
+      segments: tr.segments,
+      visual: noSpeech && source ? { source, work, id } : null,
+      label: `project ${id}`,
+    });
+    const final = rankClips(picked, signals, duration, p.options).map((c) => ({ ...c, hashtags: withRequiredTags(c.hashtags, p.options) }));
     if (!final.length) throw new Error('No clip-worthy moments were found in this video.');
     const saved = await clipDb.replaceForProject(id, final, clipDefaults(p.options, noSpeech));
     await projects.update(id, { aiNotes: notes });

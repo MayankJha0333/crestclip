@@ -234,8 +234,8 @@ interface Watch {
   cleanup: () => void;
 }
 
-/** A 360p copy of one window (accurate start: re-encoded, not stream-copied). */
-async function windowProxy(src: string, w: Window, out: string) {
+/** A small low-res copy of one part of the video (accurate start: re-encoded, not stream-copied). Default 360p, 10 fps. */
+export async function previewCut(src: string, w: Window, out: string, look: { height?: number; fps?: number } = {}) {
   await run(
     config.ffmpeg,
     [
@@ -249,7 +249,7 @@ async function windowProxy(src: string, w: Window, out: string) {
       '-i',
       src,
       '-vf',
-      'scale=-2:360,fps=10',
+      `scale=-2:${look.height ?? 360},fps=${look.fps ?? 10}`,
       '-c:v',
       'libx264',
       '-preset',
@@ -289,7 +289,7 @@ async function watchWindow(source: VisualSource, w: Window, single: boolean, wor
     const proxy = path.join(work, `watch_${i}.mp4`);
     const object = `crestclip/tmp/${id}/watch_${i}.mp4`; // temporary — deleted right after the model has watched it
     try {
-      await windowProxy(source.src, w, proxy);
+      await previewCut(source.src, w, proxy);
       const uri = await uploadToGcs(proxy, object, 'video/mp4');
       return {
         parts: [part.uri(uri, 'video/mp4', { fps })],
