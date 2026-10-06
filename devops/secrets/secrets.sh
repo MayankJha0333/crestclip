@@ -15,7 +15,7 @@ set -euo pipefail
 
 PROJECT=peakclip-510216 # always explicit: your gcloud default may be another project
 SECRET=crestclip-env
-KEEP=5 # versions kept for rollback. Google bills every version not destroyed (free up to 6), so older ones are destroyed
+KEEP=3 # versions kept for rollback. Google bills every version not destroyed (free up to 6), so older ones are destroyed
 HERE=$(cd "$(dirname "$0")" && pwd)
 LOCAL="$HERE/production.env"
 G=(gcloud --project "$PROJECT" --quiet)

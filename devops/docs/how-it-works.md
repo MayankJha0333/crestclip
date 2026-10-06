@@ -73,7 +73,7 @@ What keeps it from getting messy:
 
 1. All settings (API keys, passwords, the whole `.env`) are **one secret** in Google Secret Manager: `crestclip-env`.
 2. You edit it from your Mac: `./devops/secrets/secrets.sh edit`. It shows which **names** changed, never the values.
-3. Each save is a new **version**. The last 5 are kept (you can go back to any of them); older ones are deleted so it stays free.
+3. Each save is a new **version**. The last 3 are kept (you can go back to any of them); older ones are deleted so it stays free.
 4. The server checks every minute. A new version → it writes `/opt/crestclip/.env` (only root can read it) and
    restarts the app one piece at a time.
 5. If the app won't start with the new settings → the server **goes back to the previous ones** by itself.
