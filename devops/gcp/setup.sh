@@ -32,11 +32,11 @@ say "1/4 Image store"
 gcloud artifacts repositories describe crestclip --location="$REGION" >/dev/null 2>&1 ||
   gcloud artifacts repositories create crestclip --repository-format=docker --location="$REGION" \
     --description="CrestClip app images (one per deploy)"
-# keep the 10 newest versions (for going back), delete older ones after 30 days
+# keep only the 5 newest versions (enough to go back); everything older is deleted (Google runs this about once a day)
 cat >/tmp/cleanup.json <<'JSON'
 [
-  { "name": "keep-newest-10", "action": { "type": "Keep" }, "mostRecentVersions": { "keepCount": 10 } },
-  { "name": "delete-old", "action": { "type": "Delete" }, "condition": { "olderThan": "30d" } }
+  { "name": "keep-newest-5", "action": { "type": "Keep" }, "mostRecentVersions": { "keepCount": 5 } },
+  { "name": "delete-the-rest", "action": { "type": "Delete" }, "condition": { "tagState": "ANY" } }
 ]
 JSON
 gcloud artifacts repositories set-cleanup-policies crestclip --location="$REGION" --policy=/tmp/cleanup.json --no-dry-run >/dev/null
