@@ -75,6 +75,11 @@ const CATEGORY_MOOD: Record<string, string> = {
   educational: 'tech',
   surprising: 'suspense',
   relatable: 'upbeat',
+  // no-speech mode
+  reveal: 'upbeat',
+  satisfying: 'chill',
+  action: 'hype',
+  reaction: 'funny',
 };
 
 const root = () => path.join(config.dataDir, 'music');

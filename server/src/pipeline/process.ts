@@ -570,7 +570,7 @@ function partsScore(p: ProjectRow, parts: TimeRange[]) {
   return w ? Math.round(sum / w) : null;
 }
 
-/** `noSpeech`: keep the clip's own sound and every frame (no pause-cutting, music, emoji or flash-forward — they hang off words). */
+/** `noSpeech`: keep the clip's own sound and every frame (no pause-cutting, emoji or flash-forward — they hang off words). */
 function clipDefaults(o: ProjectOptions, noSpeech = false): ClipDefaults {
   if (noSpeech)
     return {
@@ -578,7 +578,9 @@ function clipDefaults(o: ProjectOptions, noSpeech = false): ClipDefaults {
       captionStyle: o.captionStyle,
       showHook: o.showHook,
       motion: o.motion ?? 'subtle',
-      music: { track: 'none', volume: o.musicVolume ?? 15, duck: true },
+      // background music stays on (it's what makes a silent clip watchable), a bit louder, and never ducked —
+      // there's no voice to make room for, only the clip's own sound
+      music: { track: o.music ?? 'auto', volume: Math.max(o.musicVolume ?? 15, 25), duck: false },
       pace: 'off',
       emoji: false,
       flashForward: false,
