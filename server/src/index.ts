@@ -30,7 +30,8 @@ app.listen(config.port, () => {
     `  Gemini (Vertex AI): ${config.fakeAi ? 'FAKE MODE (dev only)' : config.gcpProject ? `${config.gcpProject} · ${config.gcpLocation} · ${config.model}` : 'NOT CONFIGURED — set GOOGLE_CLOUD_PROJECT in .env'}`,
   );
   console.log(`  Database: MongoDB · ${config.mongoDb}`);
-  console.log(`  Data folder: ${config.dataDir}\n`);
+  console.log(`  Data folder: ${config.dataDir}`);
+  console.log(`  Jobs at once: ${config.jobConcurrency} videos · ${config.renderConcurrency} renders\n`);
   startToolUpkeep();
   startScheduler();
   startLocalHttps(app);

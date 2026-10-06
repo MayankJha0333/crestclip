@@ -8,15 +8,17 @@ const SERVER_ROOT = path.resolve(here, '..');
 const REPO_ROOT = path.resolve(SERVER_ROOT, '..');
 
 // Load ../.env (repo root) then server/.env — whichever exists. Real env vars always win.
+// Inside one file the LAST line for a setting wins, so a line added at the end (e.g. JOB_CONCURRENCY=5 appended to a
+// copied .env that already says 1) takes effect — it used to be silently ignored.
 for (const p of [path.join(REPO_ROOT, '.env'), path.join(SERVER_ROOT, '.env')]) {
   if (fs.existsSync(p)) {
+    const vals = new Map<string, string>();
     for (const line of fs.readFileSync(p, 'utf8').split(/\r?\n/)) {
       const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
       if (!m || line.trim().startsWith('#')) continue;
-      const [, key, raw] = m;
-      if (process.env[key] !== undefined) continue;
-      process.env[key] = raw.replace(/^['"]|['"]$/g, '');
+      vals.set(m[1], m[2].replace(/^['"]|['"]$/g, ''));
     }
+    for (const [key, v] of vals) if (process.env[key] === undefined) process.env[key] = v;
   }
 }
 
