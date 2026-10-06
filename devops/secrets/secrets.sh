@@ -15,7 +15,7 @@ set -euo pipefail
 
 PROJECT=peakclip-510216 # always explicit: your gcloud default may be another project
 SECRET=crestclip-env
-KEEP=5 # versions kept enabled (Secret Manager is free up to 6 active versions)
+KEEP=5 # versions kept for rollback. Google bills every version not destroyed (free up to 6), so older ones are destroyed
 HERE=$(cd "$(dirname "$0")" && pwd)
 LOCAL="$HERE/production.env"
 G=(gcloud --project "$PROJECT" --quiet)
@@ -59,9 +59,9 @@ push() {
   "${G[@]}" secrets versions add "$SECRET" --data-file="$file" >/dev/null
   echo "✓ Uploaded. The server applies them within a minute (one piece at a time — the site stays up)."
   echo "  If the app won't start with them, the server goes back to the previous settings by itself."
-  # keep only the newest $KEEP versions enabled (stays inside the free tier)
-  "${G[@]}" secrets versions list "$SECRET" --filter="state=ENABLED" --sort-by="~createTime" --format="value(name)" |
-    tail -n +$((KEEP + 1)) | while read -r v; do "${G[@]}" secrets versions disable "$v" --secret="$SECRET" >/dev/null && echo "  (disabled old version $v)"; done
+  # keep only the newest $KEEP versions (disabled ones are billed too — destroyed ones aren't), so it stays free
+  "${G[@]}" secrets versions list "$SECRET" --filter="state!=DESTROYED" --sort-by="~createTime" --format="value(name)" |
+    tail -n +$((KEEP + 1)) | while read -r v; do "${G[@]}" secrets versions destroy "${v##*/}" --secret="$SECRET" >/dev/null && echo "  (deleted old version ${v##*/})"; done
 }
 
 case "${1:-}" in
