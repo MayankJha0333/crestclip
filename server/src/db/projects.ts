@@ -36,6 +36,8 @@ export interface ProjectRow {
   transcript: Segment[] | null;
   /** which transcription method made `transcript` (older ones are redone, see TRANSCRIPT_REV) */
   transcriptRev?: number | null;
+  /** true = no talking in the video; moments were picked by watching it */
+  noSpeech?: boolean | null;
   mediaPath: string | null;
   thumbPath: string | null;
   aiNotes: string | null;
@@ -66,6 +68,7 @@ const UPDATABLE = [
   'signals',
   'transcript',
   'transcriptRev',
+  'noSpeech',
   'mediaPath',
   'thumbPath',
   'aiNotes',

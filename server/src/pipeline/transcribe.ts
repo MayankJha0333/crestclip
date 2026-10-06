@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
 import { pool } from '../lib/proc.js';
@@ -115,6 +116,49 @@ export async function transcribe(
 }
 
 type RawChunk = { language?: string; segments: { s: number; e: number; sp?: string; t: string }[] };
+
+/** Words actually spoken (sound tags like [music] or [laughs] don't count). */
+export function spokenWords(segs: { text: string }[]): number {
+  let n = 0;
+  for (const s of segs)
+    n += s.text
+      .replace(/\[[^\]]*\]|\([^)]*\)/g, ' ')
+      .split(/\s+/)
+      .filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+  return n;
+}
+
+/**
+ * Is anyone talking? Listens to a few 30-second slices spread across the video instead of all of it — a silent
+ * 3-hour video would otherwise cost ~360 transcription calls before finding out. Returns the words heard.
+ */
+export async function sampleSpeech(audioPath: string, duration: number, workDir: string, samples = 8): Promise<number> {
+  if (config.fakeAi) return 999;
+  const len = 30;
+  const n = Math.max(1, Math.min(samples, Math.floor(duration / len)));
+  const starts = Array.from({ length: n }, (_, i) => Math.max(0, Math.min(duration - len, ((i + 0.5) * duration) / n - len / 2)));
+  const counts = await pool(starts, 4, async (s, i) => {
+    const file = path.join(workDir, `probe_${i}.mp3`);
+    await cutAudio(audioPath, file, s, Math.min(len, duration - s));
+    try {
+      const r = await generateJson<RawChunk>({
+        model: config.fastModel,
+        system,
+        parts: [part.file(file, 'audio/mp3'), part.text('Transcribe the speech in this audio. Return an empty list when nobody is talking (only music, sound effects, ASMR sounds or noise).')],
+        schema,
+        thinking: 'MINIMAL',
+        maxOutputTokens: 4096,
+        label: `speech check ${i + 1}/${n}`,
+      });
+      return spokenWords((r.segments || []).map((x) => ({ text: String(x?.t ?? '') })));
+    } catch {
+      return 99; // can't tell: assume talking, so the normal transcription runs
+    } finally {
+      fs.rmSync(file, { force: true });
+    }
+  });
+  return counts.reduce((a, b) => a + b, 0);
+}
 
 /** Timestamps that stall (phrase after phrase at the same time) or run past the chunk: the model lost track of time. */
 function badTimes(segs: RawChunk['segments'], dur: number) {

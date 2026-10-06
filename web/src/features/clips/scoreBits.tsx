@@ -22,6 +22,11 @@ export const CATEGORY_TONE: Record<string, BadgeTone> = {
   educational: 'mint',
   surprising: 'orange',
   relatable: 'mint',
+  // no-speech mode
+  reveal: 'orange',
+  satisfying: 'mint',
+  action: 'bubble',
+  reaction: 'butter',
 };
 
 export function RubricBars({ rubric }: { rubric: Rubric }) {

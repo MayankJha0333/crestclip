@@ -19,7 +19,8 @@ import { crestclipMark, watermarkForRender, watermarkTopBottom } from './waterma
 import { BillingError, chargeProject, refundProject, renderRules, settleProject } from '../modules/billing/billing.service.js';
 import { resolveMusic } from './music.js';
 import { buildSignals, rangeScore } from './signals.js';
-import { transcribe } from './transcribe.js';
+import { sampleSpeech, transcribe } from './transcribe.js';
+import { findVisualMoments, mostlySilent, snapToShots, tooLittleSpeech, type VisualSource } from './visual.js';
 import { download, downloadAudio, fetchComments, fetchInfo, fetchWordTimings, type Comment, type SourceInfo } from './ytdlp.js';
 import { endSectionMode, footageFor, footageSavings, infoJsonPath, prefetchFootage, readFootage, startSectionMode } from './footage.js';
 import { classifyFileLink, downloadFileLink, fileLinkLabel } from './filelink.js';
@@ -148,13 +149,16 @@ export async function processProject(id: string) {
     stage(id, 'fetch', 1, pr.width ? 'Video ready' : 'Audio ready — video will be fetched only for the clips');
 
     // ---------- 2. listen ----------
-    if (!pr.hasAudio) throw new Error('This video has no audio track. CrestClip needs speech to find moments.');
+    // No talking (no audio track, near-silent, or music only) → "no-speech mode": the AI watches the video instead.
+    let noSpeech = Boolean(p.noSpeech) || !pr.hasAudio;
     const audio = path.join(work, 'audio.mp3');
     const silPath = path.join(work, 'silences.json');
     const rmsPath = path.join(work, 'rms.json');
-    let sil: { s: number; e: number }[];
-    let rms: number[] | null;
-    if (fs.existsSync(audio) && fs.existsSync(silPath) && fs.existsSync(rmsPath)) {
+    let sil: { s: number; e: number }[] = [];
+    let rms: number[] | null = null;
+    if (!pr.hasAudio) {
+      stage(id, 'listen', 1, 'No sound track — CrestClip will watch the video instead');
+    } else if (fs.existsSync(audio) && fs.existsSync(silPath) && fs.existsSync(rmsPath)) {
       sil = JSON.parse(fs.readFileSync(silPath, 'utf8'));
       rms = JSON.parse(fs.readFileSync(rmsPath, 'utf8'));
     } else {
@@ -167,13 +171,28 @@ export async function processProject(id: string) {
     }
 
     // ---------- 3. transcribe (reuse a saved transcript on retry) ----------
-    let segments = p.transcript;
-    if (!segments?.length) {
-      stage(id, 'transcribe', 0, 'Listening to the video…');
-      const tr = await transcribe(audio, duration, work, (d, t) => stage(id, 'transcribe', d / t, `Transcribing · part ${d} of ${t}`), sil);
-      if (!tr.segments.length) throw new Error('No speech was found in this video.');
-      segments = await withMeasuredTimes(tr.segments, info?.webpageUrl, dir);
-      await projects.update(id, { transcript: segments, transcriptRev: TRANSCRIPT_REV });
+    let segments: Segment[] = noSpeech ? [] : (p.transcript ?? []);
+    if (!noSpeech && !segments.length) {
+      if (mostlySilent(sil, duration)) {
+        noSpeech = true;
+      } else if (duration > 10 * 60) {
+        // long video: listen to a few short slices first, so a 3-hour music/gameplay video isn't transcribed for nothing
+        stage(id, 'transcribe', 0, 'Checking for talking…');
+        if ((await sampleSpeech(audio, duration, work)) < 4) noSpeech = true;
+      }
+      if (!noSpeech) {
+        stage(id, 'transcribe', 0, 'Listening to the video…');
+        const got = await transcribe(audio, duration, work, (d, t) => stage(id, 'transcribe', d / t, `Transcribing · part ${d} of ${t}`), sil);
+        if (tooLittleSpeech(got.segments, duration)) noSpeech = true;
+        else segments = await withMeasuredTimes(got.segments, info?.webpageUrl, dir);
+      }
+      if (noSpeech) {
+        segments = [];
+        console.log(`[project ${id}] no talking found — switching to no-speech mode`);
+      }
+      await projects.update(id, { transcript: segments, transcriptRev: TRANSCRIPT_REV, noSpeech });
+    } else if (noSpeech && !p.noSpeech) {
+      await projects.update(id, { transcript: [], transcriptRev: TRANSCRIPT_REV, noSpeech });
     }
     const tr = { segments };
 
@@ -190,41 +209,65 @@ export async function processProject(id: string) {
     });
     await projects.update(id, { signals });
 
-    let videoPart = null;
-    let gcsObject: string | null = null;
-    if (config.sendVideoToGemini && !config.fakeAi && duration <= 45 * 60) {
-      try {
-        if (info?.isYouTube) {
-          videoPart = part.uri(info.webpageUrl, 'video/mp4', { fps: 0.5 });
-        } else if (config.gcsBucket && pr.width) {
-          stage(id, 'moments', 0.15, 'Uploading a preview to Cloud Storage…');
-          const proxy = path.join(work, 'proxy.mp4');
-          await makeProxy(src, proxy);
-          gcsObject = `crestclip/tmp/${id}/proxy.mp4`; // temporary — deleted right after Gemini has watched it
-          videoPart = part.uri(await uploadToGcs(proxy, gcsObject, 'video/mp4'), 'video/mp4', { fps: 0.5 });
+    let cands: Awaited<ReturnType<typeof findMoments>>['clips'];
+    let notes: string;
+    if (noSpeech) {
+      const source: VisualSource | null = info?.isYouTube ? { kind: 'youtube', url: info.webpageUrl } : pr.width ? { kind: 'file', src } : null;
+      if (!source) throw new Error('This video has no talking, and the picture isn’t available to watch.');
+      stage(id, 'moments', 0.1, 'No talking — watching the video for moments…');
+      const found = await findVisualMoments({
+        id,
+        source,
+        duration,
+        work,
+        title: info?.title ?? p.title ?? 'Untitled',
+        channel: info?.channel ?? '',
+        description: info?.description ?? '',
+        signals,
+        options: p.options,
+        onProgress: (frac, detail) => stage(id, 'moments', 0.1 + frac * 0.85, detail),
+      });
+      cands = found.clips;
+      notes = ['No talking in this video — CrestClip picked the moments by watching it.', found.notes].filter(Boolean).join(' ');
+    } else {
+      let videoPart = null;
+      let gcsObject: string | null = null;
+      if (config.sendVideoToGemini && !config.fakeAi && duration <= 45 * 60) {
+        try {
+          if (info?.isYouTube) {
+            videoPart = part.uri(info.webpageUrl, 'video/mp4', { fps: 0.5 });
+          } else if (config.gcsBucket && pr.width) {
+            stage(id, 'moments', 0.15, 'Uploading a preview to Cloud Storage…');
+            const proxy = path.join(work, 'proxy.mp4');
+            await makeProxy(src, proxy);
+            gcsObject = `crestclip/tmp/${id}/proxy.mp4`; // temporary — deleted right after Gemini has watched it
+            videoPart = part.uri(await uploadToGcs(proxy, gcsObject, 'video/mp4'), 'video/mp4', { fps: 0.5 });
+          }
+        } catch {
+          videoPart = null;
         }
-      } catch {
-        videoPart = null;
       }
-    }
 
-    stage(id, 'moments', 0.35, 'Hunting for viral moments…');
-    const found = await findMoments({
-      segments: tr.segments,
-      duration,
-      title: info?.title ?? p.title ?? 'Untitled',
-      channel: info?.channel ?? '',
-      description: info?.description ?? '',
-      signals,
-      options: p.options,
-      videoPart,
-    }).finally(() => {
-      if (gcsObject) deleteFromGcs(gcsObject);
-    });
-    const { clips: cands, notes } = found;
-    const final = finalizeClips(cands, tr.segments, sil, duration, signals, p.options).map((c) => ({ ...c, hashtags: withRequiredTags(c.hashtags, p.options) }));
+      stage(id, 'moments', 0.35, 'Hunting for viral moments…');
+      const found = await findMoments({
+        segments: tr.segments,
+        duration,
+        title: info?.title ?? p.title ?? 'Untitled',
+        channel: info?.channel ?? '',
+        description: info?.description ?? '',
+        signals,
+        options: p.options,
+        videoPart,
+      }).finally(() => {
+        if (gcsObject) deleteFromGcs(gcsObject);
+      });
+      cands = found.clips;
+      notes = found.notes;
+    }
+    let final = finalizeClips(cands, tr.segments, sil, duration, signals, p.options).map((c) => ({ ...c, hashtags: withRequiredTags(c.hashtags, p.options) }));
+    if (noSpeech && pr.width) final = await snapToShots(final, src, duration); // start and end on a camera cut
     if (!final.length) throw new Error('No clip-worthy moments were found in this video.');
-    const saved = await clipDb.replaceForProject(id, final, clipDefaults(p.options));
+    const saved = await clipDb.replaceForProject(id, final, clipDefaults(p.options, noSpeech));
     await projects.update(id, { aiNotes: notes });
     await settleProject(id, saved.length, `Clipping “${(await projects.get(id))?.title ?? 'your video'}”`); // fewer clips than asked → credits back
     stage(id, 'moments', 1, `Found ${saved.length} moments`);
@@ -235,7 +278,8 @@ export async function processProject(id: string) {
     const used = { calls: usage.calls - startedUsage.calls, input: usage.input - startedUsage.input, output: usage.output - startedUsage.output };
     await progressSaved(id);
     // AI usage and download savings are for the server log only — never shown in the app
-    if (used.calls) console.log(`[project ${id}] ${used.calls} AI calls · ${(used.input / 1000).toFixed(0)}K in / ${(used.output / 1000).toFixed(1)}K out tokens${savingsText(dir) ? ` · ${savingsText(dir)}` : ''}`);
+    if (used.calls)
+      console.log(`[project ${id}] ${used.calls} AI calls · ${(used.input / 1000).toFixed(0)}K in / ${(used.output / 1000).toFixed(1)}K out tokens${savingsText(dir) ? ` · ${savingsText(dir)}` : ''}`);
     await projects.update(id, { status: 'done', stage: 'done', progress: 100, stageDetail: '' });
     fs.rmSync(path.join(work, 'frames'), { recursive: true, force: true });
     for (const f of fs.readdirSync(work)) if (f.startsWith('chunk_')) fs.rmSync(path.join(work, f), { force: true });
@@ -526,7 +570,19 @@ function partsScore(p: ProjectRow, parts: TimeRange[]) {
   return w ? Math.round(sum / w) : null;
 }
 
-function clipDefaults(o: ProjectOptions): ClipDefaults {
+/** `noSpeech`: keep the clip's own sound and every frame (no pause-cutting, music, emoji or flash-forward — they hang off words). */
+function clipDefaults(o: ProjectOptions, noSpeech = false): ClipDefaults {
+  if (noSpeech)
+    return {
+      layout: o.layout,
+      captionStyle: o.captionStyle,
+      showHook: o.showHook,
+      motion: o.motion ?? 'subtle',
+      music: { track: 'none', volume: o.musicVolume ?? 15, duck: true },
+      pace: 'off',
+      emoji: false,
+      flashForward: false,
+    };
   return {
     layout: o.layout,
     captionStyle: o.captionStyle,
@@ -626,9 +682,7 @@ async function redoTranscript(projectId: string): Promise<string[]> {
 
 /** Where a range on one transcript's clock is on another's: the words inside it, found in the other transcript. */
 function moveRange(r: TimeRange, from: Segment[], to: Segment[]): TimeRange | null {
-  const inside = from
-    .map((s) => ({ ...s, words: s.words.filter((w) => (w.s + w.e) / 2 >= r.start && (w.s + w.e) / 2 <= r.end) }))
-    .filter((s) => s.words.length);
+  const inside = from.map((s) => ({ ...s, words: s.words.filter((w) => (w.s + w.e) / 2 >= r.start && (w.s + w.e) / 2 <= r.end) })).filter((s) => s.words.length);
   const near = to.filter((s) => s.e > r.start - MOVE_BAND && s.s < r.end + MOVE_BAND).flatMap((s) => s.words);
   const moved = inside.length && near.length ? retimeToWords(inside, near, MOVE_BAND) : null;
   return moved?.length ? { start: moved[0].s, end: moved[moved.length - 1].e } : null;
@@ -653,6 +707,7 @@ async function withMeasuredTimes(segs: Segment[], url: string | null | undefined
  */
 async function captionWords(segs: Segment[], src: string, fileStart: number, start: number, end: number): Promise<Word[]> {
   const here = segs.filter((s) => s.e > start && s.s < end);
+  if (!here.length) return []; // nothing said here (no-speech mode) — no captions
   if (here.length && here.every((s) => s.timed)) return wordsInRange(segs, start, end);
   const gaps = await speechGaps(src, fileStart, end - start).catch(() => null);
   return gaps ? alignPhrases(phrasesInRange(segs, start, end), gaps, end - start) : wordsInRange(segs, start, end);
@@ -795,7 +850,7 @@ async function processPickedParts(id: string) {
   const p = (await projects.get(id))!;
   const ranges = tidyRanges(picked, segs, [], duration);
   const list = await packagePicked(p, groupRanges(ranges, Boolean(p.options.joinRanges)), segs);
-  const saved = await clipDb.replaceForProject(id, list, clipDefaults(p.options), 'manual');
+  const saved = await clipDb.replaceForProject(id, list, clipDefaults(p.options, Boolean(p.noSpeech)), 'manual');
   await settleProject(id, saved.length, `Picked parts of “${info.title}”`);
   stage(id, 'moments', 1, `${saved.length} clip${saved.length > 1 ? 's' : ''} ready to render`);
 
@@ -830,7 +885,7 @@ export async function createPickedClips(projectId: string, ranges: TimeRange[], 
     audienceScore: partsScore(p, g),
     peakScore: 50,
   }));
-  return await clipDb.insert(projectId, rows, clipDefaults(p.options), undefined, 'manual');
+  return await clipDb.insert(projectId, rows, clipDefaults(p.options, Boolean(p.noSpeech)), undefined, 'manual');
 }
 
 /** Fill in picked clips: transcript for any new part, snap edges, Gemini titles/hooks/scores. Then they're ready to render. */
