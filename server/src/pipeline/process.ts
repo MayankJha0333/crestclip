@@ -519,7 +519,16 @@ async function renderOnce(clipId: string) {
         const m = await resolveMusic(c.music.track, c.category, p!.userId);
         if (m) {
           const mixed = path.join(work, 'music.mp4');
-          await mixMusic({ input: current, music: m.file, volume: c.music.volume, duck: c.music.duck, hasVoice, duration: total, out: mixed });
+          await mixMusic({
+            input: current,
+            music: m.file,
+            volume: c.music.volume,
+            duck: c.music.duck,
+            hasVoice,
+            duration: total,
+            out: mixed,
+            sourceVolume: p!.noSpeech ? 0.8 : 1, // no talking: the clip's own sound (unboxing, clicks) sits a little under the music
+          });
           current = mixed;
         }
       } catch (e) {

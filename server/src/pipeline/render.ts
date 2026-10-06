@@ -310,7 +310,15 @@ export async function renderClip(opts: {
  * few dozen ms behind the picture after a flash-forward).
  */
 export async function concatParts(files: string[], out: string, workDir: string) {
-  const withSound = (await Promise.all(files.map((f) => probe(f).then((x) => x.hasAudio).catch(() => false)))).every(Boolean);
+  const withSound = (
+    await Promise.all(
+      files.map((f) =>
+        probe(f)
+          .then((x) => x.hasAudio)
+          .catch(() => false),
+      ),
+    )
+  ).every(Boolean);
   // picture-only copies first: when a file still has sound, the joiner shifts its picture by the sound's padding too
   const pictures = withSound
     ? await Promise.all(
@@ -341,17 +349,19 @@ export async function concatParts(files: string[], out: string, workDir: string)
  * Lay background music under the clip: loops the track, fades it in/out, and (duck) pushes it down
  * whenever someone is talking, so the voice always stays clear. Video is copied, not re-encoded.
  */
-export async function mixMusic(opts: { input: string; music: string; volume: number; duck: boolean; hasVoice: boolean; duration: number; out: string }) {
+/** `sourceVolume`: how loud the clip's own sound stays under the music (1 = as is; no-speech clips use 0.8). */
+export async function mixMusic(opts: { input: string; music: string; volume: number; duck: boolean; hasVoice: boolean; duration: number; out: string; sourceVolume?: number }) {
   const D = Math.max(1, opts.duration);
   const gain = Math.max(0, Math.min(2, (opts.volume / 100) * 1.6));
   const fadeOut = Math.min(1.8, D / 4);
+  const src = Math.max(0, Math.min(1, opts.sourceVolume ?? 1));
   const m = `[1:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,atrim=0:${D.toFixed(3)},asetpts=PTS-STARTPTS,volume=${gain.toFixed(3)},afade=t=in:st=0:d=0.8,afade=t=out:st=${(D - fadeOut).toFixed(3)}:d=${fadeOut.toFixed(3)}[m]`;
   const tail = 'alimiter=limit=0.95:level=disabled:latency=1,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[a]';
   let graph: string;
   if (!opts.hasVoice) graph = `${m};[m]${tail}`;
   else if (opts.duck)
-    graph = `${m};[0:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,asplit=2[v1][v2];[m][v2]sidechaincompress=threshold=0.03:ratio=4:attack=20:release=400:makeup=1[md];[v1][md]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,${tail}`;
-  else graph = `${m};[0:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[v1];[v1][m]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,${tail}`;
+    graph = `${m};[0:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,asplit=2[v1][v2];[m][v2]sidechaincompress=threshold=0.03:ratio=4:attack=20:release=400:makeup=1[md];[v1]volume=${src.toFixed(2)}[v1s];[v1s][md]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,${tail}`;
+  else graph = `${m};[0:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume=${src.toFixed(2)}[v1];[v1][m]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,${tail}`;
   await run(
     config.ffmpeg,
     [
