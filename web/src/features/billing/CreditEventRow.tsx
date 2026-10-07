@@ -23,16 +23,25 @@ const dateTime = (ms: number) => new Date(ms).toLocaleString(undefined, { dateSt
 export function CreditEventRow({ e, timeOnly }: { e: CreditEvent; timeOnly?: boolean }) {
   const k = KIND[e.kind] ?? KIND.adjust;
   const Icon = k.icon;
+  const note = e.note ?? k.label;
+  // the line usually names its video already ("Podcast #42 · 4 clips"): then the line itself opens the video
+  const named = Boolean(e.project && note.includes(e.project.title));
   return (
     <li className="flex items-center gap-3 py-3 text-sm">
       <span className={cn('grid size-9 shrink-0 place-items-center rounded-xl', k.chip)} aria-hidden>
         <Icon size={16} />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block font-semibold text-ink [overflow-wrap:anywhere]">{e.note ?? k.label}</span>
+        {named && e.project?.exists ? (
+          <Link to={`/app/p/${e.project.id}`} className="block font-semibold text-ink no-underline [overflow-wrap:anywhere] hover:text-accent">
+            {note}
+          </Link>
+        ) : (
+          <span className="block font-semibold text-ink [overflow-wrap:anywhere]">{note}</span>
+        )}
         <span className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-ink-3">
           <span>{timeOnly ? time(e.createdAt) : dateTime(e.createdAt)}</span>
-          {e.project && (
+          {e.project && !named && (
             <>
               <span aria-hidden>·</span>
               {e.project.exists ? (

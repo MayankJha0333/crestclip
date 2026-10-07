@@ -52,7 +52,7 @@ Collection.prototype.createIndexes = async function (this: any, specs: any[], ..
 } as any;
 
 const db = await import('../src/db/index.js');
-export const { users, sessions, credits, payments } = db;
+export const { users, sessions, credits, payments, projects } = db;
 const dbHandle = await (await import('../src/db/connection.js')).connectDb();
 // FerretDB also has no $lookup (used to read a session and its user in one trip): read them in two there.
 {
