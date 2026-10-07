@@ -99,6 +99,14 @@ export const users = {
   async update(id: string, patch: Partial<Omit<UserRow, 'id' | 'createdAt'>>) {
     await col().updateOne({ _id: id }, { $set: setFields(patch, UPDATABLE) });
   },
+  /**
+   * Update only while the account still has these values (e.g. still the same subscription) — so a slow check of an
+   * old subscription can't overwrite a newer one saved meanwhile. Returns false when nothing matched.
+   */
+  async updateIf(id: string, match: Partial<Pick<UserRow, 'dodoSubscriptionId' | 'rzSubscriptionId'>>, patch: Partial<Omit<UserRow, 'id' | 'createdAt'>>) {
+    const r = await col().updateOne({ _id: id, ...match }, { $set: setFields(patch, UPDATABLE) });
+    return r.matchedCount > 0;
+  },
   /** Delete the account itself (see account-deletion.ts for everything that goes with it). */
   async remove(id: string) {
     await col().deleteOne({ _id: id });

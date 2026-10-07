@@ -249,6 +249,7 @@ try {
     assert.equal(a.plan.id, 'free');
     assert.equal(a.hasSubscription, false);
     assert.ok((await balance(us)) >= before); // paid credits stay (+ the Free month's 60)
+    assert.equal(mock.subs.get(usSub)!.status, 'cancelled'); // ended at Dodo too: a card fixed later can't restart it
   });
 
   await step('Comes back later: the old subscription becomes active again → adopted again', async () => {
@@ -366,6 +367,79 @@ try {
     assert.equal(u.dodoSubscriptionId, b.sub!.subscription_id);
     assert.equal(u.plan, 'pro');
     assert.equal(mock.subs.get(b.sub!.subscription_id)!.status, 'active');
+    assert.equal(mock.subs.get(a.sub!.subscription_id)!.status, 'cancelled'); // the older one never renews next to it
+  });
+
+  await step('A late “cancelled” for an old subscription can’t end the newer plan', async () => {
+    const p = await person('late-cancel@example.com');
+    const a = mock.pay((await call(p, 'POST', '/billing/subscribe', { plan: 'creator' })).data.url);
+    a.sub!.created_at = ago(1);
+    await call(p, 'POST', '/billing/checkout/confirm', confirmFrom(a.returnQuery));
+    const b = mock.pay(await directCheckout(p, P.pro, 'pro'));
+    await sendWebhook(APP, WHSEC, 'subscription.active', subData(b.sub!)); // adopts B, cancels A
+    await sendWebhook(APP, WHSEC, 'subscription.cancelled', subData(mock.subs.get(a.sub!.subscription_id)!));
+    const u = await fresh(p);
+    assert.equal(u.plan, 'pro');
+    assert.equal(u.dodoSubscriptionId, b.sub!.subscription_id);
+  });
+
+  await step('Pro that’s ending → asking for Creator is refused (no mid-month move down)', async () => {
+    const p = await person('no-downgrade@example.com');
+    const paid = mock.pay((await call(p, 'POST', '/billing/subscribe', { plan: 'pro' })).data.url);
+    await call(p, 'POST', '/billing/checkout/confirm', confirmFrom(paid.returnQuery));
+    await call(p, 'POST', '/billing/cancel');
+    const before = mock.calls.filter((c) => c.path.endsWith('/change-plan')).length;
+    const r = await call(p, 'POST', '/billing/subscribe', { plan: 'creator' });
+    assert.equal(r.status, 409);
+    assert.equal(mock.calls.filter((c) => c.path.endsWith('/change-plan')).length, before);
+    assert.equal(mock.subs.get(paid.sub!.subscription_id)!.cancel_at_next_billing_date, true);
+  });
+
+  await step('Creator that’s ending + an upgrade whose payment fails → still ending, at Dodo too', async () => {
+    const p = await person('ending-upgrade-fails@example.com');
+    const paid = mock.pay((await call(p, 'POST', '/billing/subscribe', { plan: 'creator' })).data.url);
+    await call(p, 'POST', '/billing/checkout/confirm', confirmFrom(paid.returnQuery));
+    await call(p, 'POST', '/billing/cancel');
+    mock.failNextPlanChange = true;
+    const r = await call(p, 'POST', '/billing/subscribe', { plan: 'pro' });
+    assert.deepEqual(r.data, { changed: true, pending: true });
+    assert.equal(mock.subs.get(paid.sub!.subscription_id)!.cancel_at_next_billing_date, true);
+    const u = await fresh(p);
+    assert.equal(u.plan, 'creator');
+    assert.equal(u.cancelAtPeriodEnd, true);
+  });
+
+  await step('Creator that’s ending + a working upgrade → Pro, renewing again', async () => {
+    const p = await person('ending-upgrade-ok@example.com');
+    const paid = mock.pay((await call(p, 'POST', '/billing/subscribe', { plan: 'creator' })).data.url);
+    await call(p, 'POST', '/billing/checkout/confirm', confirmFrom(paid.returnQuery));
+    await call(p, 'POST', '/billing/cancel');
+    const r = await call(p, 'POST', '/billing/subscribe', { plan: 'pro' });
+    assert.deepEqual(r.data, { changed: true, pending: false });
+    assert.equal(mock.subs.get(paid.sub!.subscription_id)!.cancel_at_next_billing_date, false);
+    const u = await fresh(p);
+    assert.equal(u.plan, 'pro');
+    assert.equal(u.cancelAtPeriodEnd, false);
+  });
+
+  await step('Two checks of the same month at the same moment → credits added once', async () => {
+    const p = await person('parallel@example.com');
+    await account(p);
+    const paid = mock.pay((await call(p, 'POST', '/billing/subscribe', { plan: 'pro' })).data.url);
+    const q = confirmFrom(paid.returnQuery);
+    await Promise.all([
+      call(p, 'POST', '/billing/checkout/confirm', q),
+      call(p, 'POST', '/billing/checkout/confirm', q),
+      sendWebhook(APP, WHSEC, 'subscription.active', subData(paid.sub!)),
+      sendWebhook(APP, WHSEC, 'payment.succeeded', payData(paid.pay!)),
+      account(p),
+    ]);
+    assert.equal(await balance(p), 60 + 1000);
+  });
+
+  await step('A webhook for a subscription Dodo no longer has → 200 (no endless retries)', async () => {
+    const r = await sendWebhook(APP, WHSEC, 'subscription.active', { payload_type: 'Subscription', subscription_id: 'sub_deleted' });
+    assert.equal(r.status, 200);
   });
 
   await step('A newer subscription replaces an older one and cancels it (never billed twice)', async () => {
