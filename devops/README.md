@@ -34,6 +34,8 @@ devops/
 | **Ship a change** | `git push origin main` — the site updates itself in ~10 min, one piece at a time, no downtime |
 | **Change a setting** (API key, password…) | `./devops/secrets/secrets.sh edit` → save → type `y` — live within a minute |
 | **See what's running** | [crestclip.com/admin/](https://crestclip.com/admin/) |
+| **See all users** (credits, videos, jobs) | [crestclip.com/admin/users](https://crestclip.com/admin/users) — click a person for details |
+| **See whose jobs are running / waiting** | [crestclip.com/admin/running](https://crestclip.com/admin/running) |
 | **See jobs** (waiting, running, failed + their logs) | [crestclip.com/admin/queues/](https://crestclip.com/admin/queues/) |
 | **See live logs** | [crestclip.com/admin/logs/](https://crestclip.com/admin/logs/) |
 | **See costs** | [crestclip.com/admin/costs](https://crestclip.com/admin/costs) |

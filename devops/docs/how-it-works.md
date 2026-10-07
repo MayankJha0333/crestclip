@@ -104,6 +104,9 @@ All behind your CrestClip admin login. Caddy asks the app "is this person an adm
 | Page | Shows |
 |---|---|
 | `/admin/` | site up?, workers connected, jobs running/waiting/failed, CPU + memory per container |
+| `/admin/users` | everyone: plan, credits left, credits used, videos, jobs right now, last active — search + sort |
+| `/admin/users/<id>` | one person: their videos (status, progress, clips), credits held + history, posts, jobs now |
+| `/admin/running` | every running and waiting job: whose it is, which video, which step, which worker |
 | `/admin/queues/` | every job with progress, its own logs, errors; retry |
 | `/admin/logs/` | live logs of every container |
 | `/admin/costs` | monthly cost, which part uses the server most, AI spend per day / model / video / person |

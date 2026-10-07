@@ -22,11 +22,17 @@ tr:last-child td{border-bottom:0}td.n{text-align:right;font-variant-numeric:tabu
 .note{color:var(--muted);font-size:13px;margin-top:8px}.pill{font-size:12px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
 .spark{display:flex;align-items:flex-end;gap:2px;height:70px;padding:8px 0}.spark i{flex:1;background:var(--accent);border-radius:2px 2px 0 0;min-height:1px;opacity:.85}
 .wrap{overflow-x:auto}a{color:var(--accent)}
+.pill.p-ok{color:var(--ok);border-color:var(--ok)}.pill.p-bad{color:var(--bad);border-color:var(--bad)}.pill.p-warn{color:var(--warn);border-color:var(--warn)}
+input.search{width:100%;max-width:360px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font:inherit;margin:0 0 12px}
+tr.row:hover td{background:var(--bg);cursor:pointer}td a.plain{color:inherit;text-decoration:none}
+.muted{color:var(--muted)}.small{font-size:13px}
 `;
 
-export function layout(title: string, active: 'overview' | 'costs', body: string, refreshSeconds = 0) {
+export function layout(title: string, active: 'overview' | 'users' | 'running' | 'costs', body: string, refreshSeconds = 0) {
   const nav = [
     ['overview', '/admin/', 'Overview'],
+    ['users', '/admin/users', 'Users'],
+    ['running', '/admin/running', 'Running now'],
     ['jobs', '/admin/queues/', 'Jobs'],
     ['logs', '/admin/logs/', 'Live logs'],
     ['costs', '/admin/costs', 'Costs'],
@@ -37,6 +43,21 @@ export function layout(title: string, active: 'overview' | 'costs', body: string
 ${refreshSeconds ? `<meta http-equiv="refresh" content="${refreshSeconds}">` : ''}<title>${esc(title)} · CrestClip admin</title><style>${CSS}</style></head>
 <body><header><b>CrestClip admin</b>${nav}<span style="flex:1"></span><a href="/app">Back to the app</a></header><main>${body}</main></body></html>`;
 }
+
+/** "5 min ago", "3 h ago", "12 Oct" */
+export function ago(t: number) {
+  if (!t) return '—';
+  const s = (Date.now() - t) / 1000;
+  if (s < 0) return `in ${Math.round(-s / 60)} min`;
+  if (s < 90) return 'just now';
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  if (s < 7 * 86400) return `${Math.round(s / 86400)} d ago`;
+  return new Date(t).toISOString().slice(0, 10);
+}
+export const pill = (text: string, tone: 'ok' | 'bad' | 'warn' | '' = '') => `<span class="pill${tone ? ` p-${tone}` : ''}">${esc(text)}</span>`;
+export const status = (s: string) =>
+  ({ done: pill('done', 'ok'), ready: pill('ready', 'ok'), failed: pill('failed', 'bad'), processing: pill('working', 'warn'), rendering: pill('rendering', 'warn'), queued: pill('in line'), pending: pill('in line') })[s] ?? pill(s);
 
 export const bar = (fraction: number) => `<div class="bar"><i style="width:${Math.max(0, Math.min(1, fraction)) * 100}%"></i></div>`;
 export const dot = (state: 'ok' | 'bad' | 'warn') => `<span class="dot ${state}"></span>`;
