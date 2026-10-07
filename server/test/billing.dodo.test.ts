@@ -2,7 +2,7 @@
  * The whole paying flow against a stand-in Dodo API (test/dodo-mock.ts) and a real database:
  * subscribe (US $ and India ₹), come back from checkout, webhooks (signed, repeated, out of order, forged),
  * upgrade, renewal, failed renewal + grace, cancel / keep, top-ups, a payment that only arrives by webhook,
- * catching up without webhooks, someone else's payment, an old Razorpay subscriber moving over.
+ * catching up without webhooks, someone else's payment.
  *
  *   MONGODB_URI=mongodb://127.0.0.1:27017/ npx tsx test/billing.dodo.test.ts
  *
@@ -487,21 +487,6 @@ try {
     await sendWebhook(APP, WHSEC, 'subscription.active', subData(b.sub!));
     assert.equal((await fresh(p)).dodoSubscriptionId, b.sub!.subscription_id);
     assert.equal(mock.subs.get(a.sub!.subscription_id)!.status, 'cancelled');
-  });
-
-  await step('Old Razorpay subscriber subscribing through Dodo → moved over, Razorpay link cleared', async () => {
-    const p = await person('old-razorpay@example.com', { plan: 'creator', rzSubscriptionId: 'sub_rz_legacy', cycleStart: Date.now() - 86400_000, cycleEnd: Date.now() + 20 * 86400_000 });
-    let a = await account(p);
-    assert.equal(a.billedBy, 'razorpay');
-    const r = await call(p, 'POST', '/billing/subscribe', { plan: 'pro' });
-    assert.ok(r.data.url, JSON.stringify(r.data));
-    const paid = mock.pay(r.data.url);
-    await call(p, 'POST', '/billing/checkout/confirm', confirmFrom(paid.returnQuery));
-    const u = await fresh(p);
-    assert.equal(u.plan, 'pro');
-    assert.equal(u.rzSubscriptionId, null);
-    a = await account(p);
-    assert.equal(a.billedBy, 'dodo');
   });
 
   await step('Webhook for a subscription nobody has → ignored (200, so Dodo stops retrying)', async () => {

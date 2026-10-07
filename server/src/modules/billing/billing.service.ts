@@ -4,7 +4,6 @@ import { credits, creditsVersion, NotEnoughCredits, payments, projects, users, t
 import { HttpError } from '../../lib/http.js';
 import { CREDITS_PER_CLIP, creditsForClips, CURRENCY, PLAN_ORDER, PLANS, planOf, POLICY_LINES, TOPUP, type Plan } from './plans.js';
 import { dodo, DodoError, dodoReady, ms, planForProduct, productForPlan, validDodoWebhook, type DodoEvent, type DodoPayment, type DodoSubscription } from './dodo.js';
-import { planForRazorpayPlan, razorpay, razorpayReady, validWebhook, type RzPayment, type RzSubscription } from './razorpay.js';
 
 const DAY = 86400_000;
 /** Same day next month (Jan 31 → Mar 3 is fine for a billing month). */
@@ -53,17 +52,6 @@ export async function refreshAccount(user: UserRow): Promise<UserRow> {
     }
     const after = (await users.get(user.id))!;
     return after.plan === 'free' ? refreshAccount(after) : after; // the subscription ended → start the Free month
-  }
-  if (plan.id !== 'free' && user.rzSubscriptionId) {
-    if (razorpayReady() && due(lastSync, user.id, 5 * 60_000)) {
-      try {
-        await syncRazorpay(user, await razorpay.subscription(user.rzSubscriptionId));
-      } catch (e) {
-        console.warn(`[billing] couldn't check the Razorpay subscription of ${user.email}:`, (e as Error).message);
-      }
-    }
-    const after = (await users.get(user.id))!;
-    return after.plan === 'free' ? refreshAccount(after) : after;
   }
   if (plan.id !== 'free' && user.cancelAtPeriodEnd) {
     await downgrade(user, 'The plan ended');
@@ -178,41 +166,12 @@ async function grantDodoMonth(userId: string, paymentId: string, end: number, p:
   }
 }
 
-/** Legacy: apply what Razorpay says about a subscription made before the move to Dodo. */
-async function syncRazorpay(user: UserRow, sub: RzSubscription) {
-  const plan = planFromRazorpay(sub) ?? user.plan;
-  const end = sub.current_end ? sub.current_end * 1000 : null;
-  if ((sub.status === 'active' || sub.status === 'authenticated') && sub.paid_count > 0 && end && end > Date.now()) {
-    const p = planOf(plan);
-    if (!(await users.updateIf(user.id, { rzSubscriptionId: sub.id }, { plan: p.id, cycleStart: (sub.current_start ?? Date.now() / 1000) * 1000, cycleEnd: end }))) return;
-    await credits.grant(user.id, {
-      amount: p.credits,
-      source: 'plan',
-      expiresAt: nextMonth(end),
-      ref: `sub_${sub.id}_${sub.paid_count}`,
-      note: `${p.name} plan · monthly credits`,
-    });
-    return;
-  }
-  if (sub.status === 'cancelled' && end && end > Date.now()) {
-    await users.updateIf(user.id, { rzSubscriptionId: sub.id }, { cancelAtPeriodEnd: true }); // paid until the end of this month
-    return;
-  }
-  if (['cancelled', 'completed', 'expired', 'halted'].includes(sub.status)) await downgrade(user, sub.status === 'halted' ? 'Payments failed' : 'The plan ended', { rzSubscriptionId: sub.id });
-  // 'pending' = Razorpay is retrying a failed renewal: keep the plan, add credits once it's paid
-}
-
-function planFromRazorpay(sub: RzSubscription): PlanId | null {
-  if (sub.notes?.plan && sub.notes.plan in PLANS) return sub.notes.plan as PlanId;
-  return planForRazorpayPlan(sub.plan_id);
-}
-
 /**
  * Back to Free (credits already paid for stay until they expire). With `onlyIf`, only while the account is still on
  * that subscription — a late "cancelled" for an old subscription can't end a newer plan bought meanwhile.
  */
-async function downgrade(user: UserRow, why: string, onlyIf?: { dodoSubscriptionId: string } | { rzSubscriptionId: string }) {
-  const patch = { plan: 'free' as const, dodoSubscriptionId: null, subscriptionStatus: null, rzSubscriptionId: null, cancelAtPeriodEnd: false, cycleEnd: Date.now() };
+async function downgrade(user: UserRow, why: string, onlyIf?: { dodoSubscriptionId: string }) {
+  const patch = { plan: 'free' as const, dodoSubscriptionId: null, subscriptionStatus: null, cancelAtPeriodEnd: false, cycleEnd: Date.now() };
   if (onlyIf) {
     if (!(await users.updateIf(user.id, onlyIf, patch))) return;
   } else await users.update(user.id, patch);
@@ -237,7 +196,7 @@ const SUMMARY_TTL = 30_000;
  * trip (the session) instead of four. Grants expiring exactly inside the 30 s window show a moment late — fine.
  */
 export async function accountSummary(user: UserRow): Promise<Summary> {
-  const key = [creditsVersion(user.id), user.plan, user.cycleStart, user.cycleEnd, user.cancelAtPeriodEnd, user.dodoSubscriptionId, user.subscriptionStatus, user.dodoCustomerId, user.rzSubscriptionId].join('|');
+  const key = [creditsVersion(user.id), user.plan, user.cycleStart, user.cycleEnd, user.cancelAtPeriodEnd, user.dodoSubscriptionId, user.subscriptionStatus, user.dodoCustomerId].join('|');
   const hit = summaryCache.get(user.id);
   if (hit && hit.key === key && Date.now() - hit.at < SUMMARY_TTL) return hit.value;
   const value = await buildSummary(user);
@@ -261,9 +220,9 @@ async function buildSummary(user: UserRow) {
     cancelAtPeriodEnd: user.cancelAtPeriodEnd,
     /** the latest plan change ("Pro cancelled", "Pro ended", "Upgraded to Pro") and when */
     lastPlanChange: lastChange ? { what: lastChange.note.split(' — ')[0].replace(/ \(.*\)$/, ''), at: lastChange.createdAt } : null,
-    hasSubscription: Boolean(user.dodoSubscriptionId || user.rzSubscriptionId),
-    /** who bills the plan: Dodo, or Razorpay for people who subscribed before the move */
-    billedBy: user.dodoSubscriptionId ? ('dodo' as const) : user.rzSubscriptionId ? ('razorpay' as const) : null,
+    hasSubscription: Boolean(user.dodoSubscriptionId),
+    /** who bills the plan (Dodo Payments), or null for Free / a plan given by an admin */
+    billedBy: user.dodoSubscriptionId ? ('dodo' as const) : null,
     /** a renewal payment failed: the plan stays for a few days while the person updates their card / UPI */
     paymentProblem: Boolean(user.dodoSubscriptionId) && (user.subscriptionStatus === 'on_hold' || user.subscriptionStatus === 'past_due'),
     /** Dodo's customer portal (card / UPI mandate, invoices) */
@@ -349,7 +308,7 @@ export async function receipt(user: UserRow, paymentId: string) {
     payment.kind === 'topup'
       ? `Credit top-up — ${TOPUP.credits} credits`
       : `${planOf(payment.plan).name} plan — monthly subscription (${planOf(payment.plan).credits} credits)`;
-  return { payment, item, customer: { name: user.name, email: user.email }, seller: site(), provider: payment.provider ?? 'razorpay' };
+  return { payment, item, customer: { name: user.name, email: user.email }, seller: site(), provider: 'dodo' as const };
 }
 
 // ---------------- limits ----------------
@@ -518,12 +477,12 @@ export async function startSubscription(user: UserRow, planId: PlanId): Promise<
     await resumePlan(user);
     return { changed: true, pending: false };
   }
-  if (user.plan === plan.id && (subscribed || user.rzSubscriptionId) && !user.cancelAtPeriodEnd) throw new HttpError(409, `You’re already on ${plan.name}.`);
+  if (user.plan === plan.id && subscribed && !user.cancelAtPeriodEnd) throw new HttpError(409, `You’re already on ${plan.name}.`);
   // Only upgrades: a lower plan isn't offered while a higher one is paid for (it already includes everything). One
   // that's ending can be followed by a lower plan only after it ends — never by moving down mid-month (that would
   // refund part of the month while keeping the bigger plan's credits).
   if (rank(plan.id) < rank(current.id)) {
-    if (user.cancelAtPeriodEnd && (subscribed || user.rzSubscriptionId))
+    if (user.cancelAtPeriodEnd && subscribed)
       throw new HttpError(409, `${current.name} stays active until ${user.cycleEnd ? new Date(user.cycleEnd).toDateString() : 'the end of this month'}. You can pick ${plan.name} after that.`);
     if (!user.cancelAtPeriodEnd) throw new HttpError(409, `You’re on ${current.name}, which already includes everything in ${plan.name}.`);
   }
@@ -559,7 +518,7 @@ export async function startSubscription(user: UserRow, planId: PlanId): Promise<
     return { changed: true, pending: !moved };
   }
 
-  // a new subscription (an old Razorpay one is cancelled once this one is paid)
+  // a new subscription
   const customerId = await ensureCustomer(user);
   const session = await dodo
     .createCheckout({ productId: productForPlan(plan.id), customerId, returnUrl: returnUrl('plan'), metadata: { user_id: user.id, plan: plan.id, kind: 'subscription' } })
@@ -601,14 +560,10 @@ async function adoptDodo(user: UserRow, sub: DodoSubscription): Promise<boolean>
       await dodo.updateSubscription(old.subscription_id, { status: 'cancelled' }).catch((e) => console.warn('[billing] old Dodo subscription cancel:', (e as Error).message));
     }
   }
-  if (user.rzSubscriptionId && razorpayReady())
-    await razorpay.cancelSubscription(user.rzSubscriptionId, false).catch((e) => console.warn('[billing] old Razorpay subscription cancel:', (e as Error).message));
   console.log(`[billing] ${user.email}: ${planOf(user.plan).name} → ${PLANS[planOfDodo(sub)!].name} (Dodo ${sub.subscription_id})`);
   await users.update(user.id, {
     dodoSubscriptionId: sub.subscription_id,
     dodoCustomerId: user.dodoCustomerId ?? sub.customer.customer_id,
-    rzSubscriptionId: null,
-    pendingSubscriptionId: null,
   });
   const fresh = (await users.get(user.id))!;
   await syncDodo(fresh, sub);
@@ -738,11 +693,7 @@ export async function cancelPlan(user: UserRow) {
     needPayments();
     const sub = await dodo.updateSubscription(user.dodoSubscriptionId, { cancel_at_next_billing_date: true }).catch(explainDodoError);
     if (sub?.subscription_id) await syncDodo(user, sub);
-  } else if (user.rzSubscriptionId) {
-    if (!razorpayReady()) throw new HttpError(503, 'Your plan is billed through Razorpay, which isn’t connected right now. Please contact support to cancel.');
-    await razorpay.cancelSubscription(user.rzSubscriptionId, true);
-    await logPlan(user.id, `${planOf(user.plan).name} cancelled — stays active until ${day(user.cycleEnd)}, then Free`);
-  }
+  } else await logPlan(user.id, `${planOf(user.plan).name} cancelled — stays active until ${day(user.cycleEnd)}, then Free`);
   await users.update(user.id, { cancelAtPeriodEnd: true });
   console.log(`[billing] ${user.email}: cancelled ${planOf(user.plan).name} (ends at the end of the month)`);
   return (await users.get(user.id))!;
@@ -750,7 +701,7 @@ export async function cancelPlan(user: UserRow) {
 
 /** Changed their mind: keep renewing. */
 export async function resumePlan(user: UserRow): Promise<UserRow> {
-  if (!user.dodoSubscriptionId || !user.cancelAtPeriodEnd) throw new HttpError(400, user.rzSubscriptionId ? 'A cancelled Razorpay plan can’t be resumed — pick a plan again below.' : 'Your plan isn’t ending.');
+  if (!user.dodoSubscriptionId || !user.cancelAtPeriodEnd) throw new HttpError(400, 'Your plan isn’t ending.');
   needPayments();
   const sub = await dodo.updateSubscription(user.dodoSubscriptionId, { cancel_at_next_billing_date: false }).catch(explainDodoError);
   if (sub?.subscription_id) await syncDodo(user, sub);
@@ -822,23 +773,6 @@ export async function handleDodoWebhook(rawBody: Buffer | undefined, h: { id: st
     console.warn(`[billing] Dodo ${ev.type} for payment ${(ev.data as { payment_id?: string }).payment_id ?? '?'} — check it in the Dodo dashboard; credits aren’t taken back automatically (Settings → Admin can remove them).`);
 }
 
-/** Legacy Razorpay webhooks: renewals and cancellations of subscriptions made before the move to Dodo. */
-export async function handleRazorpayWebhook(rawBody: Buffer | undefined, signature: string) {
-  if (!rawBody || !validWebhook(rawBody, signature)) throw new HttpError(400, 'Bad signature');
-  const ev = JSON.parse(rawBody.toString('utf8')) as {
-    event: string;
-    payload: { subscription?: { entity: RzSubscription }; payment?: { entity: RzPayment } };
-  };
-  const sub = ev.payload.subscription?.entity;
-  const pay = ev.payload.payment?.entity;
-  if (!sub) return;
-  const user = await users.bySubscription(sub.id);
-  if (!user || user.rzSubscriptionId !== sub.id) return; // not (or no longer) anyone's plan
-  if (pay && ev.event === 'subscription.charged')
-    await payments.record({ id: pay.id, userId: user.id, kind: 'subscription', plan: planFromRazorpay(sub), amount: pay.amount, currency: pay.currency, ref: sub.id, provider: 'razorpay' });
-  await syncRazorpay(user, sub);
-}
-
 // ---------------- admin ----------------
 
 export async function adminSetPlan(userId: string, planId: PlanId) {
@@ -846,7 +780,6 @@ export async function adminSetPlan(userId: string, planId: PlanId) {
   if (!user) throw new HttpError(404, 'User not found');
   if (!(planId in PLANS)) throw new HttpError(400, 'Unknown plan');
   if (user.dodoSubscriptionId) throw new HttpError(409, 'This person pays through Dodo Payments — change or cancel their subscription in the Dodo dashboard (Sales → Subscriptions).');
-  if (user.rzSubscriptionId) throw new HttpError(409, 'This person pays through Razorpay — change or cancel their subscription in the Razorpay Dashboard.');
   // an admin-given plan has no subscription; it renews itself each month until changed
   await users.update(userId, { plan: planId, cancelAtPeriodEnd: false, cycleEnd: Date.now() });
   if (user.plan !== planId) await logPlan(userId, `Plan changed to ${PLANS[planId].name} by CrestClip`);

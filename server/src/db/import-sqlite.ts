@@ -27,11 +27,11 @@ const json = (v: unknown, d: unknown = null) => {
 };
 
 /** column → field name, where it isn't simply the camelCase of the column */
-const RENAME: Record<string, string> = { rz_pending_sub: 'pendingSubscriptionId', flash: 'flashForward' };
+const RENAME: Record<string, string> = { flash: 'flashForward' };
 /** columns stored as 0/1 that are true/false now */
 const BOOLEAN = new Set(['is_admin', 'cancel_at_period_end', 'show_hook', 'emoji', 'flash', 'refunded']);
-/** columns that are gone */
-const DROP = new Set(['rowid', 'billing_currency']);
+/** columns that are gone (rz_*: Razorpay, no longer used) */
+const DROP = new Set(['rowid', 'billing_currency', 'rz_pending_sub', 'rz_subscription_id']);
 
 /** One SQLite row → a MongoDB document (JSON columns become real objects, 0/1 become true/false). */
 function toDoc(r: Row, idColumn = 'id'): Row {

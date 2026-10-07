@@ -10,7 +10,7 @@ declare global {
       /** the signed-in person (set from the session cookie) */
       user?: UserRow;
       sessionToken?: string;
-      /** the exact request bytes (needed to check Dodo / Razorpay webhook signatures) */
+      /** the exact request bytes (needed to check Dodo webhook signatures) */
       rawBody?: Buffer;
     }
   }

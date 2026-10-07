@@ -79,7 +79,7 @@ export async function usersList(db: Db, queues: Queues) {
   const now = Date.now();
   const since30 = now - 30 * DAY;
   const [people, grants, spends, projects, sessions, jobs] = await Promise.all([
-    db.collection('users').find({}, { projection: { email: 1, name: 1, plan: 1, rzSubscriptionId: 1, dodoSubscriptionId: 1, isAdmin: 1, createdAt: 1 } }).toArray(),
+    db.collection('users').find({}, { projection: { email: 1, name: 1, plan: 1, dodoSubscriptionId: 1, isAdmin: 1, createdAt: 1 } }).toArray(),
     db.collection('credit_grants').find({ expiresAt: { $gt: now }, remaining: { $gt: 0 } }, { projection: { userId: 1, remaining: 1 } }).toArray(),
     db.collection('credit_events').find({ kind: 'spend', refunded: false, createdAt: { $gte: since30 } }, { projection: { userId: 1, delta: 1 } }).toArray(),
     db.collection('projects').find({ sourceType: { $ne: 'group' } }, { projection: { userId: 1, createdAt: 1 } }).toArray(),
@@ -117,7 +117,7 @@ export async function usersList(db: Db, queues: Queues) {
       email: String(p.email ?? ''),
       name: String(p.name ?? ''),
       plan: String(p.plan ?? 'free'),
-      paying: Boolean(p.dodoSubscriptionId || p.rzSubscriptionId),
+      paying: Boolean(p.dodoSubscriptionId),
       isAdmin: Boolean(p.isAdmin),
       credits: credits.get(id) ?? 0,
       used30: used.get(id) ?? 0,
@@ -185,7 +185,7 @@ export async function userDetail(db: Db, queues: Queues, id: string) {
       name: String(user.name ?? ''),
       avatar: (user.avatar as string | null) ?? null,
       plan: String(user.plan ?? 'free'),
-      paying: Boolean(user.dodoSubscriptionId || user.rzSubscriptionId),
+      paying: Boolean(user.dodoSubscriptionId),
       cancelAtPeriodEnd: Boolean(user.cancelAtPeriodEnd),
       cycleEnd: (user.cycleEnd as number | null) ?? null,
       isAdmin: Boolean(user.isAdmin),

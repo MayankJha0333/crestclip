@@ -245,8 +245,6 @@ Everyone signs up with **Continue with Google** (there's no email + password sig
 - **Cancel:** the plan stays until the paid month ends, then moves to Free; **Keep my plan** undoes it. Credits already bought stay until they expire.
 - **Refunds** are made in the Dodo dashboard; credits aren't taken back automatically (Settings → Admin can remove them).
 
-**Old Razorpay subscribers:** people who subscribed before the move keep renewing through Razorpay until they cancel or upgrade (an upgrade moves them to Dodo and cancels the Razorpay subscription). Keep the `RAZORPAY_*` settings until nobody pays through Razorpay any more.
-
 Without the Dodo settings everything else works (credits, limits, monthly refills). Upgrades are off, and an admin can give plans and credits by hand in **Settings → Admin**.
 
 ## Help requests (support tickets)
@@ -257,7 +255,7 @@ Admins answer on **Admin → Support** (`/app/admin/support`, also linked from t
 
 ## API (for automation)
 
-Every call needs a signed-in session (the `cc_session` cookie from `POST /api/auth/login`). Public: `/api/auth/*`, `/api/billing/plans`, `/api/billing/dodo/webhook`, `/api/billing/webhook` (old Razorpay).
+Every call needs a signed-in session (the `cc_session` cookie from `POST /api/auth/login`). Public: `/api/auth/*`, `/api/billing/plans`, `/api/billing/dodo/webhook`.
 
 ```
 POST   /api/auth/signup | /api/auth/login | /api/auth/logout

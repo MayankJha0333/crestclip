@@ -43,8 +43,6 @@ const user = (id: string, email: string) => ({
   dodoCustomerId: null,
   dodoSubscriptionId: null,
   subscriptionStatus: null,
-  rzSubscriptionId: null,
-  pendingSubscriptionId: null,
   cancelAtPeriodEnd: false,
   createdAt: now - 30 * DAY,
   updatedAt: now - 30 * DAY,

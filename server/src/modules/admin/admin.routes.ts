@@ -16,7 +16,7 @@ const toRow = async (u: UserRow) => ({
   name: u.name,
   isAdmin: u.isAdmin,
   plan: planOf(u.plan).id,
-  paying: Boolean(u.dodoSubscriptionId || u.rzSubscriptionId),
+  paying: Boolean(u.dodoSubscriptionId),
   balance: await credits.balance(u.id),
   createdAt: u.createdAt,
 });

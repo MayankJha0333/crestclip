@@ -37,7 +37,7 @@ interface CreditEventRow {
   createdAt: number;
 }
 interface PaymentRow {
-  /** the payment id at the provider (Dodo pay_…, or Razorpay pay_… from before the move) */
+  /** Dodo's payment id (pay_…) */
   id: string;
   userId: string;
   kind: 'subscription' | 'topup';
@@ -47,8 +47,8 @@ interface PaymentRow {
   currency: string | null;
   /** order / subscription id */
   ref: string | null;
-  /** who took the payment (missing on old Razorpay payments) */
-  provider?: 'dodo' | 'razorpay';
+  /** who took the payment */
+  provider?: 'dodo';
   /** the tax invoice (Dodo) */
   invoiceUrl?: string | null;
   createdAt: number;
@@ -316,7 +316,7 @@ export const payments = {
             amount: p.amount ?? null,
             currency: p.currency ?? null,
             ref: p.ref ?? null,
-            provider: p.provider ?? 'razorpay',
+            provider: p.provider ?? 'dodo',
             createdAt: p.at ?? stamp(),
           },
         },

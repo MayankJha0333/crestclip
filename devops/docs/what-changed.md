@@ -49,7 +49,7 @@ table: `docs/how-it-works.md` → "Jobs and workers".
 | `infra/queue.ts` | silent-job watchdog, waited-too-long cancel, no-worker / Redis-full warnings, log cap |
 | `infra/shared.ts` | a lock wait gives up after 20 min |
 | `db/connection.ts` | database calls time out after 2 min |
-| `pipeline/process.ts`, `publishing/providers/youtube.ts`, `billing/razorpay.ts` | time limits on the last web calls without one |
+| `pipeline/process.ts`, `publishing/providers/youtube.ts`, `billing/dodo.ts` | time limits on the last web calls without one |
 | `devops/dashboard` | Overview shows "Longest wait" |
 
 ## Earlier fixes (same week)

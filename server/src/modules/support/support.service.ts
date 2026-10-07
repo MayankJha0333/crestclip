@@ -105,7 +105,7 @@ export async function adminTicket(id: string, markRead = true) {
       .slice(0, 5)
       .map((x) => ({ id: x.id, number: x.number, subject: x.subject, status: x.status, updatedAt: x.updatedAt })),
     user: u
-      ? { id: u.id, email: u.email, name: u.name, plan: planOf(u.plan).id, paying: Boolean(u.dodoSubscriptionId || u.rzSubscriptionId), balance: await credits.balance(u.id), createdAt: u.createdAt }
+      ? { id: u.id, email: u.email, name: u.name, plan: planOf(u.plan).id, paying: Boolean(u.dodoSubscriptionId), balance: await credits.balance(u.id), createdAt: u.createdAt }
       : null,
   };
 }

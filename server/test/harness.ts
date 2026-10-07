@@ -27,8 +27,6 @@ Object.assign(process.env, {
   DODO_PRODUCT_CREATOR: P.creator,
   DODO_PRODUCT_PRO: P.pro,
   DODO_PRODUCT_TOPUP: P.topup,
-  RAZORPAY_KEY_ID: '',
-  RAZORPAY_KEY_SECRET: '',
   MONGODB_URI: process.env.MONGODB_URI ?? 'mongodb://127.0.0.1:27017/',
   MONGODB_DB: `crestclip_billing_test_${Date.now()}`,
   PUBLIC_URL: process.env.PUBLIC_URL ?? 'https://crestclip.test',

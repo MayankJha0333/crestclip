@@ -4,10 +4,9 @@ import type { PlanId } from '../../db/index.js';
 /**
  * Plans, prices and limits — the one place to change them.
  *
- * Everything is priced and charged in US dollars. Paid plans are Razorpay subscriptions: create a monthly plan in the
- * Razorpay Dashboard for each paid plan here, in USD with the same price, and put its id in .env
- * (RAZORPAY_PLAN_CREATOR / RAZORPAY_PLAN_PRO). Razorpay plans can't change their amount later, so if you change a
- * price here, create a new plan with the new amount and update its id. (CrestClip checks this before charging.)
+ * Prices are in US dollars. Paid plans and the top-up are products in Dodo Payments (DODO_PRODUCT_* in the
+ * settings); if you change a price here, change the matching Dodo product to the same amount. Buyers in India see and
+ * pay the price in rupees at checkout (Dodo's Adaptive Currency).
  *
  * Credits are spent per clip: every clip CrestClip makes costs CREDITS_PER_CLIP. A video asked for 8 clips takes
  * 40 credits up front; if fewer clips come out, the difference goes back. Editing and re-rendering clips is always

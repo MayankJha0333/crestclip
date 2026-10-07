@@ -106,12 +106,6 @@ export const config = {
   dodoProductCreator: env('DODO_PRODUCT_CREATOR'),
   dodoProductPro: env('DODO_PRODUCT_PRO'),
   dodoProductTopup: env('DODO_PRODUCT_TOPUP'),
-  // Razorpay — only for people who subscribed before the move to Dodo (their renewals and cancellations)
-  razorpayKeyId: env('RAZORPAY_KEY_ID'),
-  razorpayKeySecret: env('RAZORPAY_KEY_SECRET'),
-  razorpayWebhookSecret: env('RAZORPAY_WEBHOOK_SECRET'),
-  razorpayPlanCreator: env('RAZORPAY_PLAN_CREATOR'),
-  razorpayPlanPro: env('RAZORPAY_PLAN_PRO'),
   // Database (MongoDB) — e.g. an Atlas connection string. MONGODB_USERNAME / MONGODB_PASSWORD fill it in when the
   // string has no user in it.
   mongoUri: mongoUri(env('MONGODB_URI'), env('MONGODB_USERNAME'), env('MONGODB_PASSWORD')),

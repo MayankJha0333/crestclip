@@ -21,15 +21,6 @@ billingRouter.post(
   }),
 );
 
-/** Legacy: Razorpay calls this for subscriptions made before the move to Dodo (signature-checked, no login). */
-billingRouter.post(
-  '/billing/webhook',
-  asyncHandler(async (req, res) => {
-    await service.handleRazorpayWebhook(req.rawBody, String(req.headers['x-razorpay-signature'] ?? ''));
-    res.json({ ok: true });
-  }),
-);
-
 billingRouter.get(
   '/billing/account',
   requireUser,

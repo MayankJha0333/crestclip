@@ -42,7 +42,6 @@ export function ReceiptPage() {
   const { payment: p, seller: s } = r;
   const amount = p.amount != null && p.currency ? money(p.amount / 100, p.currency) : '—';
   // Dodo Payments is the merchant of record: it sells and invoices (with tax); this page is the order summary.
-  const dodo = r.provider === 'dodo';
   return (
     <div className="mx-auto max-w-[760px] px-4 py-6 print:max-w-none print:p-0">
       <div className="mb-5 flex items-center justify-between gap-3 print:hidden">
@@ -58,7 +57,7 @@ export function ReceiptPage() {
         <header className="flex flex-wrap items-start justify-between gap-6">
           <Logo size={34} />
           <div className="text-right">
-            <h1 className="text-3xl font-bold tracking-tight">{dodo ? 'Payment summary' : 'Receipt'}</h1>
+            <h1 className="text-3xl font-bold tracking-tight">Payment summary</h1>
             <p className="mt-1 text-sm text-[#6b625a]">Paid · {longDate(p.createdAt)}</p>
           </div>
         </header>
@@ -89,8 +88,8 @@ export function ReceiptPage() {
           <dt className="font-bold text-[#6b625a]">Date paid</dt>
           <dd>{longDate(p.createdAt)}</dd>
           <dt className="font-bold text-[#6b625a]">Payment method</dt>
-          <dd>{dodo ? 'Dodo Payments (merchant of record)' : 'Card, via Razorpay'}</dd>
-          {dodo && p.invoiceUrl && (
+          <dd>Dodo Payments (merchant of record)</dd>
+          {p.invoiceUrl && (
             <>
               <dt className="font-bold text-[#6b625a]">Tax invoice</dt>
               <dd>
@@ -119,7 +118,7 @@ export function ReceiptPage() {
             <tr>
               <td className="pt-4 text-right font-bold">
                 Total paid {p.currency ? `(${p.currency})` : ''}
-                {dodo && <span className="block text-xs font-normal text-[#6b625a]">including any tax</span>}
+                <span className="block text-xs font-normal text-[#6b625a]">including any tax</span>
               </td>
               <td className="pt-4 text-right font-display text-xl font-bold tabular-nums">{amount}</td>
             </tr>
@@ -128,7 +127,7 @@ export function ReceiptPage() {
 
         <p className="mt-10 text-sm text-[#6b625a]">
           Thank you for using {s.name}.{' '}
-          {dodo && 'This purchase was processed by Dodo Payments, our online reseller and merchant of record, who also issues the tax invoice. '}
+          This purchase was processed by Dodo Payments, our online reseller and merchant of record, who also issues the tax invoice.{' '}
           Questions about this payment? Write to {s.email ?? 'us'} and include the receipt number. Refunds follow our policy at {s.url.replace(/^https?:\/\//, '')}
           /refunds.
         </p>

@@ -18,7 +18,7 @@ import { disconnect } from '../publishing/publishing.service.js';
  */
 export async function deleteAccount(user: UserRow, typedEmail: string) {
   if (typedEmail.trim().toLowerCase() !== user.email.toLowerCase()) throw new HttpError(400, 'Type your email address exactly as shown to confirm.');
-  if (user.plan !== 'free' && (user.dodoSubscriptionId || user.rzSubscriptionId) && !user.cancelAtPeriodEnd)
+  if (user.plan !== 'free' && user.dodoSubscriptionId && !user.cancelAtPeriodEnd)
     throw new HttpError(409, 'Cancel your plan first (Plan & credits → Cancel plan), so you aren’t charged again. Then delete your account.');
 
   const mine = await projects.list(user.id);

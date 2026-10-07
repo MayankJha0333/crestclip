@@ -495,8 +495,8 @@ export interface BillingAccount {
   /** the latest plan change ("Pro cancelled", "Pro ended", "Upgraded to Pro") and when */
   lastPlanChange: { what: string; at: number } | null;
   hasSubscription: boolean;
-  /** who bills the plan: Dodo Payments, or Razorpay for people who subscribed before the move */
-  billedBy: 'dodo' | 'razorpay' | null;
+  /** who bills the plan: Dodo Payments, or null for Free / a plan given by an admin */
+  billedBy: 'dodo' | null;
   /** a renewal payment failed — the plan stays a few days while the card / UPI is updated */
   paymentProblem: boolean;
   /** Dodo's customer portal is available (payment method, invoices) */
@@ -589,8 +589,8 @@ export interface Payment {
   plan: string | null;
   amount: number | null;
   currency: string | null;
-  /** who took the payment (old payments: Razorpay) */
-  provider?: 'dodo' | 'razorpay';
+  /** who took the payment */
+  provider?: 'dodo';
   /** the official tax invoice (Dodo Payments) */
   invoiceUrl?: string | null;
   createdAt: number;
@@ -601,7 +601,7 @@ export interface Receipt {
   item: string;
   customer: { name: string | null; email: string };
   seller: SiteInfo;
-  provider: 'dodo' | 'razorpay';
+  provider: 'dodo';
 }
 export interface AdminUser {
   id: string;

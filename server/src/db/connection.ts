@@ -71,7 +71,7 @@ async function createIndexes(db: Db) {
     .catch(() => {});
   const hasString = (field: string) => ({ partialFilterExpression: { [field]: { $type: 'string' } } });
   await Promise.all([
-    db.collection(c.users).createIndexes([{ key: { email: 1 }, unique: true }, { key: { googleSub: 1 }, unique: true, ...hasString('googleSub') }, { key: { rzSubscriptionId: 1 } }, { key: { dodoSubscriptionId: 1 } }, { key: { dodoCustomerId: 1 } }]),
+    db.collection(c.users).createIndexes([{ key: { email: 1 }, unique: true }, { key: { googleSub: 1 }, unique: true, ...hasString('googleSub') }, { key: { dodoSubscriptionId: 1 } }, { key: { dodoCustomerId: 1 } }]),
     db.collection(c.sessions).createIndexes([{ key: { userId: 1 } }, { key: { expiresAt: 1 } }]),
     db.collection(c.creditGrants).createIndexes([{ key: { userId: 1, expiresAt: 1 } }, { key: { ref: 1 }, unique: true, ...hasString('ref') }]),
     db.collection(c.creditEvents).createIndexes([{ key: { userId: 1, createdAt: -1 } }, { key: { projectId: 1, kind: 1 } }]),

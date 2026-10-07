@@ -20,10 +20,6 @@ export interface UserRow {
   dodoSubscriptionId: string | null;
   /** its status as Dodo last reported it (active, on_hold = a renewal payment failed, …) */
   subscriptionStatus: string | null;
-  /** a Razorpay subscription from before the move to Dodo (still renews there until cancelled) */
-  rzSubscriptionId: string | null;
-  /** legacy (Razorpay): a subscription opened in Checkout that hasn't been confirmed yet */
-  pendingSubscriptionId: string | null;
   cancelAtPeriodEnd: boolean;
   createdAt: number;
 }
@@ -36,7 +32,7 @@ const toUser = (d: Doc<UserRow>): UserRow => {
   return { ...u, dodoCustomerId: u.dodoCustomerId ?? null, dodoSubscriptionId: u.dodoSubscriptionId ?? null, subscriptionStatus: u.subscriptionStatus ?? null };
 };
 
-const UPDATABLE = ['email', 'name', 'passwordHash', 'googleSub', 'avatar', 'isAdmin', 'plan', 'cycleStart', 'cycleEnd', 'dodoCustomerId', 'dodoSubscriptionId', 'subscriptionStatus', 'rzSubscriptionId', 'pendingSubscriptionId', 'cancelAtPeriodEnd'] as const;
+const UPDATABLE = ['email', 'name', 'passwordHash', 'googleSub', 'avatar', 'isAdmin', 'plan', 'cycleStart', 'cycleEnd', 'dodoCustomerId', 'dodoSubscriptionId', 'subscriptionStatus', 'cancelAtPeriodEnd'] as const;
 
 export const users = {
   count(): Promise<number> {
@@ -58,8 +54,6 @@ export const users = {
       dodoCustomerId: null,
       dodoSubscriptionId: null,
       subscriptionStatus: null,
-      rzSubscriptionId: null,
-      pendingSubscriptionId: null,
       cancelAtPeriodEnd: false,
       createdAt: at,
       updatedAt: at,
@@ -79,9 +73,9 @@ export const users = {
     const d = await col().findOne({ googleSub: sub });
     return d ? toUser(d) : null;
   },
-  /** Whose subscription this is (a Dodo id, or a Razorpay one from before the move). */
+  /** Whose Dodo subscription this is. */
   async bySubscription(subId: string): Promise<UserRow | null> {
-    const d = await col().findOne({ $or: [{ dodoSubscriptionId: subId }, { rzSubscriptionId: subId }] });
+    const d = await col().findOne({ dodoSubscriptionId: subId });
     return d ? toUser(d) : null;
   },
   async byDodoCustomer(customerId: string): Promise<UserRow | null> {
@@ -103,7 +97,7 @@ export const users = {
    * Update only while the account still has these values (e.g. still the same subscription) — so a slow check of an
    * old subscription can't overwrite a newer one saved meanwhile. Returns false when nothing matched.
    */
-  async updateIf(id: string, match: Partial<Pick<UserRow, 'dodoSubscriptionId' | 'rzSubscriptionId'>>, patch: Partial<Omit<UserRow, 'id' | 'createdAt'>>) {
+  async updateIf(id: string, match: Partial<Pick<UserRow, 'dodoSubscriptionId'>>, patch: Partial<Omit<UserRow, 'id' | 'createdAt'>>) {
     const r = await col().updateOne({ _id: id, ...match }, { $set: setFields(patch, UPDATABLE) });
     return r.matchedCount > 0;
   },
