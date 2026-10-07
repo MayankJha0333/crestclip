@@ -56,7 +56,15 @@ export async function changePassword(user: UserRow, current: string, next: strin
   await users.update(user.id, { passwordHash: await hashPassword(next) });
 }
 
-export const startSession = async (userId: string) => await sessions.create(userId);
+/** A new log-in. Someone listed in ADMIN_EMAILS becomes an admin when they sign in (not only when the account is made). */
+export async function startSession(userId: string) {
+  const u = await users.get(userId);
+  if (u && !u.isAdmin && config.adminEmails.includes(u.email.toLowerCase())) {
+    await users.update(u.id, { isAdmin: true });
+    console.log(`[auth] ${u.email} is an admin now (ADMIN_EMAILS)`);
+  }
+  return await sessions.create(userId);
+}
 export const endSession = async (token: string) => await sessions.remove(token);
 
 // ---------------- Continue with Google (OpenID Connect) ----------------
