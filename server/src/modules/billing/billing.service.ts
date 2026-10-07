@@ -95,11 +95,12 @@ const planOfDodo = (sub: DodoSubscription): PlanId | null =>
  * Apply what Dodo says about the person's subscription: a paid month (add its credits, once), an upgrade in the
  * middle of a month (add the extra credits, once), a failed renewal, or the end of the plan.
  */
-async function syncDodo(user: UserRow, sub: DodoSubscription) {
+/** Returns true when the subscription's latest payment has had its credits (now or before). */
+async function syncDodo(user: UserRow, sub: DodoSubscription): Promise<boolean> {
   const planId = planOfDodo(sub);
   if (!planId) {
     console.warn(`[billing] ${user.email}: Dodo subscription ${sub.subscription_id} is for an unknown product ${sub.product_id} — check DODO_PRODUCT_* in the settings`);
-    return;
+    return false;
   }
   const start = ms(sub.previous_billing_date);
   const end = ms(sub.next_billing_date);
@@ -111,7 +112,7 @@ async function syncDodo(user: UserRow, sub: DodoSubscription) {
       // Grace is over: end it at Dodo too, so a card fixed later can't restart billing next to a new plan.
       await dodo.updateSubscription(sub.subscription_id, { status: 'cancelled' }).catch((e) => console.warn('[billing] cancel unpaid Dodo subscription:', (e as Error).message));
       await downgrade(user, `Payment failed (Dodo: ${sub.status})`, { dodoSubscriptionId: sub.subscription_id });
-      return;
+      return false;
     }
     const p = PLANS[planId];
     // only while this is still the person's subscription (a slow check of an old one can't undo a newer one)
@@ -120,28 +121,35 @@ async function syncDodo(user: UserRow, sub: DodoSubscription) {
       { dodoSubscriptionId: sub.subscription_id },
       { plan: p.id, subscriptionStatus: sub.status, cycleStart: start, cycleEnd: end, cancelAtPeriodEnd: Boolean(sub.cancel_at_next_billing_date) },
     );
-    if (stillMine && sub.status === 'active' && end) await grantDodoMonth(user.id, sub.subscription_id, end, p);
-    return;
+    if (!stillMine || sub.status !== 'active') return false;
+    // the credits come with a PAYMENT: the subscription's newest one (first month, renewal, or an upgrade's charge)
+    const pays = await dodo.paymentsOf({ subscription_id: sub.subscription_id });
+    for (const pay of pays) await recordPayment(user.id, pay, planId);
+    const latest = pays
+      .filter((x) => x.status === 'succeeded' && x.total_amount > 0 && !x.is_update_payment_method)
+      .sort((a, b) => (ms(b.created_at) ?? 0) - (ms(a.created_at) ?? 0))[0];
+    if (!latest) return false;
+    await grantDodoMonth(user.id, latest.payment_id, end ?? nextMonth(ms(latest.created_at) ?? Date.now()), p);
+    return true;
   }
-  if (sub.status === 'pending') return; // the first payment isn't through yet
+  if (sub.status === 'pending') return false; // the first payment isn't through yet
   // cancelled / failed / expired — only the person's current subscription ends their plan
   await downgrade(user, sub.status === 'failed' ? 'Payment failed' : 'The plan ended', { dodoSubscriptionId: sub.subscription_id });
+  return false;
 }
 
 /**
- * The credits for one paid month of a subscription, added in "steps": step 1 = Creator's 400, step 2 = Pro's extra
- * 600. Each step has its own fixed key (subscription + the paid month's END + step), so however many checks run —
- * webhook, return from checkout, refresh, even at the same moment — each step is added once: Creator gets 400, Pro
- * 1,000, a move up inside the same month adds just the missing 600, a smaller plan adds nothing until next month.
- *
- * Keyed on the month's end (next_billing_date), not its start: Dodo moves previous_billing_date as soon as a plan
- * change is asked for, before the change is paid and applied. An upgrade restarts the billing month in Dodo (it
- * charges the new price minus what's left of the old month), so it ends a new month — with the new plan's credits.
+ * The credits that come with one subscription payment (a first month, a renewal, an upgrade's charge), added in
+ * "steps": step 1 = Creator's 400, step 2 = Pro's extra 600. Each step's key is the payment id + step, so however
+ * many checks run — webhook, return from checkout, refresh, even at the same moment — each is added once, and
+ * nothing is added without a payment (Dodo moves its billing dates when a change is merely asked for, and a
+ * merchant can move them by hand; neither is a payment). An upgrade is its own payment in Dodo (Pro's price minus
+ * what's left of the old month, starting a new month), so it brings Pro's 1,000.
  */
-async function grantDodoMonth(userId: string, subId: string, end: number, p: Plan) {
+async function grantDodoMonth(userId: string, paymentId: string, end: number, p: Plan) {
   const paid: PlanId[] = PLAN_ORDER.filter((id) => id !== 'free');
   const upTo = paid.indexOf(p.id);
-  const hadStep1 = await credits.hasRef(`dodo_${subId}_${end}_1`);
+  const hadStep1 = await credits.hasRef(`dodo_${paymentId}_1`);
   for (let i = 0; i <= upTo; i++) {
     const amount = PLANS[paid[i]].credits - (i ? PLANS[paid[i - 1]].credits : 0);
     if (amount <= 0) continue;
@@ -149,7 +157,7 @@ async function grantDodoMonth(userId: string, subId: string, end: number, p: Pla
       amount,
       source: 'plan',
       expiresAt: nextMonth(end), // unused paid credits roll over one month
-      ref: `dodo_${subId}_${end}_${i + 1}`,
+      ref: `dodo_${paymentId}_${i + 1}`,
       note: i && hadStep1 ? `${p.name} plan · upgrade (extra credits this month)` : `${p.name} plan · monthly credits${upTo ? ` (part ${i + 1} of ${upTo + 1})` : ''}`,
     });
   }
@@ -579,10 +587,10 @@ export async function confirmCheckout(user: UserRow, r: { subscriptionId?: strin
     const sub = await dodo.subscription(r.subscriptionId).catch(explainDodoError);
     if (!isMine(user, sub)) throw new HttpError(403, 'That subscription belongs to another account.');
     if (sub.status === 'active') {
-      if (user.dodoSubscriptionId === sub.subscription_id) await syncDodo(user, sub);
-      else await adoptDodo(user, sub);
-      await recordSubscriptionPayments(user.id, sub);
-      pending = false;
+      if (user.dodoSubscriptionId !== sub.subscription_id) await adoptDodo(user, sub);
+      const now = (await users.get(user.id))!;
+      // pending until its payment shows up at Dodo with the credits added (the page asks again for a while)
+      pending = now.dodoSubscriptionId === sub.subscription_id ? !(await syncDodo(now, sub)) : false;
     }
   } else if (r.paymentId) {
     const pay = await dodo.payment(r.paymentId).catch(explainDodoError);

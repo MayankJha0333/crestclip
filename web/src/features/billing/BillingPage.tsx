@@ -28,8 +28,11 @@ export function BillingPage() {
     setData(b);
   }, []);
   useEffect(() => {
-    load().catch((e) => toast((e as Error).message, 'error'));
-  }, [load]);
+    // the server checks with Dodo while loading; refresh the sidebar too in case the plan changed meanwhile
+    load()
+      .then(() => refresh())
+      .catch((e) => toast((e as Error).message, 'error'));
+  }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Back-button from the checkout page restores this page from the browser's cache: un-stick the busy button.
   useEffect(() => {

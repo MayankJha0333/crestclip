@@ -446,6 +446,18 @@ try {
     assert.equal(await balance(p), 1460);
   });
 
+  await step('Billing dates moved without a payment (dashboard edit) → no free credits', async () => {
+    const p = await person('dates-moved@example.com');
+    const paid = mock.pay((await call(p, 'POST', '/billing/subscribe', { plan: 'creator' })).data.url);
+    await call(p, 'POST', '/billing/checkout/confirm', confirmFrom(paid.returnQuery));
+    const before = await balance(p);
+    paid.sub!.previous_billing_date = new Date().toISOString();
+    paid.sub!.next_billing_date = new Date(Date.now() + 40 * 86400_000).toISOString();
+    await sendWebhook(APP, WHSEC, 'subscription.updated', subData(paid.sub!));
+    assert.equal(await balance(p), before);
+    assert.equal((await fresh(p)).cycleEnd, Date.parse(paid.sub!.next_billing_date)); // the new date is shown
+  });
+
   await step('Two checks of the same month at the same moment → credits added once', async () => {
     const p = await person('parallel@example.com');
     await account(p);

@@ -96,6 +96,8 @@ export interface DodoPayment {
   metadata?: Record<string, string> | null;
   created_at: string;
   invoice_url?: string | null;
+  /** a zero-amount check when someone only changed their card */
+  is_update_payment_method?: boolean;
   /** set once (part of) the payment was refunded */
   refund_status?: string | null;
   product_cart?: { product_id: string; quantity: number }[] | null;
