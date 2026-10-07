@@ -557,6 +557,36 @@ try {
     assert.equal(first.nextBefore, null);
   });
 
+  await step('Older plan changes (from before the history kept them) are filled in from Dodo, once', async () => {
+    const p = await person('backfill@example.com');
+    const paid = mock.pay((await call(p, 'POST', '/billing/subscribe', { plan: 'creator' })).data.url);
+    await call(p, 'POST', '/billing/checkout/confirm', confirmFrom(paid.returnQuery));
+    await call(p, 'POST', '/billing/subscribe', { plan: 'pro' });
+    const s = mock.subs.get(paid.sub!.subscription_id)!;
+    s.status = 'cancelled';
+    s.cancelled_at = new Date().toISOString();
+    await sendWebhook(APP, WHSEC, 'subscription.cancelled', subData(s));
+    await collection<any>('credit_events').deleteMany({ userId: p.id, kind: 'plan' }); // as if made before this feature
+    await new Promise((r) => setTimeout(r, 10_100));
+    let a = (await call(p, 'GET', '/billing/account?sync=1')).data;
+    const lines = (await call(p, 'GET', '/billing/history?type=plan')).data.items.map((e: any) => e.note.split(' — ')[0]).reverse();
+    assert.deepEqual(lines, ['Started the Creator plan', 'Upgraded to Pro', 'Pro ended']);
+    assert.equal(a.lastPlanChange.what, 'Pro ended');
+    await new Promise((r) => setTimeout(r, 10_100));
+    a = (await call(p, 'GET', '/billing/account?sync=1')).data;
+    assert.equal((await call(p, 'GET', '/billing/history?type=plan')).data.items.length, 3);
+  });
+
+  await step('The Plan card knows when the plan was cancelled', async () => {
+    const p = await person('cancel-card@example.com');
+    const paid = mock.pay((await call(p, 'POST', '/billing/subscribe', { plan: 'creator' })).data.url);
+    await call(p, 'POST', '/billing/checkout/confirm', confirmFrom(paid.returnQuery));
+    const a = (await call(p, 'POST', '/billing/cancel')).data;
+    assert.equal(a.cancelAtPeriodEnd, true);
+    assert.equal(a.lastPlanChange.what, 'Creator cancelled');
+    assert.ok(Date.now() - a.lastPlanChange.at < 60_000);
+  });
+
   await step('Receipt: Dodo payment shows provider and invoice', async () => {
     const [p] = await payments.forUser(india.id);
     const r = await call(india, 'GET', `/billing/payments/${p.id}/receipt`);

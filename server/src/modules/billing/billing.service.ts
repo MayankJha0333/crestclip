@@ -248,16 +248,19 @@ export async function accountSummary(user: UserRow): Promise<Summary> {
 async function buildSummary(user: UserRow) {
   const plan = planOf(user.plan);
   // read together (one wait instead of three)
-  const [balance, usedThisMonth, grants] = await Promise.all([
+  const [balance, usedThisMonth, grants, lastChange] = await Promise.all([
     credits.balance(user.id),
     user.cycleStart ? credits.spentSince(user.id, user.cycleStart) : 0,
     credits.liveGrants(user.id),
+    credits.lastPlanEvent(user.id),
   ]);
   return {
     plan: publicPlan(plan),
     cycleStart: user.cycleStart,
     cycleEnd: user.cycleEnd,
     cancelAtPeriodEnd: user.cancelAtPeriodEnd,
+    /** the latest plan change ("Pro cancelled", "Pro ended", "Upgraded to Pro") and when */
+    lastPlanChange: lastChange ? { what: lastChange.note.split(' — ')[0].replace(/ \(.*\)$/, ''), at: lastChange.createdAt } : null,
     hasSubscription: Boolean(user.dodoSubscriptionId || user.rzSubscriptionId),
     /** who bills the plan: Dodo, or Razorpay for people who subscribed before the move */
     billedBy: user.dodoSubscriptionId ? ('dodo' as const) : user.rzSubscriptionId ? ('razorpay' as const) : null,
@@ -680,6 +683,25 @@ export async function confirmCheckout(user: UserRow, r: { subscriptionId?: strin
 const lastScan = new Map<string, number>();
 
 /**
+ * Plan-change lines for subscriptions from before the history recorded them (started, upgraded, ended), at the
+ * times Dodo has for them. Runs only while the person has no plan lines at all, so it happens once.
+ */
+async function backfillPlanHistory(userId: string, subs: DodoSubscription[], pays: DodoPayment[]) {
+  if ((await credits.lastPlanEvent(userId)) || !subs.length) return;
+  for (const sub of subs) {
+    const paid = pays.filter((p) => p.subscription_id === sub.subscription_id && p.status === 'succeeded').sort((a, b) => (ms(a.created_at) ?? 0) - (ms(b.created_at) ?? 0));
+    const now = planOfDodo(sub);
+    if (!paid.length || !now) continue; // never paid (declined checkout): nothing happened
+    const first = (sub.metadata?.plan && sub.metadata.plan in PLANS && sub.metadata.plan !== 'free' ? sub.metadata.plan : now) as PlanId;
+    await credits.planEvent(userId, `Started the ${PLANS[first].name} plan`, ms(paid[0].created_at) ?? ms(sub.created_at)!);
+    if (first !== now && paid[1]) await credits.planEvent(userId, rank(now) > rank(first) ? `Upgraded to ${PLANS[now].name}` : `Switched to ${PLANS[now].name}`, ms(paid[1].created_at)!);
+    if (sub.status === 'cancelled' || sub.status === 'expired' || sub.status === 'failed')
+      await credits.planEvent(userId, `${PLANS[now].name} ended — you’re on Free now. Credits you have stay until they expire.`, ms(sub.cancelled_at) ?? Date.now());
+    else if (sub.cancel_at_next_billing_date) await credits.planEvent(userId, `${PLANS[now].name} cancelled — stays active until ${day(ms(sub.next_billing_date))}, then Free`, Date.now());
+  }
+}
+
+/**
  * Catch up with Dodo without webhooks (local runs, a webhook that never arrived): a subscription paid for but not
  * adopted yet, a renewal, a top-up paid after the tab was closed. At most every 2 minutes per person.
  */
@@ -693,7 +715,9 @@ export async function reconcileSubscriptions(user: UserRow, opts: { soon?: boole
     if (current) await syncDodo(user, current);
     const newest = subs.filter((s) => s.status === 'active' && s.subscription_id !== user.dodoSubscriptionId).sort((a, b) => (ms(b.created_at) ?? 0) - (ms(a.created_at) ?? 0))[0];
     if (newest) await adoptDodo((await users.get(user.id))!, newest);
-    for (const pay of await dodo.paymentsOf({ customer_id: user.dodoCustomerId })) {
+    const customerPays = await dodo.paymentsOf({ customer_id: user.dodoCustomerId });
+    await backfillPlanHistory(user.id, subs, customerPays);
+    for (const pay of customerPays) {
       if (pay.status !== 'succeeded' || !isMine(user, pay)) continue;
       if (isTopup(pay)) await addTopup(user.id, pay);
       else if (pay.subscription_id) {

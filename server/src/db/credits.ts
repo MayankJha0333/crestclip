@@ -222,9 +222,19 @@ export const credits = {
    * A line in the history that moves no credits: "Pro cancelled — active until 8 Nov", "Upgraded to Pro"… The same
    * line within a minute is written once (two checks noticing the same change at the same moment).
    */
-  async planEvent(userId: string, note: string) {
-    const recent = await eventCol().findOne({ userId, kind: 'plan', note, createdAt: { $gt: now() - 60_000 } }, { projection: { _id: 1 } });
-    if (!recent) await event(userId, 0, 'plan', note);
+  async planEvent(userId: string, note: string, at?: number) {
+    const recent = await eventCol().findOne({ userId, kind: 'plan', note, createdAt: at ? at : { $gt: now() - 60_000 } }, { projection: { _id: 1 } });
+    if (recent) return;
+    if (!at) await event(userId, 0, 'plan', note);
+    else {
+      touch(userId);
+      await eventCol().insertOne({ _id: newId(), userId, delta: 0, kind: 'plan', note, projectId: null, detail: null, refunded: false, createdAt: at });
+    }
+  },
+  /** The newest plan-change line (shown on the Plan card: "Pro cancelled on 8 Oct"). */
+  async lastPlanEvent(userId: string): Promise<{ note: string; createdAt: number } | null> {
+    const d = await eventCol().find({ userId, kind: 'plan' }, { projection: { note: 1, createdAt: 1 } }).sort({ createdAt: -1 }).limit(1).next();
+    return d ? { note: d.note ?? '', createdAt: d.createdAt } : null;
   },
   /**
    * The full history, newest first, a page at a time: `type` narrows it (added / used / refunds / plan changes),

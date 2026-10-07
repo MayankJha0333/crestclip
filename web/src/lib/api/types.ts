@@ -492,6 +492,8 @@ export interface BillingAccount {
   cycleStart: number | null;
   cycleEnd: number | null;
   cancelAtPeriodEnd: boolean;
+  /** the latest plan change ("Pro cancelled", "Pro ended", "Upgraded to Pro") and when */
+  lastPlanChange: { what: string; at: number } | null;
   hasSubscription: boolean;
   /** who bills the plan: Dodo Payments, or Razorpay for people who subscribed before the move */
   billedBy: 'dodo' | 'razorpay' | null;

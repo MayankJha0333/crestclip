@@ -240,6 +240,18 @@ export function BillingPage() {
                 : `${paid && data.hasSubscription ? 'Renews' : 'New credits'} on ${shortDate(data.cycleEnd)}`
               : '—'}
           </p>
+          {data.lastPlanChange && (
+            // when the plan last changed: "Pro cancelled on 8 Oct", "Pro ended on 8 Oct", "Upgraded to Pro on 8 Oct"
+            <p className="mt-2 flex items-center gap-2 text-sm text-ink-3">
+              <History size={15} className="shrink-0" />
+              <span>
+                {data.lastPlanChange.what} on {shortDate(data.lastPlanChange.at)}
+                <Link to="/app/billing/history?type=plan" className="ml-1.5 font-bold text-accent no-underline hover:underline">
+                  History
+                </Link>
+              </span>
+            </p>
+          )}
           <div className="mt-auto flex flex-wrap items-center gap-2 pt-5">
             {paid && data.cancelAtPeriodEnd && data.billedBy === 'dodo' ? (
               <Button size="sm" onClick={resume} loading={busy === 'resume'} disabled={noPay}>

@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Clapperboard, History, RotateCcw, Search, Sparkles } from 'lucide-react';
 import { api, type CreditEvent, type CreditHistoryType, type CreditUsage } from '../../lib/api';
@@ -42,7 +42,8 @@ function dayHeading(ms: number) {
  */
 export function CreditHistoryPage() {
   const [range, setRange] = useState<Range>('30');
-  const [type, setType] = useState<CreditHistoryType>('all');
+  const [params] = useSearchParams();
+  const [type, setType] = useState<CreditHistoryType>(() => (TYPES.some((t) => t.value === params.get('type')) ? (params.get('type') as CreditHistoryType) : 'all'));
   const [q, setQ] = useState('');
   const [query, setQuery] = useState('');
   const [usage, setUsage] = useState<CreditUsage | null>(null);
