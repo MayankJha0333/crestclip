@@ -6,6 +6,8 @@ import type {
   BillingAccount,
   CheckoutStart,
   CreditEvent,
+  CreditHistoryType,
+  CreditUsage,
   Me,
   Payment,
   PlanId,
@@ -81,6 +83,17 @@ export const api = {
   resumePlan: () => req<BillingAccount>('/api/billing/resume', { method: 'POST' }),
   /** Dodo's customer portal (payment method, invoices) */
   billingPortal: () => req<{ url: string }>('/api/billing/portal', { method: 'POST' }),
+  /** the full credit history, newest first, 40 a page (`before` = the previous page's nextBefore) */
+  creditHistory: (o: { type?: CreditHistoryType; days?: number; before?: number | null; q?: string }) => {
+    const s = new URLSearchParams();
+    if (o.type && o.type !== 'all') s.set('type', o.type);
+    if (o.days) s.set('days', String(o.days));
+    if (o.before) s.set('before', String(o.before));
+    if (o.q?.trim()) s.set('q', o.q.trim());
+    return req<{ items: CreditEvent[]; nextBefore: number | null }>(`/api/billing/history${s.size ? `?${s}` : ''}`);
+  },
+  /** where the credits went over the last `days` days */
+  creditUsage: (days: number) => req<CreditUsage>(`/api/billing/usage?days=${days}&tz=${new Date().getTimezoneOffset()}`),
   receipt: (paymentId: string) => req<Receipt>(`/api/billing/payments/${encodeURIComponent(paymentId)}/receipt`),
   // admin
   adminUsers: () => req<AdminUser[]>('/api/admin/users'),

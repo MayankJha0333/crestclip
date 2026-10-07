@@ -66,6 +66,7 @@ export const routes: RouteObject[] = [
       { path: 'settings', lazy: () => import('../features/settings/SettingsPage').then((m) => ({ Component: m.SettingsPage })) },
       { path: 'admin', lazy: () => import('../features/settings/AdminPage').then((m) => ({ Component: m.AdminPage })) },
       { path: 'billing', lazy: () => import('../features/billing/BillingPage').then((m) => ({ Component: m.BillingPage })) },
+      { path: 'billing/history', lazy: () => import('../features/billing/CreditHistoryPage').then((m) => ({ Component: m.CreditHistoryPage })) },
       { path: '*', element: <Navigate to="/app" replace /> },
     ],
   },

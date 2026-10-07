@@ -84,6 +84,11 @@ export async function refreshAccount(user: UserRow): Promise<UserRow> {
   return (await users.get(user.id))!;
 }
 
+/** "8 Nov" */
+const day = (t: number | null) => (t ? new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }) : 'the end of the month');
+/** A plan change as a line in the person's credit history (it moves no credits). Never fails the caller. */
+const logPlan = (userId: string, note: string) => credits.planEvent(userId, note).catch((e) => console.warn('[billing] history line:', (e as Error).message));
+
 /** A failed renewal (Dodo "on hold") keeps the plan this long after the paid month ended — time to fix the card / UPI. */
 const GRACE_DAYS = 7;
 
@@ -121,6 +126,16 @@ async function syncDodo(user: UserRow, sub: DodoSubscription): Promise<boolean> 
       { dodoSubscriptionId: sub.subscription_id },
       { plan: p.id, subscriptionStatus: sub.status, cycleStart: start, cycleEnd: end, cancelAtPeriodEnd: Boolean(sub.cancel_at_next_billing_date) },
     );
+    if (stillMine) {
+      // what changed, as lines in the credit history
+      const ending = Boolean(sub.cancel_at_next_billing_date);
+      if (user.plan !== p.id)
+        await logPlan(user.id, user.plan === 'free' ? `Started the ${p.name} plan` : rank(p.id) > rank(user.plan) ? `Upgraded to ${p.name}` : `Switched to ${p.name}`);
+      else if (!user.cancelAtPeriodEnd && ending) await logPlan(user.id, `${p.name} cancelled — stays active until ${day(end)}, then Free`);
+      else if (user.cancelAtPeriodEnd && !ending) await logPlan(user.id, `${p.name} will keep renewing (cancellation undone)`);
+      if (user.subscriptionStatus === 'active' && problem) await logPlan(user.id, `Renewal payment failed — update your payment method to keep ${p.name}`);
+      else if (user.subscriptionStatus && user.subscriptionStatus !== 'active' && !problem) await logPlan(user.id, `Payment went through — ${p.name} is active again`);
+    }
     if (!stillMine || sub.status !== 'active') return false;
     // the credits come with a PAYMENT: the subscription's newest one (first month, renewal, or an upgrade's charge)
     const pays = await dodo.paymentsOf({ subscription_id: sub.subscription_id });
@@ -202,6 +217,7 @@ async function downgrade(user: UserRow, why: string, onlyIf?: { dodoSubscription
     if (!(await users.updateIf(user.id, onlyIf, patch))) return;
   } else await users.update(user.id, patch);
   console.log(`[billing] ${user.email}: ${planOf(user.plan).name} → Free (${why})`);
+  if (user.plan !== 'free') await logPlan(user.id, `${planOf(user.plan).name} ended${/fail/i.test(why) ? ' (payment failed)' : ''} — you’re on Free now. Credits you have stay until they expire.`);
 }
 
 // ---------------- what the app shows ----------------
@@ -262,7 +278,64 @@ async function buildSummary(user: UserRow) {
   };
 }
 
-export const creditHistory = async (user: UserRow) => await credits.history(user.id);
+export const creditHistory = async (user: UserRow, limit = 100) => await credits.history(user.id, limit);
+
+/** The full credit history page: filtered, a page at a time, with the project each line was for. */
+export async function creditHistoryPage(user: UserRow, o: { type?: 'all' | 'added' | 'used' | 'refunds' | 'plan'; days?: number; before?: number; q?: string }) {
+  const since = o.days ? Date.now() - o.days * DAY : undefined;
+  const page = await credits.historyPage(user.id, { type: o.type, since, before: o.before, q: o.q, limit: 40 });
+  const titles = await projectTitles(page.items.map((e) => e.projectId));
+  return { ...page, items: page.items.map((e) => ({ ...e, project: e.projectId ? (titles.get(e.projectId) ?? null) : null })) };
+}
+
+async function projectTitles(ids: (string | null)[]) {
+  const out = new Map<string, { id: string; title: string; exists: boolean }>();
+  for (const id of new Set(ids.filter((x): x is string => Boolean(x)))) {
+    const p = await projects.get(id).catch(() => null);
+    out.set(id, { id, title: p?.title || 'Untitled video', exists: Boolean(p) });
+  }
+  return out;
+}
+
+/**
+ * Where the credits went over the last `days` days: added / used / given back, used per day (in the person's own
+ * time zone, `tzOffset` minutes as the browser's getTimezoneOffset()), and which videos used the most.
+ */
+export async function creditUsage(user: UserRow, days: number, tzOffset = 0) {
+  days = Math.min(365, Math.max(7, Math.round(days)));
+  const local = (t: number) => t - tzOffset * 60_000;
+  const todayStart = Math.floor(local(Date.now()) / DAY) * DAY; // local midnight, as a "local clock" time
+  const firstDay = todayStart - (days - 1) * DAY;
+  const since = firstDay + tzOffset * 60_000;
+  const events = await credits.eventsSince(user.id, since);
+  const daily = Array.from({ length: days }, (_, i) => ({ day: new Date(firstDay + i * DAY).toISOString().slice(0, 10), used: 0, added: 0 }));
+  let added = 0;
+  let used = 0;
+  let refunded = 0;
+  const perProject = new Map<string, number>();
+  for (const e of events) {
+    const i = Math.floor((local(e.createdAt) - firstDay) / DAY);
+    const bucket = daily[i];
+    if ((e.kind === 'spend' || e.kind === 'adjust') && e.delta < 0) {
+      if (e.kind === 'spend' && e.refunded) continue; // given back in full: not used
+      used += -e.delta;
+      if (bucket) bucket.used += -e.delta;
+      if (e.kind === 'spend' && e.projectId) perProject.set(e.projectId, (perProject.get(e.projectId) ?? 0) + -e.delta);
+    } else if (e.kind === 'refund') refunded += e.delta;
+    else if (e.delta > 0) {
+      added += e.delta;
+      if (bucket) bucket.added += e.delta;
+    }
+  }
+  const top = [...perProject.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const titles = await projectTitles(top.map(([id]) => id));
+  return {
+    days,
+    totals: { added, used, refunded, clips: Math.floor(used / CREDITS_PER_CLIP) },
+    daily,
+    projects: top.map(([id, n]) => ({ ...titles.get(id)!, used: n, clips: Math.floor(n / CREDITS_PER_CLIP) })),
+  };
+}
 export const paymentHistory = async (user: UserRow) => await payments.forUser(user.id);
 
 /** A receipt for one of this user's payments: what was bought, by whom, from whom. */
@@ -644,6 +717,7 @@ export async function cancelPlan(user: UserRow) {
   } else if (user.rzSubscriptionId) {
     if (!razorpayReady()) throw new HttpError(503, 'Your plan is billed through Razorpay, which isn’t connected right now. Please contact support to cancel.');
     await razorpay.cancelSubscription(user.rzSubscriptionId, true);
+    await logPlan(user.id, `${planOf(user.plan).name} cancelled — stays active until ${day(user.cycleEnd)}, then Free`);
   }
   await users.update(user.id, { cancelAtPeriodEnd: true });
   console.log(`[billing] ${user.email}: cancelled ${planOf(user.plan).name} (ends at the end of the month)`);
@@ -751,6 +825,7 @@ export async function adminSetPlan(userId: string, planId: PlanId) {
   if (user.rzSubscriptionId) throw new HttpError(409, 'This person pays through Razorpay — change or cancel their subscription in the Razorpay Dashboard.');
   // an admin-given plan has no subscription; it renews itself each month until changed
   await users.update(userId, { plan: planId, cancelAtPeriodEnd: false, cycleEnd: Date.now() });
+  if (user.plan !== planId) await logPlan(userId, `Plan changed to ${PLANS[planId].name} by CrestClip`);
   return refreshAccount((await users.get(userId))!);
 }
 

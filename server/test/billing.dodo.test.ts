@@ -518,6 +518,45 @@ try {
     await assert.rejects(adminSetPlan(p.id, 'pro'), /Dodo Payments/);
   });
 
+  await step('Plan changes show in the credit history; filters and usage add up', async () => {
+    const p = await person('history@example.com');
+    await account(p);
+    const paid = mock.pay((await call(p, 'POST', '/billing/subscribe', { plan: 'creator' })).data.url);
+    await call(p, 'POST', '/billing/checkout/confirm', confirmFrom(paid.returnQuery));
+    await call(p, 'POST', '/billing/cancel');
+    await call(p, 'POST', '/billing/resume');
+    await call(p, 'POST', '/billing/subscribe', { plan: 'pro' });
+    const s = mock.subs.get(paid.sub!.subscription_id)!;
+    s.status = 'cancelled';
+    await sendWebhook(APP, WHSEC, 'subscription.cancelled', subData(s));
+    await credits.spend(p.id, 25, 'Test video · 5 clips', null);
+    const plan = (await call(p, 'GET', '/billing/history?type=plan')).data.items.map((e: any) => e.note).reverse();
+    assert.deepEqual(
+      plan.map((n: string) => n.split(' — ')[0]),
+      ['Started the Creator plan', 'Creator cancelled', 'Creator will keep renewing (cancellation undone)', 'Upgraded to Pro', 'Pro ended'],
+      JSON.stringify(plan),
+    );
+    assert.ok(plan.every((n: string) => n.length > 10));
+    const all = (await call(p, 'GET', '/billing/history')).data;
+    assert.ok(all.items.some((e: any) => e.kind === 'plan') && all.items.some((e: any) => e.kind === 'spend'));
+    const used = (await call(p, 'GET', '/billing/history?type=used')).data.items;
+    assert.deepEqual(used.map((e: any) => e.delta), [-25]);
+    const added = (await call(p, 'GET', '/billing/history?type=added')).data.items;
+    assert.ok(added.every((e: any) => e.delta > 0));
+    assert.equal((await call(p, 'GET', '/billing/history?q=pro%20plan')).data.items.every((e: any) => /pro plan/i.test(e.note)), true);
+    const usage = (await call(p, 'GET', '/billing/usage?days=30&tz=-330')).data;
+    assert.equal(usage.daily.length, 30);
+    assert.equal(usage.totals.used, 25);
+    assert.equal(usage.totals.clips, 5);
+    assert.equal(usage.daily.at(-1).used, 25);
+    assert.equal(usage.totals.added, 60 + 400 + 1000);
+    // the Plan page shows only the latest few lines
+    assert.ok((await account(p)).history.length <= 6);
+    // paging
+    const first = (await call(p, 'GET', '/billing/history')).data;
+    assert.equal(first.nextBefore, null);
+  });
+
   await step('Receipt: Dodo payment shows provider and invoice', async () => {
     const [p] = await payments.forUser(india.id);
     const r = await call(india, 'GET', `/billing/payments/${p.id}/receipt`);

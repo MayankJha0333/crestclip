@@ -511,11 +511,23 @@ export interface Me {
 export interface CreditEvent {
   id: string;
   delta: number;
-  kind: 'grant' | 'topup' | 'spend' | 'refund' | 'adjust';
+  /** plan = a plan change (started, upgraded, cancelled, ended…) — moves no credits */
+  kind: 'grant' | 'topup' | 'spend' | 'refund' | 'adjust' | 'plan';
   note: string | null;
   projectId: string | null;
   refunded: boolean;
   createdAt: number;
+  /** the video it was for (full history page only) */
+  project?: { id: string; title: string; exists: boolean } | null;
+}
+export type CreditHistoryType = 'all' | 'added' | 'used' | 'refunds' | 'plan';
+/** Where the credits went over a period (Credit history page). */
+export interface CreditUsage {
+  days: number;
+  totals: { added: number; used: number; refunded: number; clips: number };
+  /** one per day, oldest first; `day` is YYYY-MM-DD in the person's own time zone */
+  daily: { day: string; used: number; added: number }[];
+  projects: { id: string; title: string; exists: boolean; used: number; clips: number }[];
 }
 export interface Payment {
   id: string;

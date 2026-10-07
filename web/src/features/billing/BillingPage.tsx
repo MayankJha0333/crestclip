@@ -1,8 +1,8 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CalendarClock, Coins, CreditCard, Gift, History, Receipt, RotateCcw, ShoppingBag, Sparkles } from 'lucide-react';
+import { ArrowRight, CalendarClock, CreditCard, History, Receipt, ShoppingBag, Sparkles } from 'lucide-react';
 import { api, type BillingAccount, type CreditEvent, type Payment, type Plan, type PlanId, type PlansInfo } from '../../lib/api';
-import { cn } from '../../lib/cn';
+import { CreditEventRow } from './CreditEventRow';
 import { toast } from '../../lib/toast';
 import { Badge, Button, Card, CardHeader, ConfirmDialog, PageHeader, Skeleton } from '../../components/ui';
 import { useAuth } from '../auth/auth';
@@ -11,8 +11,6 @@ import { money, shortDate } from './money';
 import { PlanCards } from './PlanCards';
 import { track } from '../../lib/analytics';
 
-const SOURCE: Record<BillingAccount['credits']['grants'][number]['source'], string> = { plan: 'Monthly credits', topup: 'Top-up', bonus: 'Bonus', refund: 'Refund' };
-const KIND_ICON: Record<CreditEvent['kind'], typeof Coins> = { grant: Gift, topup: ShoppingBag, spend: Coins, refund: RotateCcw, adjust: Sparkles };
 
 /** Plan & credits: what you have, what it costs, upgrade / top up / cancel, and the history. */
 export function BillingPage() {
@@ -283,18 +281,9 @@ export function BillingPage() {
               <span className="block h-full rounded-full bg-tangerine" style={{ width: `${usedPct}%` }} />
             </span>
           </div>
-          {data.credits.grants.length > 0 && (
-            <ul className="mt-4 grid gap-1.5 text-sm">
-              {data.credits.grants.map((g, i) => (
-                <li key={i} className="flex justify-between gap-3">
-                  <span className="text-ink-2">
-                    {g.remaining.toLocaleString()} · {SOURCE[g.source]}
-                  </span>
-                  <span className="shrink-0 text-ink-3">use by {shortDate(g.expiresAt)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <Link to="/app/billing/history" className="mt-5 inline-flex items-center gap-1 text-sm font-bold text-accent no-underline hover:underline">
+            See where they went <ArrowRight size={14} />
+          </Link>
         </Card>
 
         {/* top-up */}
@@ -347,32 +336,23 @@ export function BillingPage() {
       {/* history */}
       <div className="mt-12 grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <Card className="p-5 sm:p-6">
-          <CardHeader title="Credit history" icon={<History size={18} />} />
+          <CardHeader
+            title="Credit history"
+            icon={<History size={18} />}
+            description="Latest activity — credits added and used, and plan changes."
+            actions={
+              <Link to="/app/billing/history" className="inline-flex items-center gap-1 text-sm font-bold text-accent no-underline hover:underline">
+                See all <ArrowRight size={14} />
+              </Link>
+            }
+          />
           {data.history.length === 0 ? (
             <p className="text-sm text-ink-3">Nothing yet.</p>
           ) : (
             <ul className="divide-y divide-line">
-              {data.history.map((e) => {
-                const Icon = KIND_ICON[e.kind];
-                return (
-                  <li key={e.id} className="flex items-center gap-3 py-2.5 text-sm">
-                    <span className={cn('grid size-8 shrink-0 place-items-center rounded-xl', e.delta > 0 ? 'bg-good-bg text-good-ink' : 'bg-row text-ink-2')}>
-                      <Icon size={15} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-semibold">{e.note ?? e.kind}</span>
-                      <span className="text-xs text-ink-3">
-                        {new Date(e.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
-                        {e.refunded && ' · refunded'}
-                      </span>
-                    </span>
-                    <b className={cn('shrink-0 font-display tabular-nums', e.delta > 0 ? 'text-good-ink' : 'text-ink')}>
-                      {e.delta > 0 ? '+' : '−'}
-                      {Math.abs(e.delta).toLocaleString()}
-                    </b>
-                  </li>
-                );
-              })}
+              {data.history.map((e) => (
+                <CreditEventRow key={e.id} e={e} />
+              ))}
             </ul>
           )}
         </Card>

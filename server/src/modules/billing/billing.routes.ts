@@ -36,7 +36,36 @@ billingRouter.get(
   asyncHandler(async (req, res) => {
     // catch up with Dodo first: a payment whose webhook hasn't arrived (or never will, e.g. running locally) counts here
     const user = await service.refreshAccount(await service.reconcileSubscriptions(me(req), { soon: req.query.sync === '1' }));
-    res.json({ ...(await service.accountSummary(user)), history: await service.creditHistory(user), payments: await service.paymentHistory(user) });
+    res.json({ ...(await service.accountSummary(user)), history: await service.creditHistory(user, 6), payments: await service.paymentHistory(user) });
+  }),
+);
+
+/** The full credit history (Plan & credits → See all): filter by type / time / text, 40 lines a page. */
+billingRouter.get(
+  '/billing/history',
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const q = validate(
+      z.object({
+        type: z.enum(['all', 'added', 'used', 'refunds', 'plan']).default('all'),
+        days: z.coerce.number().int().min(1).max(3650).optional(),
+        before: z.coerce.number().int().positive().optional(),
+        q: z.string().max(80).optional(),
+      }),
+      req.query,
+      'Bad filter.',
+    );
+    res.json(await service.creditHistoryPage(me(req), q));
+  }),
+);
+
+/** Where the credits went: totals, used per day, the videos that used the most. */
+billingRouter.get(
+  '/billing/usage',
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const q = validate(z.object({ days: z.coerce.number().int().min(7).max(365).default(30), tz: z.coerce.number().int().min(-900).max(900).default(0) }), req.query, 'Bad range.');
+    res.json(await service.creditUsage(me(req), q.days, q.tz));
   }),
 );
 

@@ -28,7 +28,8 @@ interface CreditEventRow {
   userId: string;
   /** + added, − used */
   delta: number;
-  kind: 'grant' | 'topup' | 'spend' | 'refund' | 'adjust';
+  /** plan = a plan change (started, upgraded, cancelled, ended…) shown in the history; it moves no credits */
+  kind: 'grant' | 'topup' | 'spend' | 'refund' | 'adjust' | 'plan';
   note: string | null;
   projectId: string | null;
   detail: SpendDetail | null;
@@ -216,6 +217,50 @@ export const credits = {
   async removeAllFor(userId: string) {
     touch(userId);
     await Promise.all([grantCol().deleteMany({ userId }), eventCol().deleteMany({ userId })]);
+  },
+  /**
+   * A line in the history that moves no credits: "Pro cancelled — active until 8 Nov", "Upgraded to Pro"… The same
+   * line within a minute is written once (two checks noticing the same change at the same moment).
+   */
+  async planEvent(userId: string, note: string) {
+    const recent = await eventCol().findOne({ userId, kind: 'plan', note, createdAt: { $gt: now() - 60_000 } }, { projection: { _id: 1 } });
+    if (!recent) await event(userId, 0, 'plan', note);
+  },
+  /**
+   * The full history, newest first, a page at a time: `type` narrows it (added / used / refunds / plan changes),
+   * `since` and `before` bound the dates (`before` is the cursor for the next page), `q` matches the text.
+   */
+  async historyPage(
+    userId: string,
+    o: { type?: 'all' | 'added' | 'used' | 'refunds' | 'plan'; since?: number; before?: number; q?: string; limit?: number },
+  ): Promise<{ items: Omit<CreditEventRow, 'userId' | 'detail'>[]; nextBefore: number | null }> {
+    const limit = Math.min(100, Math.max(1, o.limit ?? 40));
+    const filter: Record<string, unknown> = { userId };
+    const created: Record<string, number> = {};
+    if (o.since) created.$gte = o.since;
+    if (o.before) created.$lt = o.before;
+    if (Object.keys(created).length) filter.createdAt = created;
+    if (o.type === 'added') Object.assign(filter, { kind: { $in: ['grant', 'topup', 'adjust'] }, delta: { $gt: 0 } });
+    else if (o.type === 'used') Object.assign(filter, { kind: { $in: ['spend', 'adjust'] }, delta: { $lt: 0 } });
+    else if (o.type === 'refunds') filter.kind = 'refund';
+    else if (o.type === 'plan') filter.kind = 'plan';
+    if (o.q?.trim()) filter.note = { $regex: o.q.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&').slice(0, 80), $options: 'i' };
+    const docs = await eventCol()
+      .find(filter, { projection: { userId: 0, detail: 0 } })
+      .sort({ createdAt: -1 })
+      .limit(limit + 1)
+      .toArray();
+    const items = docs.slice(0, limit).map((d) => fromDoc<CreditEventRow>(d));
+    return { items, nextBefore: docs.length > limit ? items[items.length - 1].createdAt : null };
+  },
+  /** Every event since a time (for the usage summary; small — a year of one person's history). */
+  async eventsSince(userId: string, since: number): Promise<Pick<CreditEventRow, 'delta' | 'kind' | 'projectId' | 'refunded' | 'createdAt'>[]> {
+    const docs = await eventCol()
+      .find({ userId, createdAt: { $gte: since } }, { projection: { delta: 1, kind: 1, projectId: 1, refunded: 1, createdAt: 1 } })
+      .sort({ createdAt: 1 })
+      .limit(20_000)
+      .toArray();
+    return docs.map((d) => ({ delta: d.delta, kind: d.kind, projectId: d.projectId ?? null, refunded: Boolean(d.refunded), createdAt: d.createdAt }));
   },
   async history(userId: string, limit = 100): Promise<Omit<CreditEventRow, 'userId' | 'detail'>[]> {
     const docs = await eventCol()
