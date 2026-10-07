@@ -249,6 +249,12 @@ Everyone signs up with **Continue with Google** (there's no email + password sig
 
 Without the Dodo settings everything else works (credits, limits, monthly refills). Upgrades are off, and an admin can give plans and credits by hand in **Settings → Admin**.
 
+## Help requests (support tickets)
+
+Anyone signed in can open **Help** in the menu → **New request**: pick a topic (billing, clips, posting, account, something broken, idea, other), a subject, the details and optionally the video it's about. CrestClip adds their plan, the page they came from and their browser, so they don't have to explain those.
+
+Admins answer on **Admin → Support** (`/app/admin/support`, also linked from the admin dashboard): an inbox with Active / Open / Waiting / Resolved / Closed tabs, a topic filter and search by `#number`, email or subject; each request shows who sent it (plan, credits, account), its context and the whole conversation. **Send** answers it (the person sees a "New answer" tag next to Help); **Send & resolve** answers and closes it in one go. A reply from the person opens it again. Billing requests start as high priority. Requests are deleted with the account.
+
 ## API (for automation)
 
 Every call needs a signed-in session (the `cc_session` cookie from `POST /api/auth/login`). Public: `/api/auth/*`, `/api/billing/plans`, `/api/billing/dodo/webhook`, `/api/billing/webhook` (old Razorpay).

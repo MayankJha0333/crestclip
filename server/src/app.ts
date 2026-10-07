@@ -10,6 +10,7 @@ import { attachUser, requireUser } from './modules/auth/auth.middleware.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { autopilotRouter } from './modules/autopilot/autopilot.routes.js';
 import { billingRouter } from './modules/billing/billing.routes.js';
+import { supportRouter } from './modules/support/support.routes.js';
 import { clipsRouter } from './modules/clips/clips.routes.js';
 import { exploreRouter } from './modules/explore/explore.routes.js';
 import { musicRouter } from './modules/music/music.routes.js';
@@ -76,6 +77,7 @@ export function createApp() {
   app.use('/api', authRouter);
   app.use('/api', billingRouter);
   app.use('/api', adminRouter);
+  app.use('/api', supportRouter);
   app.use('/api', systemRouter);
   app.use('/api', projectsRouter);
   app.use('/api', clipsRouter);

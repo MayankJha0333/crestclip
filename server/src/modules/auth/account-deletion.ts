@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../../config.js';
-import { autopilots, connections, credits, posts, projects, sessions, users, type UserRow } from '../../db/index.js';
+import { autopilots, connections, credits, posts, projects, sessions, tickets, users, type UserRow } from '../../db/index.js';
 import { removeCloudFolder } from '../../infra/cloudStore.js';
 import { HttpError } from '../../lib/http.js';
 import { deleteAutopilot } from '../autopilot/autopilot.service.js';
@@ -14,7 +14,7 @@ import { disconnect } from '../publishing/publishing.service.js';
  *
  * Removed: Autopilots, projects (videos, clips, posts — here and in the cloud bucket), connected YouTube/Instagram
  * accounts (their access is also revoked with Google/Instagram), credits, uploaded logos and music, every log-in,
- * and the account. Kept: payment records, because tax law requires it (see the privacy policy).
+ * help requests, and the account. Kept: payment records, because tax law requires it (see the privacy policy).
  */
 export async function deleteAccount(user: UserRow, typedEmail: string) {
   if (typedEmail.trim().toLowerCase() !== user.email.toLowerCase()) throw new HttpError(400, 'Type your email address exactly as shown to confirm.');
@@ -31,6 +31,7 @@ export async function deleteAccount(user: UserRow, typedEmail: string) {
   for (const c of await connections.list(user.id)) await disconnect(c.id, user); // also revokes access with Google / Instagram
   await posts.removeAllFor(user.id);
   await credits.removeAllFor(user.id);
+  await tickets.removeAllFor(user.id);
   const safe = user.id.replace(/[^\w-]/g, '');
   for (const dir of [path.join(config.dataDir, 'brand', safe), path.join(config.dataDir, 'music', 'uploads', safe)]) {
     fs.rmSync(dir, { recursive: true, force: true });

@@ -39,6 +39,7 @@ devops/
 | **See jobs** (waiting, running, failed + their logs) | [crestclip.com/admin/queues/](https://crestclip.com/admin/queues/) |
 | **See live logs** | [crestclip.com/admin/logs/](https://crestclip.com/admin/logs/) |
 | **See costs** | [crestclip.com/admin/costs](https://crestclip.com/admin/costs) |
+| **Answer help requests** | [crestclip.com/app/admin/support](https://crestclip.com/app/admin/support) — people raise them from **Help** in the app menu |
 | **Clip more videos at once** | edit `deploy/sizing.env` → commit → push |
 | **Undo a bad setting** | `./devops/secrets/secrets.sh history` → `secrets.sh rollback <number>` |
 

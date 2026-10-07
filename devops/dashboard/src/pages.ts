@@ -36,6 +36,7 @@ export function layout(title: string, active: 'overview' | 'users' | 'running' |
     ['jobs', '/admin/queues/', 'Jobs'],
     ['logs', '/admin/logs/', 'Live logs'],
     ['costs', '/admin/costs', 'Costs'],
+    ['support', '/app/admin/support', 'Support'],
   ]
     .map(([k, href, label]) => `<a href="${href}" class="${k === active ? 'on' : ''}">${label}</a>`)
     .join('');

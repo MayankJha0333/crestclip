@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { hideBroken } from '../lib/img';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { AlertTriangle, Bot, CalendarClock, Compass, LayoutGrid, LogOut, Plus, RefreshCw, Settings, X, type LucideIcon } from 'lucide-react';
+import { AlertTriangle, Bot, CalendarClock, Compass, Inbox, LayoutGrid, LifeBuoy, LogOut, Plus, RefreshCw, Settings, X, type LucideIcon } from 'lucide-react';
 import { api } from '../lib/api';
 import { cn } from '../lib/cn';
 import { toast } from '../lib/toast';
@@ -64,7 +64,10 @@ function Sidebar() {
   const isActive = useActive();
   const { state, health } = useHealth();
   const { pathname } = useLocation();
-  const isAdmin = Boolean(useAuth().me?.user.isAdmin);
+  const { me } = useAuth();
+  const isAdmin = Boolean(me?.user.isAdmin);
+  const bottomLink = (on: boolean) =>
+    cn('flex items-center gap-3 rounded-2xl px-3.5 py-2.5 font-display font-semibold no-underline transition-all', on ? 'bg-ink text-on-ink shadow-lift' : 'text-ink-2 hover:bg-row hover:text-ink');
   return (
     <aside className="sticky top-6 hidden h-[calc(100vh-3rem)] w-60 shrink-0 flex-col rounded-[28px] bg-surface p-5 shadow-clay lg:flex">
       <Link to="/" aria-label="CrestClip home" className="no-underline">
@@ -83,6 +86,16 @@ function Sidebar() {
       <div className="mt-auto flex flex-col gap-2">
         {health?.ai.fake && <span className="rounded-full bg-good-bg px-3 py-1.5 text-center text-xs font-extrabold text-good-ink">Demo AI mode</span>}
         <CreditMeter />
+        {isAdmin && (
+          <NavLink to="/app/admin/support" className={bottomLink(pathname.startsWith('/app/admin/support'))}>
+            <Inbox size={18} /> Support inbox
+            <Count n={me?.support?.adminUnread ?? 0} label="new requests" />
+          </NavLink>
+        )}
+        <NavLink to="/app/support" className={bottomLink(pathname.startsWith('/app/support'))}>
+          <LifeBuoy size={18} /> Help
+          <Count n={me?.support?.unread ?? 0} label="new answers" />
+        </NavLink>
         <NavLink
           to="/app/settings"
           className={cn(
@@ -96,6 +109,16 @@ function Sidebar() {
         <AccountRow />
       </div>
     </aside>
+  );
+}
+
+/** A small number badge on a menu item ("2 new answers"). */
+function Count({ n, label }: { n: number; label: string }) {
+  if (!n) return null;
+  return (
+    <span className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-tangerine px-1.5 text-[11px] font-black text-white tabular-nums" aria-label={`${n} ${label}`}>
+      {n > 9 ? '9+' : n}
+    </span>
   );
 }
 
@@ -127,7 +150,9 @@ function AccountRow() {
 function MobileNav() {
   const isActive = useActive();
   const { state } = useHealth();
-  const isAdmin = Boolean(useAuth().me?.user.isAdmin);
+  const { me } = useAuth();
+  const isAdmin = Boolean(me?.user.isAdmin);
+  const helpDot = (me?.support?.unread ?? 0) + (isAdmin ? (me?.support?.adminUnread ?? 0) : 0) > 0;
   return (
     <>
       <header className="sticky top-0 z-30 -mx-4 mb-4 flex items-center justify-between bg-glass px-4 py-3 backdrop-blur-md lg:hidden">
@@ -136,6 +161,10 @@ function MobileNav() {
         </Link>
         <span className="flex items-center gap-2">
           <CreditPill />
+          <Link to={isAdmin && (me?.support?.adminUnread ?? 0) > 0 ? '/app/admin/support' : '/app/support'} aria-label="Help" className="relative grid size-10 place-items-center rounded-full bg-surface text-ink shadow-clay-sm">
+            <LifeBuoy size={18} />
+            {helpDot && <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-tangerine" />}
+          </Link>
           <Link to="/app/settings" aria-label="Settings" className="relative grid size-10 place-items-center rounded-full bg-surface text-ink shadow-clay-sm">
             <Settings size={18} />
             {isAdmin && <span className={cn('absolute top-1.5 right-1.5 size-2 rounded-full', DOT[state])} />}

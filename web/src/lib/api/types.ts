@@ -509,7 +509,58 @@ export interface BillingAccount {
 export interface Me {
   user: { id: string; email: string; name: string | null; avatar: string | null; isAdmin: boolean; hasPassword: boolean; google: boolean };
   account: BillingAccount;
+  /** Help: answers not read yet · adminUnread (admins): requests with something new for the team */
+  support?: { unread: number; adminUnread?: number };
 }
+
+// ---------------- help requests ----------------
+export type TicketCategory = 'billing' | 'clips' | 'publishing' | 'account' | 'bug' | 'idea' | 'other';
+export type TicketStatus = 'open' | 'in_progress' | 'waiting' | 'resolved' | 'closed';
+export type TicketPriority = 'normal' | 'high' | 'urgent';
+export interface TicketMessage {
+  id: string;
+  from: 'user' | 'admin';
+  authorName: string | null;
+  body: string;
+  at: number;
+}
+export interface TicketSummary {
+  id: string;
+  number: number;
+  category: TicketCategory;
+  subject: string;
+  status: TicketStatus;
+  projectId: string | null;
+  unreadForUser: boolean;
+  createdAt: number;
+  updatedAt: number;
+  messageCount: number;
+  lastMessage: { from: 'user' | 'admin'; body: string; at: number } | null;
+}
+export interface TicketProjectRef {
+  id: string;
+  title: string;
+  status: string;
+  exists: boolean;
+}
+export interface Ticket extends Omit<TicketSummary, 'messageCount' | 'lastMessage'> {
+  messages: TicketMessage[];
+  project: TicketProjectRef | null;
+}
+export interface AdminTicketSummary extends TicketSummary {
+  userId: string;
+  email: string;
+  name: string | null;
+  priority: TicketPriority;
+  unreadForAdmin: boolean;
+}
+export interface AdminTicket extends Omit<AdminTicketSummary, 'messageCount' | 'lastMessage'> {
+  messages: TicketMessage[];
+  project: TicketProjectRef | null;
+  context: { plan: string; page: string | null; userAgent: string | null };
+  user: { id: string; email: string; name: string | null; plan: PlanId; paying: boolean; balance: number; createdAt: number } | null;
+}
+export type TicketCounts = Record<TicketStatus | 'active' | 'all' | 'unread', number>;
 export interface CreditEvent {
   id: string;
   delta: number;

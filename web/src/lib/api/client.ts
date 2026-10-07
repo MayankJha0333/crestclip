@@ -7,6 +7,14 @@ import type {
   CheckoutStart,
   CreditEvent,
   CreditHistoryType,
+  AdminTicket,
+  AdminTicketSummary,
+  Ticket,
+  TicketCategory,
+  TicketCounts,
+  TicketPriority,
+  TicketStatus,
+  TicketSummary,
   CreditUsage,
   Me,
   Payment,
@@ -95,6 +103,23 @@ export const api = {
   /** where the credits went over the last `days` days */
   creditUsage: (days: number) => req<CreditUsage>(`/api/billing/usage?days=${days}&tz=${new Date().getTimezoneOffset()}`),
   receipt: (paymentId: string) => req<Receipt>(`/api/billing/payments/${encodeURIComponent(paymentId)}/receipt`),
+  // help requests
+  myTickets: () => req<TicketSummary[]>('/api/support/tickets'),
+  newTicket: (b: { category: TicketCategory; subject: string; message: string; projectId?: string | null; page?: string | null }) => req<Ticket>('/api/support/tickets', json('POST', b)),
+  ticket: (id: string) => req<Ticket & { project: Ticket['project'] }>(`/api/support/tickets/${encodeURIComponent(id)}`),
+  replyTicket: (id: string, body: string) => req<Ticket>(`/api/support/tickets/${encodeURIComponent(id)}/messages`, json('POST', { body })),
+  closeTicket: (id: string) => req<Ticket>(`/api/support/tickets/${encodeURIComponent(id)}/close`, { method: 'POST' }),
+  adminTickets: (o: { status?: TicketStatus | 'active' | 'all'; category?: TicketCategory | ''; q?: string }) => {
+    const s = new URLSearchParams();
+    if (o.status) s.set('status', o.status);
+    if (o.category) s.set('category', o.category);
+    if (o.q?.trim()) s.set('q', o.q.trim());
+    return req<{ items: AdminTicketSummary[]; counts: TicketCounts }>(`/api/admin/tickets?${s}`);
+  },
+  adminTicket: (id: string) => req<AdminTicket>(`/api/admin/tickets/${encodeURIComponent(id)}`),
+  adminReplyTicket: (id: string, body: string, status?: TicketStatus) => req<AdminTicket>(`/api/admin/tickets/${encodeURIComponent(id)}/messages`, json('POST', { body, status })),
+  adminUpdateTicket: (id: string, patch: { status?: TicketStatus; priority?: TicketPriority; unread?: boolean }) =>
+    req<AdminTicket>(`/api/admin/tickets/${encodeURIComponent(id)}`, json('PATCH', patch)),
   // admin
   adminUsers: () => req<AdminUser[]>('/api/admin/users'),
   adminSetPlan: (id: string, plan: PlanId) => req<AdminUser>(`/api/admin/users/${id}/plan`, json('POST', { plan })),

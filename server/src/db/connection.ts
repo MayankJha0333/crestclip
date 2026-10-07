@@ -59,6 +59,7 @@ export const COLLECTIONS = {
   autopilotClips: 'autopilot_clips',
   autopilotSkips: 'autopilot_skips',
   meta: 'meta',
+  tickets: 'tickets',
 } as const;
 
 async function createIndexes(db: Db) {
@@ -75,6 +76,7 @@ async function createIndexes(db: Db) {
     db.collection(c.creditGrants).createIndexes([{ key: { userId: 1, expiresAt: 1 } }, { key: { ref: 1 }, unique: true, ...hasString('ref') }]),
     db.collection(c.creditEvents).createIndexes([{ key: { userId: 1, createdAt: -1 } }, { key: { projectId: 1, kind: 1 } }]),
     db.collection(c.payments).createIndexes([{ key: { userId: 1, createdAt: -1 } }]),
+    db.collection(c.tickets).createIndexes([{ key: { userId: 1, updatedAt: -1 } }, { key: { status: 1, updatedAt: -1 } }, { key: { number: 1 } }]),
     db.collection(c.projects).createIndexes([{ key: { userId: 1, createdAt: -1 } }, { key: { parentId: 1, createdAt: 1 } }, { key: { status: 1 } }, { key: { expiresAt: 1 } }]),
     db.collection(c.clips).createIndexes([{ key: { projectId: 1, peakScore: -1 } }, { key: { status: 1 } }]),
     db.collection(c.connections).createIndexes([{ key: { userId: 1, platform: 1, accountId: 1 }, unique: true }]),

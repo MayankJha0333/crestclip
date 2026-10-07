@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { config } from '../../config.js';
-import { users } from '../../db/index.js';
+import { users, tickets } from '../../db/index.js';
 import { asyncHandler, validate } from '../../lib/http.js';
 import { accountSummary, refreshAccount } from '../billing/billing.service.js';
 import { clearSessionCookie, me, requireUser, setSessionCookie } from './auth.middleware.js';
@@ -56,6 +56,8 @@ authRouter.get(
     res.json({
       user: { id: user.id, email: user.email, name: user.name, avatar: user.avatar, isAdmin: user.isAdmin, hasPassword: Boolean(user.passwordHash), google: Boolean(user.googleSub) },
       account: await accountSummary(user),
+      // Help: answers they haven't read · Admin: requests waiting for the team
+      support: { unread: await tickets.unreadFor(user.id), ...(user.isAdmin ? { adminUnread: await tickets.adminUnread() } : {}) },
     });
   }),
 );
