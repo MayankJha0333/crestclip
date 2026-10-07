@@ -159,7 +159,7 @@ try {
     assert.equal((await call(us, 'POST', '/billing/subscribe', { plan: 'free' })).status, 400);
   });
 
-  await step('Upgrade Creator → Pro: same subscription, prorated charge, +600 credits now (not 1,000)', async () => {
+  await step('Upgrade Creator → Pro: same subscription, new month from today, Pro’s 1,000 credits once', async () => {
     const before = await balance(us);
     const r = await call(us, 'POST', '/billing/subscribe', { plan: 'pro' });
     assert.equal(r.status, 200, JSON.stringify(r.data));
@@ -168,7 +168,7 @@ try {
     assert.equal(cp.path, `/subscriptions/${usSub}/change-plan`);
     assert.equal((cp.body as any).proration_billing_mode, 'prorated_immediately');
     assert.equal((cp.body as any).on_payment_failure, 'prevent_change');
-    assert.equal(await balance(us), before + 600);
+    assert.equal(await balance(us), before + 1000);
     const u = await fresh(us);
     assert.equal(u.plan, 'pro');
     assert.equal(u.dodoSubscriptionId, usSub);
@@ -176,7 +176,7 @@ try {
     // the plan-changed webhook and a page refresh don't add the credits again
     await sendWebhook(APP, WHSEC, 'subscription.plan_changed', subData(mock.subs.get(usSub)!));
     await account(us);
-    assert.equal(await balance(us), before + 600);
+    assert.equal(await balance(us), before + 1000);
     // the prorated difference is a payment of its own
     const list = await payments.forUser(us.id);
     assert.equal(list.length, 2);
@@ -420,6 +420,30 @@ try {
     const u = await fresh(p);
     assert.equal(u.plan, 'pro');
     assert.equal(u.cancelAtPeriodEnd, false);
+  });
+
+  await step('Real-Dodo timing: plan change waits for its charge → no extra credits meanwhile, Pro once it lands', async () => {
+    const p = await person('slow-upgrade@example.com');
+    await account(p);
+    const paid = mock.pay((await call(p, 'POST', '/billing/subscribe', { plan: 'creator' })).data.url);
+    await call(p, 'POST', '/billing/checkout/confirm', confirmFrom(paid.returnQuery));
+    assert.equal(await balance(p), 460);
+    mock.slowPlanChange = true;
+    const r = await call(p, 'POST', '/billing/subscribe', { plan: 'pro' });
+    mock.slowPlanChange = false;
+    assert.deepEqual(r.data, { changed: true, pending: true });
+    await call(p, 'GET', '/billing/account?sync=1');
+    await sendWebhook(APP, WHSEC, 'subscription.updated', subData(paid.sub!));
+    assert.equal(await balance(p), 460); // the moved start date alone adds nothing
+    assert.equal((await fresh(p)).plan, 'creator');
+    const pay = mock.finishPlanChange();
+    await new Promise((r) => setTimeout(r, 10_100)); // the page asks again ≥10 s later
+    const a = (await call(p, 'GET', '/billing/account?sync=1')).data;
+    assert.equal(a.plan.id, 'pro');
+    assert.equal(await balance(p), 1460);
+    await sendWebhook(APP, WHSEC, 'subscription.plan_changed', subData(paid.sub!));
+    await sendWebhook(APP, WHSEC, 'payment.succeeded', payData(pay));
+    assert.equal(await balance(p), 1460);
   });
 
   await step('Two checks of the same month at the same moment → credits added once', async () => {

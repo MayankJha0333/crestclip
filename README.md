@@ -239,7 +239,7 @@ Everyone signs up with **Continue with Google** (there's no email + password sig
 **How it behaves**
 
 - **Subscribe:** CrestClip opens Dodo's checkout page → the person pays → comes back to Plan & credits → the plan and its credits switch on (also by webhook if the tab was closed).
-- **Upgrade Creator → Pro:** the same subscription moves to Pro; Dodo charges only the difference for the rest of the month to the saved card / UPI mandate, and the extra 600 credits are added at once.
+- **Upgrade Creator → Pro:** the same subscription moves to Pro and a new billing month starts today. Dodo charges Pro's price minus what's left of the Creator month to the saved card / UPI mandate, and Pro's 1,000 credits are added at once (Creator credits already given stay until they expire).
 - **Renewal:** each paid month adds the plan's credits once (unused paid credits roll over one month). UPI renewals in India can arrive up to ~2 days late; the plan stays meanwhile.
 - **Failed renewal** (Dodo "on hold"): the plan stays for 7 days while the person updates their card or UPI (**Manage billing** opens Dodo's customer portal), then it moves to Free.
 - **Cancel:** the plan stays until the paid month ends, then moves to Free; **Keep my plan** undoes it. Credits already bought stay until they expire.

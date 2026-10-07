@@ -120,7 +120,7 @@ async function syncDodo(user: UserRow, sub: DodoSubscription) {
       { dodoSubscriptionId: sub.subscription_id },
       { plan: p.id, subscriptionStatus: sub.status, cycleStart: start, cycleEnd: end, cancelAtPeriodEnd: Boolean(sub.cancel_at_next_billing_date) },
     );
-    if (stillMine && sub.status === 'active' && start) await grantDodoMonth(user.id, sub.subscription_id, start, end, p);
+    if (stillMine && sub.status === 'active' && end) await grantDodoMonth(user.id, sub.subscription_id, end, p);
     return;
   }
   if (sub.status === 'pending') return; // the first payment isn't through yet
@@ -130,22 +130,26 @@ async function syncDodo(user: UserRow, sub: DodoSubscription) {
 
 /**
  * The credits for one paid month of a subscription, added in "steps": step 1 = Creator's 400, step 2 = Pro's extra
- * 600. Each step has its own fixed key (subscription + month start + step), so however many checks run — webhook,
- * return from checkout, refresh, even at the same moment — each step is added once: Creator gets 400, Pro 1,000,
- * an upgrade in the middle of a month adds just the missing 600, and a smaller plan adds nothing until next month.
+ * 600. Each step has its own fixed key (subscription + the paid month's END + step), so however many checks run —
+ * webhook, return from checkout, refresh, even at the same moment — each step is added once: Creator gets 400, Pro
+ * 1,000, a move up inside the same month adds just the missing 600, a smaller plan adds nothing until next month.
+ *
+ * Keyed on the month's end (next_billing_date), not its start: Dodo moves previous_billing_date as soon as a plan
+ * change is asked for, before the change is paid and applied. An upgrade restarts the billing month in Dodo (it
+ * charges the new price minus what's left of the old month), so it ends a new month — with the new plan's credits.
  */
-async function grantDodoMonth(userId: string, subId: string, start: number, end: number | null, p: Plan) {
+async function grantDodoMonth(userId: string, subId: string, end: number, p: Plan) {
   const paid: PlanId[] = PLAN_ORDER.filter((id) => id !== 'free');
   const upTo = paid.indexOf(p.id);
-  const hadStep1 = await credits.hasRef(`dodo_${subId}_${start}_1`);
+  const hadStep1 = await credits.hasRef(`dodo_${subId}_${end}_1`);
   for (let i = 0; i <= upTo; i++) {
     const amount = PLANS[paid[i]].credits - (i ? PLANS[paid[i - 1]].credits : 0);
     if (amount <= 0) continue;
     await credits.grant(userId, {
       amount,
       source: 'plan',
-      expiresAt: nextMonth(end ?? nextMonth(start)), // unused paid credits roll over one month
-      ref: `dodo_${subId}_${start}_${i + 1}`,
+      expiresAt: nextMonth(end), // unused paid credits roll over one month
+      ref: `dodo_${subId}_${end}_${i + 1}`,
       note: i && hadStep1 ? `${p.name} plan · upgrade (extra credits this month)` : `${p.name} plan · monthly credits${upTo ? ` (part ${i + 1} of ${upTo + 1})` : ''}`,
     });
   }
@@ -448,7 +452,13 @@ export async function startSubscription(user: UserRow, planId: PlanId): Promise<
     try {
       if (wasEnding) await dodo.updateSubscription(subId, { cancel_at_next_billing_date: false }).catch(explainDodoError);
       await dodo.changePlan(subId, productForPlan(plan.id)).catch(explainDodoError);
-      sub = await dodo.subscription(subId).catch(explainDodoError);
+      // Dodo charges the difference and then switches the plan — usually within ~15 s. Wait for it (up to 30 s) so
+      // the person sees the new plan right away; after that the webhook / next check finishes it.
+      for (let i = 0; i < 15; i++) {
+        sub = await dodo.subscription(subId).catch(explainDodoError);
+        if (planOfDodo(sub) === plan.id || !billing(sub.status)) break;
+        await new Promise((r) => setTimeout(r, config.dodoApiUrl ? 50 : 2000));
+      }
     } finally {
       // the upgrade didn't happen: a plan that was ending must stay ending (they mustn't be charged for it again)
       if (wasEnding && !(sub && planOfDodo(sub) === plan.id)) {
@@ -592,9 +602,10 @@ const lastScan = new Map<string, number>();
  * Catch up with Dodo without webhooks (local runs, a webhook that never arrived): a subscription paid for but not
  * adopted yet, a renewal, a top-up paid after the tab was closed. At most every 2 minutes per person.
  */
-export async function reconcileSubscriptions(user: UserRow, opts: { force?: boolean } = {}): Promise<UserRow> {
+export async function reconcileSubscriptions(user: UserRow, opts: { soon?: boolean } = {}): Promise<UserRow> {
   if (!dodoReady() || !user.dodoCustomerId) return user;
-  if (!opts.force && !due(lastScan, user.id, 2 * 60_000)) return user;
+  // `soon`: the page is waiting for a payment to land (asks every few seconds) — look at most every 10 s then
+  if (!due(lastScan, user.id, opts.soon ? 10_000 : 2 * 60_000)) return user;
   try {
     const subs = (await dodo.subscriptionsOf(user.dodoCustomerId)).filter((s) => isMine(user, s));
     const current = subs.find((s) => s.subscription_id === user.dodoSubscriptionId);

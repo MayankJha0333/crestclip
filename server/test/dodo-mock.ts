@@ -107,15 +107,26 @@ export function startMockDodo(opts: { apiKey: string; products: Product[] }) {
         if (m === 'POST' && parts[2] === 'change-plan') {
           const to = product(String(body?.product_id));
           if (!to?.recurring) return send(422, { code: 'INVALID_REQUEST', message: 'Not a subscription product' });
+          if (mock.slowPlanChange) {
+            // real Dodo: the start date moves at once, the plan only after the charge goes through
+            s.previous_billing_date = iso(Date.now());
+            mock.pendingChange = { sub: s, to: to.product_id };
+            return send(200, { payment_id: null, payment_link: null, client_secret: null, expires_on: null });
+          }
           if (mock.failNextPlanChange) {
             mock.failNextPlanChange = false;
             return send(200, { payment_id: null, payment_link: null, client_secret: null, expires_on: null }); // prevent_change: payment failed, nothing changes
           }
+          // like real Dodo with prorated_immediately: the billing month restarts now; the charge is the new price
+          // minus what's left of the old month
           const from = product(s.product_id)!;
           const left = Math.max(0, Date.parse(s.next_billing_date) - Date.now()) / MONTH;
           s.product_id = to.product_id;
           s.recurring_pre_tax_amount = to.price;
-          const diff = Math.round((to.price - from.price) * left);
+          const now = Date.now() + 1;
+          s.previous_billing_date = iso(now);
+          s.next_billing_date = iso(now + MONTH);
+          const diff = Math.round(to.price - from.price * left);
           if (diff > 0) mock.addPayment(s, diff);
           return send(200, { payment_id: null, payment_link: null, client_secret: null, expires_on: null });
         }
@@ -141,6 +152,18 @@ export function startMockDodo(opts: { apiKey: string; products: Product[] }) {
     pays,
     customers,
     failNextPlanChange: false,
+    slowPlanChange: false,
+    pendingChange: null as null | { sub: Sub; to: string },
+    /** the slow plan change's charge goes through */
+    finishPlanChange() {
+      const c = mock.pendingChange!;
+      mock.pendingChange = null;
+      const now = Date.now() + 1;
+      c.sub.product_id = c.to;
+      c.sub.previous_billing_date = iso(now);
+      c.sub.next_billing_date = iso(now + MONTH);
+      return mock.addPayment(c.sub, 1400);
+    },
     url: '',
     async listen() {
       await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));

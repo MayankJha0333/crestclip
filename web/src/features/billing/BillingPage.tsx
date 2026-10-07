@@ -46,7 +46,7 @@ export function BillingPage() {
   /** Ask the server a few times whether the plan switched (an upgrade's payment can take a moment). */
   const waitForPlan = async (plan: Plan, tries: number) => {
     for (let i = 0; i < tries; i++) {
-      const b = await api.billing().catch(() => null);
+      const b = await api.billing(true).catch(() => null);
       if (b?.plan.id === plan.id) {
         await after(`You’re on ${plan.name} — ${plan.clips.toLocaleString()} clips a month`);
         return true;
@@ -315,7 +315,7 @@ export function BillingPage() {
         <h2 className="mb-1 text-2xl">Plans</h2>
         <p className="mb-6 text-ink-2">
           Monthly credits refill on your renewal date. On paid plans, unused credits carry over one more month.
-          {data.billedBy === 'dodo' && plan.id !== 'pro' && ' Upgrading charges only the difference for the rest of this month and adds the extra credits right away.'}
+          {data.billedBy === 'dodo' && plan.id !== 'pro' && ' Upgrading starts your new plan today with its full monthly credits; you pay its price minus what’s left of your current month.'}
         </p>
         <PlanCards
           plans={info.plans}

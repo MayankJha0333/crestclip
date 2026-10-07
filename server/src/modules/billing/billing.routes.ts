@@ -35,7 +35,7 @@ billingRouter.get(
   requireUser,
   asyncHandler(async (req, res) => {
     // catch up with Dodo first: a payment whose webhook hasn't arrived (or never will, e.g. running locally) counts here
-    const user = await service.refreshAccount(await service.reconcileSubscriptions(me(req)));
+    const user = await service.refreshAccount(await service.reconcileSubscriptions(me(req), { soon: req.query.sync === '1' }));
     res.json({ ...(await service.accountSummary(user)), history: await service.creditHistory(user), payments: await service.paymentHistory(user) });
   }),
 );

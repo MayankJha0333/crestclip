@@ -71,7 +71,8 @@ export const api = {
   // plans & credits
   plans: () => req<PlansInfo>('/api/billing/plans'),
   site: () => req<SiteInfo>('/api/site'),
-  billing: () => req<BillingAccount & { history: CreditEvent[]; payments: Payment[] }>('/api/billing/account'),
+  /** sync: a payment is about to land — ask the server to check with Dodo now (at most every 10 s) */
+  billing: (sync = false) => req<BillingAccount & { history: CreditEvent[]; payments: Payment[] }>(`/api/billing/account${sync ? '?sync=1' : ''}`),
   subscribe: (plan: PlanId) => req<CheckoutStart>('/api/billing/subscribe', json('POST', { plan })),
   buyTopup: () => req<CheckoutStart>('/api/billing/topup', { method: 'POST' }),
   /** back from Dodo's checkout page: apply the payment (the server checks it with Dodo) */
