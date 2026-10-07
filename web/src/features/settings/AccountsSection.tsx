@@ -185,10 +185,20 @@ function PlatformCard({
         <SetupSteps platform={pf} redirectUri={setup.redirectUri} needsHttps={needsHttps} />
       )}
 
-      <p className="mt-5 flex items-start gap-2 border-t border-dashed border-line-strong pt-4 text-xs leading-snug text-ink-3">
-        <AlertTriangle size={13} className="mt-px shrink-0 text-warn" />
-        <span>{I.note}</span>
-      </p>
+      {pf === 'youtube' && 'auditPassed' in setup && setup.auditPassed ? (
+        // Google approved CrestClip's YouTube API use: uploads keep the privacy picked per post
+        <p className="mt-5 flex items-start gap-2 border-t border-dashed border-line-strong pt-4 text-xs leading-snug text-ink-3">
+          <ShieldCheck size={13} className="mt-px shrink-0 text-mint-d" />
+          <span>
+            Approved by Google — uploads can be <b>public</b>, <b>unlisted</b> or <b>private</b>.
+          </span>
+        </p>
+      ) : (
+        <p className="mt-5 flex items-start gap-2 border-t border-dashed border-line-strong pt-4 text-xs leading-snug text-ink-3">
+          <AlertTriangle size={13} className="mt-px shrink-0 text-warn" />
+          <span>{I.note}</span>
+        </p>
+      )}
     </section>
   );
 }
