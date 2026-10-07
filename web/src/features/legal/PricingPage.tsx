@@ -9,7 +9,7 @@ import { useBusiness } from './business';
 import { initialPlans } from '../../lib/initialData';
 import { ContactDetails, LegalLayout, Section } from './LegalLayout';
 
-/** Public pricing page: every plan and the top-up in US dollars, plus how billing works (Razorpay checks this page). */
+/** Public pricing page: every plan and the top-up in US dollars, plus how billing works (payment providers check this page). */
 export function PricingPage() {
   const b = useBusiness();
   const [pricing, setPricing] = useState<PlansInfo | null>(initialPlans);
@@ -63,7 +63,8 @@ export function PricingPage() {
 
       <Section title="How billing works">
         <ul>
-          <li>All prices are in US dollars (USD). Payments are processed securely by Razorpay; you pay by card.</li>
+          <li>Prices are in US dollars (USD). In India you pay the same price in rupees (₹) by UPI or card; elsewhere checkout shows your local currency where it can. Taxes such as GST or sales tax are added at checkout where they apply.</li>
+          <li>Payments are processed securely by Dodo Payments, our online reseller and merchant of record, who also issues your invoice.</li>
           {paid.length > 0 && <li>Paid plans renew automatically every month on the day you subscribed, until you cancel.</li>}
           <li>Cancel any time on the Plan & credits page in the app. Your plan stays until the end of the month you paid for, and you aren’t charged again.</li>
           <li>

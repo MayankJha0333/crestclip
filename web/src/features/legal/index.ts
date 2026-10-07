@@ -1,4 +1,4 @@
-/** The company and policy pages (public). Razorpay and Google check that these exist and match the business. */
+/** The company and policy pages (public). Payment providers (Dodo Payments) and Google check that these exist and match the business. */
 export { AboutPage } from './AboutPage';
 export { ContactPage } from './ContactPage';
 export { CrayoAlternativePage } from './CrayoAlternativePage';

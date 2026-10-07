@@ -15,7 +15,7 @@ export const routes: RouteObject[] = [
   { path: '/', element: <LandingPage /> },
   { path: '/login', element: <AuthPage mode="login" /> },
   { path: '/signup', element: <AuthPage mode="signup" /> },
-  // company and policy pages (public — Razorpay and Google check them)
+  // company and policy pages (public — payment providers and Google check them)
   { path: '/about', element: <AboutPage /> },
   { path: '/pricing', element: <PricingPage /> },
   { path: '/contact', element: <ContactPage /> },

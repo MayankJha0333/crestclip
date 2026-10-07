@@ -14,8 +14,15 @@ export interface UserRow {
   plan: PlanId;
   cycleStart: number | null;
   cycleEnd: number | null;
+  /** the person in Dodo Payments (made the first time they open a checkout) */
+  dodoCustomerId: string | null;
+  /** the Dodo subscription behind their paid plan */
+  dodoSubscriptionId: string | null;
+  /** its status as Dodo last reported it (active, on_hold = a renewal payment failed, …) */
+  subscriptionStatus: string | null;
+  /** a Razorpay subscription from before the move to Dodo (still renews there until cancelled) */
   rzSubscriptionId: string | null;
-  /** a subscription opened in Checkout that hasn't been confirmed yet */
+  /** legacy (Razorpay): a subscription opened in Checkout that hasn't been confirmed yet */
   pendingSubscriptionId: string | null;
   cancelAtPeriodEnd: boolean;
   createdAt: number;
@@ -24,10 +31,12 @@ export interface UserRow {
 const col = () => collection<Doc<UserRow> & { updatedAt: number }>(COLLECTIONS.users);
 const toUser = (d: Doc<UserRow>): UserRow => {
   const { updatedAt: _u, ...rest } = d as Doc<UserRow> & { updatedAt?: number };
-  return fromDoc<UserRow>(rest);
+  const u = fromDoc<UserRow>(rest);
+  // accounts made before the move to Dodo have no Dodo fields yet
+  return { ...u, dodoCustomerId: u.dodoCustomerId ?? null, dodoSubscriptionId: u.dodoSubscriptionId ?? null, subscriptionStatus: u.subscriptionStatus ?? null };
 };
 
-const UPDATABLE = ['email', 'name', 'passwordHash', 'googleSub', 'avatar', 'isAdmin', 'plan', 'cycleStart', 'cycleEnd', 'rzSubscriptionId', 'pendingSubscriptionId', 'cancelAtPeriodEnd'] as const;
+const UPDATABLE = ['email', 'name', 'passwordHash', 'googleSub', 'avatar', 'isAdmin', 'plan', 'cycleStart', 'cycleEnd', 'dodoCustomerId', 'dodoSubscriptionId', 'subscriptionStatus', 'rzSubscriptionId', 'pendingSubscriptionId', 'cancelAtPeriodEnd'] as const;
 
 export const users = {
   count(): Promise<number> {
@@ -46,6 +55,9 @@ export const users = {
       plan: u.plan ?? 'free',
       cycleStart: null,
       cycleEnd: null,
+      dodoCustomerId: null,
+      dodoSubscriptionId: null,
+      subscriptionStatus: null,
       rzSubscriptionId: null,
       pendingSubscriptionId: null,
       cancelAtPeriodEnd: false,
@@ -67,9 +79,19 @@ export const users = {
     const d = await col().findOne({ googleSub: sub });
     return d ? toUser(d) : null;
   },
+  /** Whose subscription this is (a Dodo id, or a Razorpay one from before the move). */
   async bySubscription(subId: string): Promise<UserRow | null> {
-    const d = await col().findOne({ rzSubscriptionId: subId });
+    const d = await col().findOne({ $or: [{ dodoSubscriptionId: subId }, { rzSubscriptionId: subId }] });
     return d ? toUser(d) : null;
+  },
+  async byDodoCustomer(customerId: string): Promise<UserRow | null> {
+    const d = await col().findOne({ dodoCustomerId: customerId });
+    return d ? toUser(d) : null;
+  },
+  /** Save the Dodo customer id unless one is already saved (two checkouts at once). Returns the one that's kept. */
+  async claimDodoCustomer(id: string, customerId: string): Promise<string> {
+    await col().updateOne({ _id: id, $or: [{ dodoCustomerId: null }, { dodoCustomerId: { $exists: false } }] }, { $set: { dodoCustomerId: customerId, updatedAt: now() } });
+    return (await col().findOne({ _id: id }, { projection: { dodoCustomerId: 1 } }))?.dodoCustomerId ?? customerId;
   },
   async list(): Promise<UserRow[]> {
     return (await col().find().sort({ createdAt: 1 }).toArray()).map(toUser);

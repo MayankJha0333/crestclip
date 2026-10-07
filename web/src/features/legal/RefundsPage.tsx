@@ -53,9 +53,9 @@ export function RefundsPage() {
             Email <SupportEmail business={b} /> from your account email with the <strong>payment ID</strong> (it starts with <code>pay_</code>). We reply within 2 working days.
           </li>
           <li>
-            Approved refunds go back to the original card or account through Razorpay within <strong>5–7 working days</strong>. Your bank may take a few more days to show it.
+            Approved refunds go back to the original card, UPI or account through Dodo Payments within <strong>5–7 working days</strong>. Your bank may take a few more days to show it.
           </li>
-          <li>Refunds are made in US dollars, the currency you paid in. If your bank converted the payment, the amount you see in your own currency may differ because of exchange rates.</li>
+          <li>Refunds are made in the currency you paid in (for example rupees for a UPI payment in India, US dollars for a dollar card payment). If your bank converted the payment, the amount you see in your own currency may differ because of exchange rates.</li>
         </ul>
       </Section>
 

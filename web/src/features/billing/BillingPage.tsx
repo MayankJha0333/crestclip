@@ -1,12 +1,12 @@
-import { Link } from 'react-router-dom';
-import { useCallback, useEffect, useState } from 'react';
-import { CalendarClock, Coins, Gift, History, Receipt, RotateCcw, ShoppingBag, Sparkles } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { CalendarClock, Coins, CreditCard, Gift, History, Receipt, RotateCcw, ShoppingBag, Sparkles } from 'lucide-react';
 import { api, type BillingAccount, type CreditEvent, type Payment, type Plan, type PlanId, type PlansInfo } from '../../lib/api';
 import { cn } from '../../lib/cn';
 import { toast } from '../../lib/toast';
 import { Badge, Button, Card, CardHeader, ConfirmDialog, PageHeader, Skeleton } from '../../components/ui';
 import { useAuth } from '../auth/auth';
-import { CheckoutClosed, openCheckout } from './checkout';
+import { checkoutReturn, goToCheckout } from './checkout';
 import { money, shortDate } from './money';
 import { PlanCards } from './PlanCards';
 import { track } from '../../lib/analytics';
@@ -19,7 +19,7 @@ export function BillingPage() {
   const { me, refresh } = useAuth();
   const [info, setInfo] = useState<PlansInfo | null>(null);
   const [data, setData] = useState<(BillingAccount & { history: CreditEvent[]; payments: Payment[] }) | null>(null);
-  const [busy, setBusy] = useState<PlanId | 'topup' | 'cancel' | null>(null);
+  const [busy, setBusy] = useState<PlanId | 'topup' | 'cancel' | 'resume' | 'portal' | 'return' | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
 
   const load = useCallback(async () => {
@@ -31,15 +31,19 @@ export function BillingPage() {
     load().catch((e) => toast((e as Error).message, 'error'));
   }, [load]);
 
+  // Back-button from the checkout page restores this page from the browser's cache: un-stick the busy button.
+  useEffect(() => {
+    const onShow = (e: PageTransitionEvent) => e.persisted && setBusy(null);
+    window.addEventListener('pageshow', onShow);
+    return () => window.removeEventListener('pageshow', onShow);
+  }, []);
+
   const after = async (msg: string) => {
     await Promise.all([load(), refresh()]);
     toast(msg);
   };
 
-  /**
-   * After the payment window: ask the server (which asks Razorpay) a few times whether the plan switched — a UPI
-   * Autopay payment can take a little while, and a window closed early never reports back by itself.
-   */
+  /** Ask the server a few times whether the plan switched (an upgrade's payment can take a moment). */
   const waitForPlan = async (plan: Plan, tries: number) => {
     for (let i = 0; i < tries; i++) {
       const b = await api.billing().catch(() => null);
@@ -53,36 +57,68 @@ export function BillingPage() {
     return false;
   };
 
+  /**
+   * Back from Dodo's checkout page (?checkout=plan|topup&subscription_id=…&payment_id=…&status=…): the server checks
+   * the payment with Dodo and applies it. A UPI payment can still be "processing" — then it's asked again a few times
+   * (the webhook finishes it anyway).
+   */
+  const location = useLocation();
+  const navigate = useNavigate();
+  const handled = useRef(false);
+  useEffect(() => {
+    const ret = checkoutReturn(location.search);
+    if (!ret || handled.current) return;
+    handled.current = true;
+    navigate('/app/billing', { replace: true }); // a reload shouldn't apply it twice
+    if (['failed', 'cancelled', 'canceled', 'expired'].includes(ret.status)) {
+      track('checkout_failed', { kind: ret.kind, status: ret.status });
+      toast('The payment didn’t go through, so nothing was charged. You can try again with another card or UPI app.', 'error');
+      return;
+    }
+    if (!ret.subscriptionId && !ret.paymentId) return;
+    setBusy('return');
+    (async () => {
+      try {
+        for (let i = 0; i < 8; i++) {
+          const res = await api.confirmCheckout({ subscriptionId: ret.subscriptionId, paymentId: ret.paymentId });
+          if (!res.pending) {
+            track('purchase', { kind: ret.kind === 'plan' ? 'subscription' : 'topup', plan: ret.kind === 'plan' ? res.plan.id : 'topup', transaction_id: ret.paymentId ?? ret.subscriptionId });
+            await after(ret.kind === 'plan' ? `You’re on ${res.plan.name} — ${res.plan.clips.toLocaleString()} clips a month` : 'Credits added — thank you!');
+            return;
+          }
+          if (i === 0) toast('Payment received — finishing up…');
+          await new Promise((r) => setTimeout(r, 4000));
+        }
+        await Promise.all([load(), refresh()]);
+        toast('Your payment is still being confirmed (UPI can take a few minutes). It’s added automatically — reopen this page in a bit.', 'error');
+      } catch (e) {
+        toast((e as Error).message, 'error');
+      } finally {
+        setBusy(null);
+      }
+    })();
+  }, [location.search, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const subscribe = async (plan: Plan) => {
     if (!me) return;
     setBusy(plan.id);
-    const sale = { currency: 'USD', value: plan.price, plan: plan.id };
     try {
       const start = await api.subscribe(plan.id);
-      track('begin_checkout', sale);
-      if (!('subscriptionId' in start)) throw new Error('Unexpected checkout');
-      let r;
-      try {
-        r = await openCheckout(start, me.user);
-      } catch (e) {
-        // closed early — maybe after paying (UPI): check before giving up
-        if (e instanceof CheckoutClosed) {
-          track('checkout_closed', { plan: plan.id });
-          await waitForPlan(plan, 2);
-          return;
-        }
-        throw e;
+      if ('url' in start) {
+        track('begin_checkout', { currency: 'USD', value: plan.price, plan: plan.id });
+        goToCheckout(start.url); // keeps "busy" while the page changes
+        return;
       }
-      const res = await api
-        .confirmSubscription({ paymentId: r.razorpay_payment_id, subscriptionId: r.razorpay_subscription_id ?? start.subscriptionId, signature: r.razorpay_signature })
-        .catch(() => null);
-      track('purchase', { ...sale, transaction_id: r.razorpay_payment_id, kind: 'subscription' });
-      if (res && !res.pending) return void (await after(`You’re on ${plan.name} — ${plan.clips.toLocaleString()} clips a month`));
-      toast('Payment received — switching your plan…');
-      if (!(await waitForPlan(plan, 12))) toast(`Your payment went through, but ${plan.name} isn’t active yet. It switches automatically within a few minutes — reopen this page to check.`, 'error');
+      // an upgrade on the existing subscription (only the difference for this month is charged)
+      track('purchase', { currency: 'USD', plan: plan.id, kind: 'upgrade' });
+      if (!start.pending) await after(`You’re on ${plan.name} — ${plan.clips.toLocaleString()} clips a month`);
+      else {
+        toast(`Switching you to ${plan.name}…`);
+        if (!(await waitForPlan(plan, 8))) toast(`The upgrade is waiting for the payment to go through. ${plan.name} switches on by itself once it does — reopen this page to check.`, 'error');
+      }
+      setBusy(null);
     } catch (e) {
       toast((e as Error).message, 'error');
-    } finally {
       setBusy(null);
     }
   };
@@ -92,15 +128,11 @@ export function BillingPage() {
     setBusy('topup');
     try {
       const start = await api.buyTopup();
-      if (!('orderId' in start)) throw new Error('Unexpected checkout');
+      if (!('url' in start)) throw new Error('Unexpected checkout');
       track('begin_checkout', { currency: 'USD', value: info.topup.price, plan: 'topup' });
-      const r = await openCheckout(start, me.user);
-      await api.confirmTopup({ orderId: r.razorpay_order_id ?? start.orderId, paymentId: r.razorpay_payment_id, signature: r.razorpay_signature });
-      track('purchase', { currency: 'USD', value: info.topup.price, plan: 'topup', transaction_id: r.razorpay_payment_id, kind: 'topup' });
-      await after(`${info.topup.credits} credits added`);
+      goToCheckout(start.url);
     } catch (e) {
-      if (!(e instanceof CheckoutClosed)) toast((e as Error).message, 'error');
-    } finally {
+      toast((e as Error).message, 'error');
       setBusy(null);
     }
   };
@@ -115,6 +147,31 @@ export function BillingPage() {
     } catch (e) {
       toast((e as Error).message, 'error');
     } finally {
+      setBusy(null);
+    }
+  };
+
+  const resume = async () => {
+    setBusy('resume');
+    try {
+      await api.resumePlan();
+      track('resume_plan', { plan: me?.account.plan.id });
+      await after('Your plan will keep renewing.');
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** Dodo's customer portal: change card / UPI, download invoices. */
+  const manage = async () => {
+    setBusy('portal');
+    try {
+      const { url } = await api.billingPortal();
+      window.location.assign(url);
+    } catch (e) {
+      toast((e as Error).message, 'error');
       setBusy(null);
     }
   };
@@ -147,9 +204,23 @@ export function BillingPage() {
 
       {noPay && (
         <p className="mb-6 rounded-[22px] bg-warn-bg px-5 py-4 text-sm font-semibold text-warn-ink">
-          Payments aren’t set up on this server yet, so upgrades and top-ups are off. (Owner: add your Razorpay keys to .env — see README → “Plans, credits & payments”.)
+          Payments aren’t set up on this server yet, so upgrades and top-ups are off. (Owner: add the Dodo Payments settings — see README → “Plans, credits & payments”.)
         </p>
       )}
+      {data.testMode && (
+        <p className="mb-6 rounded-[22px] bg-warn-bg px-5 py-4 text-sm font-semibold text-warn-ink">
+          Test mode: checkouts take test cards only (4242 4242 4242 4242, any future date, any CVV) or UPI <code>success@upi</code>. No real money moves.
+        </p>
+      )}
+      {data.paymentProblem && (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-[22px] bg-warn-bg px-5 py-4 text-sm font-semibold text-warn-ink">
+          <span>Your last renewal payment didn’t go through. Update your card or UPI within a few days to keep {plan.name} — your credits stay either way.</span>
+          <Button size="sm" onClick={manage} loading={busy === 'portal'}>
+            Update payment
+          </Button>
+        </div>
+      )}
+      {busy === 'return' && <p className="mb-6 rounded-[22px] bg-sunken px-5 py-4 text-sm font-semibold text-ink-2">Checking your payment…</p>}
 
       <div className="grid gap-5 lg:grid-cols-3">
         {/* plan */}
@@ -157,7 +228,7 @@ export function BillingPage() {
           <span className="text-xs font-extrabold tracking-wider text-ink-3 uppercase">Your plan</span>
           <span className="mt-1 flex items-center gap-2">
             <b className="font-display text-3xl">{plan.name}</b>
-            {data.cancelAtPeriodEnd ? <Badge tone="warn">Ending</Badge> : paid ? <Badge tone="good">Active</Badge> : null}
+            {data.paymentProblem ? <Badge tone="warn">Payment failed</Badge> : data.cancelAtPeriodEnd ? <Badge tone="warn">Ending</Badge> : paid ? <Badge tone="good">Active</Badge> : null}
           </span>
           <span className="text-sm text-ink-3">{paid ? `${money(plan.price)} / month` : 'Free forever'}</span>
           <p className="mt-4 flex items-center gap-2 text-sm text-ink-2">
@@ -168,9 +239,13 @@ export function BillingPage() {
                 : `${paid && data.hasSubscription ? 'Renews' : 'New credits'} on ${shortDate(data.cycleEnd)}`
               : '—'}
           </p>
-          <div className="mt-auto pt-5">
-            {paid && !data.cancelAtPeriodEnd ? (
-              <Button size="sm" variant="ghost" onClick={() => setConfirmCancel(true)} disabled={noPay && data.hasSubscription}>
+          <div className="mt-auto flex flex-wrap items-center gap-2 pt-5">
+            {paid && data.cancelAtPeriodEnd && data.billedBy === 'dodo' ? (
+              <Button size="sm" onClick={resume} loading={busy === 'resume'} disabled={noPay}>
+                Keep my plan
+              </Button>
+            ) : paid && !data.cancelAtPeriodEnd ? (
+              <Button size="sm" variant="ghost" onClick={() => setConfirmCancel(true)} disabled={noPay && data.billedBy === 'dodo'}>
                 Cancel plan
               </Button>
             ) : !paid ? (
@@ -178,6 +253,11 @@ export function BillingPage() {
                 Compare plans ↓
               </a>
             ) : null}
+            {data.canManageBilling && (
+              <Button size="sm" variant="ghost" onClick={manage} loading={busy === 'portal'}>
+                {busy !== 'portal' && <CreditCard size={15} />} Manage billing
+              </Button>
+            )}
           </div>
         </Card>
 
@@ -223,7 +303,7 @@ export function BillingPage() {
           </span>
           <p className="mt-4 text-sm text-ink-2">Adds to your balance right away — handy when you have a big batch this month. Works on any plan.</p>
           <div className="mt-auto pt-5">
-            <Button variant="primary" onClick={topup} loading={busy === 'topup'} disabled={noPay}>
+            <Button variant="primary" onClick={topup} loading={busy === 'topup'} disabled={noPay || (busy !== null && busy !== 'topup')}>
               {busy !== 'topup' && <ShoppingBag size={16} />} Buy {info.topup.credits} credits
             </Button>
           </div>
@@ -233,7 +313,10 @@ export function BillingPage() {
       {/* plans */}
       <section id="plans" className="mt-12 scroll-mt-6">
         <h2 className="mb-1 text-2xl">Plans</h2>
-        <p className="mb-6 text-ink-2">Monthly credits refill on your renewal date. On paid plans, unused credits carry over one more month.</p>
+        <p className="mb-6 text-ink-2">
+          Monthly credits refill on your renewal date. On paid plans, unused credits carry over one more month.
+          {data.billedBy === 'dodo' && plan.id !== 'pro' && ' Upgrading charges only the difference for the rest of this month and adds the extra credits right away.'}
+        </p>
         <PlanCards
           plans={info.plans}
           current={plan.id}
@@ -253,7 +336,8 @@ export function BillingPage() {
           }
         />
         <p className="mt-4 text-center text-xs text-ink-3">
-          All prices in US dollars (USD). Payments by Razorpay; your bank may add a currency conversion fee. Upgrading starts the new plan today; the credits you already have stay until they expire.
+          Prices in US dollars (USD). In India you pay in rupees (₹) by UPI or card; elsewhere checkout shows your local currency where it can. Taxes such as GST or sales tax are added at checkout where they
+          apply. Payments are handled by Dodo Payments, our merchant of record. The credits you already have stay until they expire.
         </p>
       </section>
 
@@ -308,6 +392,11 @@ export function BillingPage() {
                     <Link to={`/receipt/${encodeURIComponent(p.id)}`} className="text-xs font-bold text-accent">
                       Receipt
                     </Link>
+                    {p.invoiceUrl && (
+                      <a href={p.invoiceUrl} target="_blank" rel="noreferrer" className="text-xs font-bold text-accent">
+                        Invoice
+                      </a>
+                    )}
                   </span>
                 </li>
               ))}

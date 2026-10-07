@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { Logo } from './brand/Logo';
 
 /**
- * The links every public page shows — only the pages Razorpay (international payments: About, Contact, Shipping,
+ * The links every public page shows — only the pages payment providers (Dodo Payments, Razorpay: About, Contact, Shipping,
  * Refunds, Terms, Privacy, plus Pricing) and Google (Privacy) require to be easy to find. The Crayo comparison is
  * still in the sitemap (for Google search); Delete your data is linked from the privacy policy, terms and Settings.
  */

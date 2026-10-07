@@ -40,6 +40,9 @@ const user = (id: string, email: string) => ({
   plan: 'free',
   cycleStart: now - 5 * DAY,
   cycleEnd: now + 25 * DAY, // inside the month, so signing in changes nothing
+  dodoCustomerId: null,
+  dodoSubscriptionId: null,
+  subscriptionStatus: null,
   rzSubscriptionId: null,
   pendingSubscriptionId: null,
   cancelAtPeriodEnd: false,

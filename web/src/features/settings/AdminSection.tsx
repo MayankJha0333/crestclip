@@ -47,7 +47,7 @@ export function AdminSection() {
       <CardHeader
         title="Admin · accounts"
         icon={<ShieldCheck size={18} />}
-        description="Give someone a plan without payment, or add / remove credits. People paying through Razorpay are changed in the Razorpay Dashboard."
+        description="Give someone a plan without payment, or add / remove credits. People with a paid subscription are changed in the Dodo Payments dashboard (or Razorpay, for old subscriptions)."
       />
       {!list ? (
         <p className="text-ink-3">Loading…</p>

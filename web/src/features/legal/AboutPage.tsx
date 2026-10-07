@@ -24,7 +24,7 @@ export function AboutPage() {
       <Section title="Who runs CrestClip">
         <p>
           {b.name} is run by <strong>{b.owner}</strong>
-          {b.site?.address ? `, based in ${b.site.address}` : ''}. We build and operate the product, take payments through Razorpay and run the AI on Google Cloud.
+          {b.site?.address ? `, based in ${b.site.address}` : ''}. We build and operate the product, take payments through Dodo Payments (our merchant of record) and run the AI on Google Cloud.
         </p>
       </Section>
 

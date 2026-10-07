@@ -26,7 +26,7 @@ export function PrivacyPage() {
             <strong>Account:</strong> your Google name, email and profile picture (you sign in with Google). Older accounts made with an email may also have a scrambled (hashed) password.
           </li>
           <li>
-            <strong>Payments:</strong> your plan, amounts, dates and payment IDs. Card and bank details go straight to Razorpay; we never see or store them.
+            <strong>Payments:</strong> your plan, amounts, dates and payment IDs. Card, UPI and bank details go straight to Dodo Payments; we never see or store them.
           </li>
           <li>
             <strong>Your content:</strong> the video links and files you add, their transcripts, the clips and edits you make, and any logo or music you upload.
@@ -69,7 +69,7 @@ export function PrivacyPage() {
             <strong>Google Cloud</strong> — hosting, file storage and AI processing.
           </li>
           <li>
-            <strong>Razorpay</strong> — payments and subscriptions.
+            <strong>Dodo Payments</strong> — payments, subscriptions, tax and invoices (merchant of record).
           </li>
           <li>
             <strong>Google Analytics and Microsoft Clarity</strong> — visit statistics, recordings and heatmaps, only if you accept analytics cookies. You can change your mind any time by clearing

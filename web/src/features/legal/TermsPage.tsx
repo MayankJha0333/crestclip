@@ -67,14 +67,14 @@ export function TermsPage() {
       <Section title="7. Plans, prices and payments">
         <ul>
           <li>
-            <strong>All prices are in US dollars (USD)</strong> and are shown on the Pricing page and at checkout. Taxes may apply. If your card or bank uses another currency, your bank converts the
-            amount and may add its own fee.
+            <strong>Prices are set in US dollars (USD)</strong> and shown on the Pricing page. Checkout shows the final amount: in India it is charged in rupees (₹), elsewhere in your local
+            currency where available, otherwise in US dollars. Taxes such as GST or sales tax are added where they apply. If your bank converts the amount, it may add its own fee.
           </li>
           <li>
             <strong>Free plan:</strong> a monthly amount of credits with lower limits. No card needed.
           </li>
           <li>
-            <strong>Paid plans</strong> are monthly subscriptions, charged in advance through our payment partner Razorpay. They <strong>renew automatically every month</strong> until you cancel.
+            <strong>Paid plans</strong> are monthly subscriptions, charged in advance through Dodo Payments, our online reseller and merchant of record. They <strong>renew automatically every month</strong> until you cancel.
           </li>
           <li>If we change prices, we’ll tell you before your next renewal, and you can cancel before the new price applies.</li>
         </ul>
@@ -118,7 +118,7 @@ export function TermsPage() {
 
       <Section title="12. Services we rely on">
         <p>
-          {b.name} uses Google Cloud (hosting, storage and AI), Razorpay (payments), YouTube and Instagram. Their own terms apply to what they do, and we can’t control when they’re unavailable.
+          {b.name} uses Google Cloud (hosting, storage and AI), Dodo Payments (payments), YouTube and Instagram. Their own terms apply to what they do, and we can’t control when they’re unavailable.
         </p>
       </Section>
 

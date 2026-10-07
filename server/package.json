@@ -9,7 +9,8 @@
     "doctor": "tsx src/scripts/doctor.ts",
     "setup-tools": "tsx src/scripts/setup-tools.ts",
     "set-password": "tsx src/scripts/set-password.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:billing": "tsx test/billing.dodo.test.ts"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.14.0",

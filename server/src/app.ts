@@ -21,7 +21,7 @@ import { systemRouter } from './modules/system/system.routes.js';
 import { watermarkRouter } from './modules/watermark/watermark.routes.js';
 
 /** API routes anyone can call (everything else needs a signed-in person). */
-const PUBLIC_API = [/^\/auth\//, /^\/billing\/(plans|webhook)$/, /^\/connect\/[a-z]+\/callback$/, /^\/site$/, /^\/live$/, /^\/explore\/public-peek$/];
+const PUBLIC_API = [/^\/auth\//, /^\/billing\/(plans|webhook|dodo\/webhook)$/, /^\/connect\/[a-z]+\/callback$/, /^\/site$/, /^\/live$/, /^\/explore\/public-peek$/];
 
 /**
  * Files under /media: only the owner's projects, watermark and music (plus shared mood tracks, emoji and the
@@ -57,7 +57,7 @@ function fromCloud(req: Request, _res: Response, next: NextFunction) {
 export function createApp() {
   const app = express();
   app.set('trust proxy', 'loopback'); // real client IPs behind a local reverse proxy (rate limits)
-  // keep the raw bytes too: Razorpay webhooks are signed over the exact body
+  // keep the raw bytes too: payment webhooks (Dodo, Razorpay) are signed over the exact body
   app.use(express.json({ limit: '2mb', verify: (req, _res, buf) => ((req as Request).rawBody = Buffer.from(buf)) }));
   // The admin pages (/admin: jobs, live logs, costs — devops/dashboard) sit behind Caddy, which first asks this:
   // 204 for a signed-in CrestClip admin, 401 for anyone else. One log-in for the app and the admin pages.

@@ -36,7 +36,7 @@ interface CreditEventRow {
   createdAt: number;
 }
 interface PaymentRow {
-  /** Razorpay payment id */
+  /** the payment id at the provider (Dodo pay_…, or Razorpay pay_… from before the move) */
   id: string;
   userId: string;
   kind: 'subscription' | 'topup';
@@ -46,6 +46,10 @@ interface PaymentRow {
   currency: string | null;
   /** order / subscription id */
   ref: string | null;
+  /** who took the payment (missing on old Razorpay payments) */
+  provider?: 'dodo' | 'razorpay';
+  /** the tax invoice (Dodo) */
+  invoiceUrl?: string | null;
   createdAt: number;
 }
 
@@ -110,6 +114,10 @@ export const credits = {
         .sort({ expiresAt: 1, createdAt: 1 })
         .toArray()
     ).map((d) => fromDoc<GrantRow>(d));
+  },
+  /** Was a grant with this `ref` ever made? */
+  async hasRef(ref: string): Promise<boolean> {
+    return Boolean(await grantCol().findOne({ ref }, { projection: { _id: 1 } }));
   },
   /** Add credits. With a `ref` that was used before, nothing happens (returns false). */
   async grant(userId: string, g: { amount: number; source: GrantSource; expiresAt: number; ref?: string; note: string; kind?: CreditEventRow['kind'] }): Promise<boolean> {
@@ -227,13 +235,42 @@ export const credits = {
 };
 
 export const payments = {
-  /** Record a payment once (the same Razorpay payment id is ignored the second time). */
-  async record(p: { id: string; userId: string; kind: PaymentRow['kind']; plan?: string | null; amount?: number | null; currency?: string | null; ref?: string | null }) {
-    await paymentCol().updateOne(
-      { _id: p.id },
-      { $setOnInsert: { userId: p.userId, kind: p.kind, plan: p.plan ?? null, amount: p.amount ?? null, currency: p.currency ?? null, ref: p.ref ?? null, createdAt: stamp() } },
-      { upsert: true },
-    );
+  /** Record a payment once (the same payment id is ignored the second time; a missing invoice link is filled in). */
+  async record(p: {
+    id: string;
+    userId: string;
+    kind: PaymentRow['kind'];
+    plan?: string | null;
+    amount?: number | null;
+    currency?: string | null;
+    ref?: string | null;
+    provider?: PaymentRow['provider'];
+    invoiceUrl?: string | null;
+    /** when it was paid (default: now) */
+    at?: number | null;
+  }) {
+    // the same payment can be reported twice at once (the return from checkout and a webhook): the second is a no-op
+    await paymentCol()
+      .updateOne(
+        { _id: p.id },
+        {
+          $setOnInsert: {
+            userId: p.userId,
+            kind: p.kind,
+            plan: p.plan ?? null,
+            amount: p.amount ?? null,
+            currency: p.currency ?? null,
+            ref: p.ref ?? null,
+            provider: p.provider ?? 'razorpay',
+            createdAt: p.at ?? stamp(),
+          },
+        },
+        { upsert: true },
+      )
+      .catch((e) => {
+        if (!isDuplicate(e)) throw e;
+      });
+    if (p.invoiceUrl) await paymentCol().updateOne({ _id: p.id, invoiceUrl: null }, { $set: { invoiceUrl: p.invoiceUrl } });
   },
   /** One payment, only if it belongs to this user. */
   async get(userId: string, id: string): Promise<Omit<PaymentRow, 'userId' | 'ref'> | null> {

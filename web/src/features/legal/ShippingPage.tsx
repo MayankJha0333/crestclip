@@ -21,7 +21,7 @@ export function ShippingPage() {
       </Section>
 
       <Section title="No shipping charges">
-        <p>There are no physical products, no shipping and no delivery charges. You only pay the price in US dollars shown at checkout, plus taxes where they apply.</p>
+        <p>There are no physical products, no shipping and no delivery charges. You only pay the price shown at checkout (in rupees in India, otherwise your local currency or US dollars), plus taxes where they apply.</p>
       </Section>
 
       <Section title="If something didn’t arrive">

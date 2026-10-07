@@ -14,7 +14,7 @@ export function ContactPage() {
         <ul>
           <li>Write from the email you use for your CrestClip account.</li>
           <li>
-            For a payment, include the <strong>payment ID</strong> — it starts with <code>pay_</code> and is on your Razorpay receipt and on the Plan & credits page.
+            For a payment, include the <strong>payment ID</strong> — it starts with <code>pay_</code> and is on your payment email from Dodo Payments and on the Plan & credits page.
           </li>
           <li>For a clip or project, include its link from your browser’s address bar.</li>
         </ul>

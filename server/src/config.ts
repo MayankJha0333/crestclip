@@ -95,7 +95,18 @@ export const config = {
   googleLoginClientId: env('GOOGLE_LOGIN_CLIENT_ID') || env('YOUTUBE_CLIENT_ID'),
   googleLoginClientSecret: env('GOOGLE_LOGIN_CLIENT_ID') ? env('GOOGLE_LOGIN_CLIENT_SECRET') : env('YOUTUBE_CLIENT_SECRET'),
 
-  // Payments (Razorpay) — see README → "Plans, credits & payments"
+  // Payments (Dodo Payments) — see README → "Plans, credits & payments"
+  /** 'test' (no real money, test.dodopayments.com) or 'live' */
+  dodoMode: (env('DODO_MODE', 'test') === 'live' ? 'live' : 'test') as 'test' | 'live',
+  dodoApiKey: env('DODO_API_KEY'),
+  /** testing only: talk to a stand-in Dodo API instead (the test suite's mock) */
+  dodoApiUrl: env('DODO_API_URL'),
+  dodoWebhookSecret: env('DODO_WEBHOOK_SECRET'),
+  /** the Dodo products behind each paid plan and the top-up (ids start with pdt_; each mode has its own) */
+  dodoProductCreator: env('DODO_PRODUCT_CREATOR'),
+  dodoProductPro: env('DODO_PRODUCT_PRO'),
+  dodoProductTopup: env('DODO_PRODUCT_TOPUP'),
+  // Razorpay — only for people who subscribed before the move to Dodo (their renewals and cancellations)
   razorpayKeyId: env('RAZORPAY_KEY_ID'),
   razorpayKeySecret: env('RAZORPAY_KEY_SECRET'),
   razorpayWebhookSecret: env('RAZORPAY_WEBHOOK_SECRET'),
@@ -125,7 +136,7 @@ export const config = {
   cloudClips: env('CLOUD_CLIPS', 'true') !== 'false',
   /** projects (video, clips, files — here and in the bucket) are deleted this many days after they're made */
   retentionDays: num('RETENTION_DAYS', 7),
-  /** who runs CrestClip — shown on the About, Contact, Terms, Privacy and Refund pages (Razorpay checks these) */
+  /** who runs CrestClip — shown on the About, Contact, Terms, Privacy and Refund pages (payment providers check these) */
   business: {
     name: env('BUSINESS_NAME', 'CrestClip'),
     legalName: env('BUSINESS_LEGAL_NAME'),

@@ -493,6 +493,14 @@ export interface BillingAccount {
   cycleEnd: number | null;
   cancelAtPeriodEnd: boolean;
   hasSubscription: boolean;
+  /** who bills the plan: Dodo Payments, or Razorpay for people who subscribed before the move */
+  billedBy: 'dodo' | 'razorpay' | null;
+  /** a renewal payment failed — the plan stays a few days while the card / UPI is updated */
+  paymentProblem: boolean;
+  /** Dodo's customer portal is available (payment method, invoices) */
+  canManageBilling: boolean;
+  /** payments run in Dodo test mode (test cards only, no real money) */
+  testMode: boolean;
   credits: { perClip: number; balance: number; monthly: number; usedThisMonth: number; grants: { source: 'plan' | 'topup' | 'bonus' | 'refund'; remaining: number; expiresAt: number }[] };
   paymentsReady: boolean;
 }
@@ -515,6 +523,10 @@ export interface Payment {
   plan: string | null;
   amount: number | null;
   currency: string | null;
+  /** who took the payment (old payments: Razorpay) */
+  provider?: 'dodo' | 'razorpay';
+  /** the official tax invoice (Dodo Payments) */
+  invoiceUrl?: string | null;
   createdAt: number;
 }
 /** Everything a printable receipt shows. */
@@ -523,6 +535,7 @@ export interface Receipt {
   item: string;
   customer: { name: string | null; email: string };
   seller: SiteInfo;
+  provider: 'dodo' | 'razorpay';
 }
 export interface AdminUser {
   id: string;
@@ -534,8 +547,8 @@ export interface AdminUser {
   balance: number;
   createdAt: number;
 }
-/** What the browser needs to open Razorpay Checkout. */
-export type CheckoutStart = { key: string; subscriptionId: string; plan: PlanId; description: string } | { key: string; orderId: string; amount: number; currency: string; description: string };
+/** Starting a payment: open Dodo's checkout page (`url`), or it was done on the existing subscription (`changed`). */
+export type CheckoutStart = { url: string } | { changed: true; pending: boolean };
 
 /** Who runs CrestClip, for the About / Contact / policy pages. */
 export interface SiteInfo {

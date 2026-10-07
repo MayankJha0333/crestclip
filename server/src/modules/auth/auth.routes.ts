@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { config } from '../../config.js';
 import { users } from '../../db/index.js';
 import { asyncHandler, validate } from '../../lib/http.js';
-import { accountSummary, reconcileSubscriptions, refreshAccount } from '../billing/billing.service.js';
+import { accountSummary, refreshAccount } from '../billing/billing.service.js';
 import { clearSessionCookie, me, requireUser, setSessionCookie } from './auth.middleware.js';
 import * as service from './auth.service.js';
 import { deleteAccount } from './account-deletion.js';
@@ -52,9 +52,7 @@ authRouter.get(
   '/auth/me',
   asyncHandler(async (req, res) => {
     if (!req.user) return res.json({ user: null, account: null });
-    // right after Checkout, a plan whose payment hasn't been confirmed yet is checked with Razorpay
-    const signedIn = me(req);
-    const user = await refreshAccount(signedIn.pendingSubscriptionId ? await reconcileSubscriptions(signedIn) : signedIn);
+    const user = await refreshAccount(me(req));
     res.json({
       user: { id: user.id, email: user.email, name: user.name, avatar: user.avatar, isAdmin: user.isAdmin, hasPassword: Boolean(user.passwordHash), google: Boolean(user.googleSub) },
       account: await accountSummary(user),

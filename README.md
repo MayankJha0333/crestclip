@@ -216,32 +216,42 @@ Everyone signs up with **Continue with Google** (there's no email + password sig
 | Creator | $15   | 400 (80 clips)          | videos up to 2 h · 15 per project · 1080p · your own logo · scheduling · unused credits roll over 1 month |
 | Pro     | $29   | 1,000 (200 clips)       | videos up to 3 h · everything in Creator · Autopilot                                                      |
 
-**Top-up:** 100 credits for $5, on any plan, usable for 12 months. Credits are used soonest-to-expire first. **Currency:** every price and every payment is in **US dollars (USD)** — one currency for everyone, so international customers pay exactly what they see (their bank converts if their card is in another currency). To change prices or limits, edit `PLANS` / `TOPUP` in `server/src/modules/billing/plans.ts`, then create Razorpay plans with the same amounts.
+**Top-up:** 100 credits for $5, on any plan, usable for 12 months. Credits are used soonest-to-expire first. **Currency:** prices are set in **US dollars (USD)**. Dodo Payments' Adaptive Currency shows buyers in India the price in **rupees (₹)** (with UPI), and other countries their local currency where it can; tax (GST, sales tax…) is added at checkout. To change prices or limits, edit `PLANS` / `TOPUP` in `server/src/modules/billing/plans.ts`, then change the matching products in the Dodo dashboard to the same amounts.
 
 ### Company and policy pages
 
-`/about`, `/contact`, `/terms`, `/privacy`, `/refunds` and `/shipping` are linked in the footer of every public page; `/data-deletion` (how to delete your data — Meta asks for it) is linked from the privacy policy, the terms and Settings. No phone number is shown anywhere. Razorpay needs them on your live website before it allows live payments and international cards, and Google needs the Privacy page for the YouTube connection. Your business details on them come from `.env`: `BUSINESS_NAME`, `BUSINESS_LEGAL_NAME`, `SUPPORT_EMAIL`, `BUSINESS_ADDRESS`, `BUSINESS_JURISDICTION`, `SUPPORT_HOURS`, `GRIEVANCE_OFFICER` — use the same details as in your Razorpay account. Numbers like the storage time and credits per clip come from the app's settings, so the pages always match how CrestClip works. Each page has its own file in `web/src/features/legal/` (shared layout in `LegalLayout.tsx`); it's a solid starting point, not legal advice.
+`/about`, `/contact`, `/terms`, `/privacy`, `/refunds` and `/shipping` are linked in the footer of every public page; `/data-deletion` (how to delete your data — Meta asks for it) is linked from the privacy policy, the terms and Settings. No phone number is shown anywhere. Payment providers (Dodo Payments) check them on your live website before allowing live payments, and Google needs the Privacy page for the YouTube connection. Your business details on them come from `.env`: `BUSINESS_NAME`, `BUSINESS_LEGAL_NAME`, `SUPPORT_EMAIL`, `BUSINESS_ADDRESS`, `BUSINESS_JURISDICTION`, `SUPPORT_HOURS`, `GRIEVANCE_OFFICER` — use the same details as in your Dodo Payments account. Numbers like the storage time and credits per clip come from the app's settings, so the pages always match how CrestClip works. Each page has its own file in `web/src/features/legal/` (shared layout in `LegalLayout.tsx`); it's a solid starting point, not legal advice.
 
-### Taking payments with Razorpay
+### Taking payments with Dodo Payments
 
-1. **API keys:** Razorpay Dashboard → API Keys → copy the Key Id and Secret into `.env` (`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`). Start with **Test Mode** keys.
-2. **Dollar payments:** Dashboard → Payment Methods → _International Payments_ → Request (Razorpay asks for your live website with these policy pages; approval takes up to 5 working days). CrestClip charges only in USD, so upgrades and top-ups stay off until this is approved.
-3. **Plans:** Dashboard → Subscriptions → Plans → create two **monthly USD** plans: Creator **$15** → `RAZORPAY_PLAN_CREATOR`, Pro **$29** → `RAZORPAY_PLAN_PRO`. CrestClip checks each plan before checkout and shows a clear message if its currency, amount or period doesn't match `plans.ts`.
-4. **Webhook** (renewals, and payments made after someone closes the tab): Dashboard → Webhooks → URL `<PUBLIC_URL>/api/billing/webhook`, pick a secret and put it in `RAZORPAY_WEBHOOK_SECRET`. Turn on these events:
-   - `subscription.activated`, `subscription.charged`, `subscription.cancelled`, `subscription.halted`, `subscription.completed`
-   - `payment.captured`
+[Dodo Payments](https://dodopayments.com) is the **merchant of record**: it runs the checkout page, charges cards, UPI and wallets, adds the right tax (GST in India, sales tax in the US…), emails the invoice and runs the monthly renewals. CrestClip never sees card or UPI details.
 
-   Locally (no public URL), renewals are still picked up: CrestClip checks the subscription with Razorpay when a month runs out.
+1. **Test mode first.** Dodo dashboard → switch to **Test Mode** (bottom left). Everything below is per mode: test and live each have their own keys, products and webhook.
+2. **API key:** Developer → API Keys → Add API key (write access) → `DODO_API_KEY`. Set `DODO_MODE=test` (or `live`).
+3. **Products:** Products → create **Creator** ($15, subscription, every 1 month), **Pro** ($29, subscription, every 1 month) and **Top-up** ($5, single payment, "100 credits"). Tax category: SaaS. Put their ids (`pdt_…`) in `DODO_PRODUCT_CREATOR`, `DODO_PRODUCT_PRO`, `DODO_PRODUCT_TOPUP`.
+4. **India:** Settings → Pricing → **Adaptive Currency** on (buyers in India see ₹ and can pay by UPI). Settings → Payment Methods → UPI enabled.
+5. **Webhook** (renewals, failed renewals, cancellations, payments finished after someone closed the tab): Developer → Webhooks → Add endpoint `<PUBLIC_URL>/api/billing/dodo/webhook` (all events) → copy the **Signing secret** (`whsec_…`) into `DODO_WEBHOOK_SECRET`.
+   Locally (no public URL) everything still works without it: the Plan page checks with Dodo when someone comes back from checkout, opens the page, or their month runs out.
+6. Restart CrestClip. **Plan & credits** now shows working Upgrade and Buy credits buttons (and a "test mode" note while `DODO_MODE=test`).
 
-5. Restart CrestClip. **Plan & credits** in the app now shows working Upgrade and Buy credits buttons.
+**Testing:** card `4242 4242 4242 4242`, any future date, CVV `123` (India: `4576 2389 1277 1450`); declined: `4000 0000 0000 0002`; UPI: `success@upi` / `failure@upi`. A renewal can be tried by moving the subscription's next billing date in the Dodo dashboard.
 
-Without Razorpay keys, everything else works (credits, limits, monthly refills). Upgrades are off, and an admin can give plans and credits by hand in **Settings → Admin**.
+**How it behaves**
 
-**Cancelling** keeps the plan until the paid month ends, then moves to Free. Credits already bought stay until they expire. Failed renewals (Razorpay "halted") move the account to Free.
+- **Subscribe:** CrestClip opens Dodo's checkout page → the person pays → comes back to Plan & credits → the plan and its credits switch on (also by webhook if the tab was closed).
+- **Upgrade Creator → Pro:** the same subscription moves to Pro; Dodo charges only the difference for the rest of the month to the saved card / UPI mandate, and the extra 600 credits are added at once.
+- **Renewal:** each paid month adds the plan's credits once (unused paid credits roll over one month). UPI renewals in India can arrive up to ~2 days late; the plan stays meanwhile.
+- **Failed renewal** (Dodo "on hold"): the plan stays for 7 days while the person updates their card or UPI (**Manage billing** opens Dodo's customer portal), then it moves to Free.
+- **Cancel:** the plan stays until the paid month ends, then moves to Free; **Keep my plan** undoes it. Credits already bought stay until they expire.
+- **Refunds** are made in the Dodo dashboard; credits aren't taken back automatically (Settings → Admin can remove them).
+
+**Old Razorpay subscribers:** people who subscribed before the move keep renewing through Razorpay until they cancel or upgrade (an upgrade moves them to Dodo and cancels the Razorpay subscription). Keep the `RAZORPAY_*` settings until nobody pays through Razorpay any more.
+
+Without the Dodo settings everything else works (credits, limits, monthly refills). Upgrades are off, and an admin can give plans and credits by hand in **Settings → Admin**.
 
 ## API (for automation)
 
-Every call needs a signed-in session (the `cc_session` cookie from `POST /api/auth/login`). Public: `/api/auth/*`, `/api/billing/plans`, `/api/billing/webhook`.
+Every call needs a signed-in session (the `cc_session` cookie from `POST /api/auth/login`). Public: `/api/auth/*`, `/api/billing/plans`, `/api/billing/dodo/webhook`, `/api/billing/webhook` (old Razorpay).
 
 ```
 POST   /api/auth/signup | /api/auth/login | /api/auth/logout

@@ -73,10 +73,13 @@ export const api = {
   site: () => req<SiteInfo>('/api/site'),
   billing: () => req<BillingAccount & { history: CreditEvent[]; payments: Payment[] }>('/api/billing/account'),
   subscribe: (plan: PlanId) => req<CheckoutStart>('/api/billing/subscribe', json('POST', { plan })),
-  confirmSubscription: (body: { paymentId: string; subscriptionId: string; signature: string }) => req<BillingAccount & { pending?: boolean }>('/api/billing/subscribe/confirm', json('POST', body)),
   buyTopup: () => req<CheckoutStart>('/api/billing/topup', { method: 'POST' }),
-  confirmTopup: (body: { orderId: string; paymentId: string; signature: string }) => req<BillingAccount>('/api/billing/topup/confirm', json('POST', body)),
+  /** back from Dodo's checkout page: apply the payment (the server checks it with Dodo) */
+  confirmCheckout: (body: { subscriptionId?: string; paymentId?: string }) => req<BillingAccount & { pending: boolean }>('/api/billing/checkout/confirm', json('POST', body)),
   cancelPlan: () => req<BillingAccount>('/api/billing/cancel', { method: 'POST' }),
+  resumePlan: () => req<BillingAccount>('/api/billing/resume', { method: 'POST' }),
+  /** Dodo's customer portal (payment method, invoices) */
+  billingPortal: () => req<{ url: string }>('/api/billing/portal', { method: 'POST' }),
   receipt: (paymentId: string) => req<Receipt>(`/api/billing/payments/${encodeURIComponent(paymentId)}/receipt`),
   // admin
   adminUsers: () => req<AdminUser[]>('/api/admin/users'),
