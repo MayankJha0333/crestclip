@@ -2,7 +2,7 @@ import { Heart, MessageCircle, Send } from 'lucide-react';
 import type { Watermark, WatermarkPosition } from '../../lib/api';
 import { cn } from '../../lib/cn';
 import { CaptionSample } from '../clip-settings/CaptionPicker';
-import { BOX, SPOT, WatermarkMark } from './WatermarkMark';
+import { WatermarkMark } from './WatermarkMark';
 
 export const POSITIONS: { value: WatermarkPosition; label: string }[] = [
   { value: 'top-left', label: 'Top left' },
@@ -17,11 +17,21 @@ const SCENES = {
 };
 
 /**
- * A phone showing a finished clip with the watermark on it. The four corners are buttons:
- * tap one to move the logo there. `scene` swaps a bright or a dark video behind it, to check the logo reads on both.
+ * Where Shorts, Reels and TikTok draw their own things over a clip (share of the 9:16 frame): the top bar, the
+ * like/comment buttons down the right, and the name + caption at the bottom. A logo there can end up hidden.
  */
-export function WatermarkPhone({ watermark: w, scene, onPosition }: { watermark: Watermark; scene: 'light' | 'dark'; onPosition: (p: WatermarkPosition) => void }) {
-  const hasLogo = Boolean(w.logoUrl);
+const COVERS = [
+  { key: 'top', label: 'App top bar', className: 'inset-x-0 top-0 h-[7%]' },
+  { key: 'right', label: 'Like · comment · share', className: 'right-0 top-[44%] h-[40%] w-[16%]' },
+  { key: 'bottom', label: 'Your name and caption', className: 'inset-x-0 bottom-0 h-[16%]' },
+];
+
+/**
+ * A phone showing a finished clip with the logo on it, exactly where the renderer will put it. With `onMove`, the
+ * logo can be dragged anywhere (or nudged with the arrow keys). `scene` swaps a bright or a dark video behind it, and
+ * `covers` shades the parts the apps draw over.
+ */
+export function WatermarkPhone({ watermark: w, scene, onMove, covers }: { watermark: Watermark; scene: 'light' | 'dark'; onMove?: (x: number, y: number) => void; covers?: boolean }) {
   return (
     <div className="w-full rounded-[30px] bg-surface p-1.5 shadow-clay">
       <div className={cn('relative aspect-[9/16] overflow-hidden rounded-[25px] transition-colors duration-500', SCENES[scene])}>
@@ -46,38 +56,23 @@ export function WatermarkPhone({ watermark: w, scene, onPosition }: { watermark:
           </span>
         </div>
 
-        <WatermarkMark watermark={{ ...w, enabled: true }} />
+        {covers &&
+          COVERS.map((c) => (
+            <div
+              key={c.key}
+              aria-hidden
+              className={cn(
+                'absolute grid place-items-center bg-[repeating-linear-gradient(135deg,rgba(255,255,255,.28)_0_5px,rgba(255,255,255,.08)_5px_10px)] ring-1 ring-white/50 ring-inset',
+                c.className,
+              )}
+            >
+              <span className={cn('rounded-full bg-black/55 px-1.5 py-px text-center text-[8px] leading-tight font-extrabold text-white', c.key === 'right' && '[writing-mode:vertical-rl]')}>
+                {c.label}
+              </span>
+            </div>
+          ))}
 
-        {/* the four corners — tap to move the logo */}
-        <div role="radiogroup" aria-label="Watermark position">
-          {POSITIONS.map((p) => {
-            const on = w.position === p.value;
-            return (
-              <button
-                key={p.value}
-                type="button"
-                role="radio"
-                aria-checked={on}
-                aria-label={p.label}
-                title={on ? undefined : `Move it to the ${p.label.toLowerCase()}`}
-                onClick={() => onPosition(p.value)}
-                className={cn(
-                  'group absolute grid aspect-square place-items-center rounded-lg transition-all duration-300 outline-none focus-visible:ring-3 focus-visible:ring-tangerine',
-                  BOX[w.size],
-                  SPOT[p.value],
-                  on
-                    ? hasLogo
-                      ? 'hover:ring-2 hover:ring-white/70'
-                      : 'border-2 border-white bg-white/25 backdrop-blur-sm'
-                    : 'border-2 border-dashed border-white/55 hover:border-white hover:bg-white/20',
-                )}
-              >
-                {on && !hasLogo && <span className="text-[9px] font-black tracking-wide text-white">LOGO</span>}
-                {!on && <span className="size-1.5 rounded-full bg-white/70 transition-transform group-hover:scale-150" />}
-              </button>
-            );
-          })}
-        </div>
+        <WatermarkMark watermark={{ ...w, enabled: true }} onMove={onMove} />
       </div>
     </div>
   );

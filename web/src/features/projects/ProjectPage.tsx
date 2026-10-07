@@ -14,7 +14,7 @@ import { ProcessingCard } from './ProcessingCard';
 import { ProjectHeader } from './ProjectHeader';
 import { isWorking } from './ProjectCard';
 import { canWatchSource, SourceTab, type SourceTabHandle } from './SourceTab';
-import { useAuth } from '../auth/auth';
+import { useAccount, useAuth } from '../auth/auth';
 
 function BackLink({ to, label }: { to: string; label: string }) {
   return (
@@ -406,13 +406,17 @@ function failureLines(parts: Project[]) {
   return [...by.values()].sort((a, b) => b.count - a.count);
 }
 
-/** "Kept until 9 Oct": projects and their clips are deleted after the storage time. */
+/** "Kept until 9 Oct" among the project facts; it turns into a warning only in the last 2 days. */
 function KeptUntil({ expiresAt }: { expiresAt?: number | null }) {
+  const days = useAccount().plan.storageDays;
   const left = deletesIn(expiresAt);
   if (!left) return null;
   return (
-    <Badge tone={left.soon ? 'warn' : undefined} title={`${left.text}. Projects and their clips are deleted 7 days after they’re made — download or post your clips before then.`}>
-      <Hourglass size={12} /> Kept until {left.until}
+    <Badge
+      tone={left.soon ? 'warn' : undefined}
+      title={`Projects and their clips are kept for ${days ?? 'a set number of'} days on your plan, then deleted — download or post your clips before then.`}
+    >
+      <Hourglass size={12} /> {left.soon ? left.text : `Kept until ${left.until}`}
     </Badge>
   );
 }

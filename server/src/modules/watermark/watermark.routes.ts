@@ -20,7 +20,7 @@ watermarkRouter.get('/watermark', (req, res) => res.json(publicWatermark(me(req)
 
 watermarkRouter.put('/watermark', (req, res) => {
   assertCustomLogo(me(req));
-  service.updateWatermark(me(req).id, validate(updateWatermarkSchema, req.body, 'Those watermark settings aren’t valid.'));
+  service.updateWatermark(me(req).id, validate(updateWatermarkSchema, req.body, 'Those logo settings aren’t valid.'));
   res.json(publicWatermark(me(req)));
 });
 

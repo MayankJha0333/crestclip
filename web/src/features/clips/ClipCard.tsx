@@ -218,8 +218,8 @@ export function ClipCard({
               label: 'Render again',
               icon: <RefreshCw size={15} />,
               disabled: busy || working,
-              title: 'Rebuild this clip with your current watermark',
-              onSelect: () => act(() => api.rerender(clip.id), 'Rendering again with your current watermark…'),
+              title: 'Rebuild this clip with your current logo',
+              onSelect: () => act(() => api.rerender(clip.id), 'Rendering again with your current logo…'),
             },
           ]}
         />

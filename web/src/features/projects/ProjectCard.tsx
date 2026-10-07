@@ -21,13 +21,6 @@ export function ProjectCard({ p, onDelete }: { p: Project; onDelete: (p: Project
       <Link to={`/app/p/${p.id}`} className="block text-ink no-underline" aria-label={p.title ?? 'Project'}>
         <div className="relative grid aspect-video place-items-center overflow-hidden rounded-[18px] bg-media">
           {p.thumbUrl ? <img src={p.thumbUrl} alt="" loading="lazy" className="size-full object-cover" /> : <Film size={30} className="text-white/50" />}
-          {left && (
-            <span className="absolute top-2 left-2" title={`Kept until ${left.until} — download or post the clips before then`}>
-              <Badge tone={left.soon ? 'warn' : 'good'}>
-                <Hourglass size={12} /> {left.text}
-              </Badge>
-            </span>
-          )}
           <div className="absolute bottom-2 left-2 flex gap-1.5">
             {p.videoCount ? (
               <Badge>
@@ -46,10 +39,19 @@ export function ProjectCard({ p, onDelete }: { p: Project; onDelete: (p: Project
             <h3 className="line-clamp-2 text-[17px]">{p.title || p.sourceUrl || 'Untitled'}</h3>
             <p className={`mt-1 flex items-center gap-1 text-[13px] ${p.status === 'failed' ? 'font-bold text-bad' : 'text-ink-3'}`}>
               {p.status === 'failed' && <AlertTriangle size={13} />}
-              <span className="truncate">
+              <span className="truncate" title={left ? `Kept until ${left.until}` : undefined}>
                 {statusLine(p)} · {timeAgo(p.createdAt)}
               </span>
             </p>
+            {/* only worth a word when it's close — the Projects page explains how long things are kept */}
+            {left?.soon && !working && (
+              <p
+                className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-warn-bg px-2 py-0.5 text-xs font-bold text-warn-ink"
+                title={`Kept until ${left.until} — download or post the clips before then`}
+              >
+                <Hourglass size={12} /> {left.text}
+              </p>
+            )}
           </div>
           {p.bestScore != null && <ScoreRing value={p.bestScore} size={44} label="Best crest score" />}
         </div>

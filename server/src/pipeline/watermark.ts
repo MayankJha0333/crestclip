@@ -100,8 +100,18 @@ function writeWatermark(userId: string, w: Watermark) {
   );
 }
 
-export function updateWatermark(userId: string, patch: Partial<Pick<Watermark, 'enabled' | 'position' | 'size' | 'opacity'>>) {
-  return writeWatermark(userId, { ...readWatermark(userId), ...patch });
+/** The corner nearest a free spot (what older code and the instructions' "corner" talk use). */
+const nearestCorner = (x: number, y: number): WatermarkPosition => `${y < 0.5 ? 'top' : 'bottom'}-${x < 0.5 ? 'left' : 'right'}`;
+
+/**
+ * Change the Settings logo's look. A spot (x, y) can be anywhere on the frame; picking a corner by name puts it
+ * exactly in that corner.
+ */
+export function updateWatermark(userId: string, patch: Partial<Pick<Watermark, 'enabled' | 'position' | 'size' | 'opacity' | 'x' | 'y'>>) {
+  const w = { ...readWatermark(userId), ...patch };
+  if (patch.x != null && patch.y != null) w.position = nearestCorner(patch.x, patch.y);
+  else if (patch.position) ({ x: w.x, y: w.y } = CORNERS[patch.position]);
+  return writeWatermark(userId, w);
 }
 
 /** Turn an uploaded image into a library logo: one frame, transparent PNG, at most 600px wide. */
@@ -191,7 +201,7 @@ export function matchLogo<T extends LogoEntry>(logos: T[], words: string): T | n
  */
 export function applyLogoAsk(userId: string, base: LogoChoice | undefined, ask: LogoAsk): LogoChoice | undefined {
   const w = readWatermark(userId);
-  const start: LogoChoice = base ?? { id: w.enabled ? defaultLogoId(w) : null, ...CORNERS[w.position], size: w.size, opacity: w.opacity };
+  const start: LogoChoice = base ?? { id: w.enabled ? defaultLogoId(w) : null, ...spotOf(w), size: w.size, opacity: w.opacity };
   if (ask.none) return { ...start, id: null };
   const logos = listLogos(userId);
   const named = matchLogo(logos, ask.hint);

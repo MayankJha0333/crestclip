@@ -36,7 +36,7 @@ export interface Watermark {
   /** the plan doesn't include your own logo (Free clips carry the CrestClip mark) */
   locked: boolean;
 }
-export type WatermarkPatch = Partial<Pick<Watermark, 'enabled' | 'position' | 'size' | 'opacity'>>;
+export type WatermarkPatch = Partial<Pick<Watermark, 'enabled' | 'position' | 'size' | 'opacity' | 'x' | 'y'>>;
 /** A project's own logo, picked in New clips. id null = no logo on these clips. */
 export interface LogoChoice {
   id: string | null;
