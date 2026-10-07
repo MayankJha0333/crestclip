@@ -94,11 +94,16 @@ export async function adminTicket(id: string, markRead = true) {
   const t = await tickets.get(id);
   if (!t) throw new HttpError(404, 'Ticket not found');
   if (markRead && t.unreadForAdmin) await tickets.update(t.id, { unreadForAdmin: false }, false);
-  const u = await users.get(t.userId);
+  const [u, theirs] = await Promise.all([users.get(t.userId), tickets.forUser(t.userId)]);
   return {
     ...t,
     unreadForAdmin: false,
     project: await projectRef(t.projectId),
+    /** their other requests (newest first), to spot a pattern or a duplicate */
+    otherTickets: theirs
+      .filter((x) => x.id !== t.id)
+      .slice(0, 5)
+      .map((x) => ({ id: x.id, number: x.number, subject: x.subject, status: x.status, updatedAt: x.updatedAt })),
     user: u
       ? { id: u.id, email: u.email, name: u.name, plan: planOf(u.plan).id, paying: Boolean(u.dodoSubscriptionId || u.rzSubscriptionId), balance: await credits.balance(u.id), createdAt: u.createdAt }
       : null,

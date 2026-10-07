@@ -559,6 +559,7 @@ export interface AdminTicket extends Omit<AdminTicketSummary, 'messageCount' | '
   project: TicketProjectRef | null;
   context: { plan: string; page: string | null; userAgent: string | null };
   user: { id: string; email: string; name: string | null; plan: PlanId; paying: boolean; balance: number; createdAt: number } | null;
+  otherTickets: { id: string; number: number; subject: string; status: TicketStatus; updatedAt: number }[];
 }
 export type TicketCounts = Record<TicketStatus | 'active' | 'all' | 'unread', number>;
 export interface CreditEvent {
