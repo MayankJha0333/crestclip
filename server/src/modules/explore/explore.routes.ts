@@ -5,7 +5,7 @@ import { asyncHandler, HttpError, validate } from '../../lib/http.js';
 import { isYouTubeUrl, youtubeId } from '../../pipeline/ytweb.js';
 import { rateLimit } from '../auth/auth.service.js';
 import { me } from '../auth/auth.middleware.js';
-import { assertYoutubeSource } from '../billing/billing.service.js';
+import { assertYoutubeExplore, assertYoutubeSource } from '../billing/billing.service.js';
 import { channelQuerySchema, searchQuerySchema } from './explore.schemas.js';
 import * as service from './explore.service.js';
 
@@ -21,7 +21,7 @@ exploreRouter.get(
   '/search',
   asyncHandler(async (req, res) => {
     const q = validate(searchQuerySchema, req.query, 'Type something to search for.');
-    if (q.source === 'youtube') assertYoutubeSource(me(req)); // YouTube in Explore: only if the plan allows YouTube links (all plans today)
+    if (q.source === 'youtube') assertYoutubeExplore(me(req)); // browsing YouTube: Creator and Pro
     res.json(await service.search(q).catch(sourceFailed));
   }),
 );
@@ -30,7 +30,7 @@ exploreRouter.get(
   '/channel',
   asyncHandler(async (req, res) => {
     const q = validate(channelQuerySchema, req.query, 'Missing channel.');
-    if (!/twitch\.tv/i.test(q.url)) assertYoutubeSource(me(req)); // anything that isn't Twitch is a YouTube channel here
+    if (!/twitch\.tv/i.test(q.url)) assertYoutubeExplore(me(req)); // anything that isn't Twitch is a YouTube channel here
     if (/^https?:\/\//i.test(q.url)) await assertPublicUrl(q.url);
     res.json(await service.channel(q).catch(sourceFailed));
   }),
@@ -52,7 +52,7 @@ exploreRouter.get(
   '/discover',
   asyncHandler(async (req, res) => {
     const source = req.query.source === 'twitch' ? 'twitch' : 'youtube';
-    if (source === 'youtube') assertYoutubeSource(me(req));
+    if (source === 'youtube') assertYoutubeExplore(me(req));
     res.json(await service.discoverFeed(source, req.query.category).catch(sourceFailed));
   }),
 );

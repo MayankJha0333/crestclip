@@ -469,8 +469,10 @@ export interface Plan {
   exportHeight: number;
   scheduling: boolean;
   autopilot: boolean;
-  /** can paste YouTube links and browse YouTube in Explore (every plan today) */
+  /** can paste YouTube links (every plan today) */
   youtubeSource?: boolean;
+  /** can browse and search YouTube in Explore (Creator and Pro) */
+  youtubeExplore?: boolean;
   /** days a project and its clips are kept */
   storageDays?: number;
   points: string[];

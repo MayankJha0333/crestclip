@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowRight, ChevronLeft, Flame, History, RefreshCw, Search, Sparkles, Twitch, X, Youtube } from 'lucide-react';
 import { api, savedOptions, type DiscoverSection, type ExploreChannel, type ExploreItem, type ExploreSource } from '../../lib/api';
 import { cn } from '../../lib/cn';
@@ -14,6 +14,8 @@ import { PeekDrawer } from './PeekDrawer';
 import { track } from '../../lib/analytics';
 import { useAccount } from '../auth/auth';
 import { YOUTUBE_LOCKED } from '../create/links';
+
+const EXPLORE_LOCKED = 'Browsing YouTube in Explore is on the Creator and Pro plans. You can still paste any YouTube video link here.';
 
 const YT_TYPES = [
   { value: 'videos', label: 'Videos' },
@@ -70,8 +72,10 @@ function FeedSection({ title, subtitle, action, children, loading }: { title: st
 export function ExplorePage() {
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
-  // YouTube in Explore: on every plan today (a plan with youtubeSource off would only see Twitch here)
-  const ytOk = useAccount().plan.youtubeSource !== false;
+  // browsing YouTube here is on Creator and Pro; Free sees Twitch, but a pasted YouTube video link still opens
+  const plan = useAccount().plan;
+  const ytOk = (plan.youtubeExplore ?? plan.youtubeSource) !== false;
+  const ytLinks = plan.youtubeSource !== false;
   const source = (!ytOk || params.get('source') === 'twitch' ? 'twitch' : 'youtube') as ExploreSource;
   const q = params.get('q') ?? '';
   const type = params.get('type') ?? (source === 'twitch' ? 'channels' : 'videos');
@@ -199,7 +203,8 @@ export function ExplorePage() {
     setFocused(false);
     inputRef.current?.blur();
     const link = parseLink(t);
-    if (!ytOk && link && (link.kind === 'channel' ? !/twitch\.tv/i.test(link.url) : link.source === 'youtube')) return toast(YOUTUBE_LOCKED, 'error');
+    if (!ytOk && link?.kind === 'channel' && !/twitch\.tv/i.test(link.url)) return toast(EXPLORE_LOCKED, 'error');
+    if (!ytLinks && link && link.kind !== 'channel' && link.source === 'youtube') return toast(YOUTUBE_LOCKED, 'error');
     if (link?.kind === 'channel') return set({ channel: link.url, tab: null, q: null, source: /twitch/.test(link.url) ? 'twitch' : 'youtube' });
     if (link) return openPeek([{ kind: link.kind, source: link.source, id: link.id, url: link.url, title: 'Loading video…' }], 0);
     pushRecentSearch(t);
@@ -276,7 +281,11 @@ export function ExplorePage() {
                 },
               ]}
             />
-          ) : undefined
+          ) : (
+            <Link to="/app/billing" className="inline-flex items-center gap-1.5 rounded-full bg-row px-3.5 py-2 text-[13px] font-bold text-ink-2 no-underline shadow-flat hover:text-ink">
+              <Youtube size={16} className="text-[#c4302b]" /> Browse YouTube on Creator and Pro
+            </Link>
+          )
         }
       />
 
@@ -303,9 +312,11 @@ export function ExplorePage() {
             placeholder={
               source === 'youtube'
                 ? 'Search YouTube — or paste a video / channel link'
-                : twitchApi
-                  ? 'Search Twitch channels — or paste a link'
-                  : 'Twitch channel name (e.g. shroud) — or paste a twitch.tv link'
+                : !ytOk
+                  ? 'Search Twitch — or paste a YouTube or Twitch video link'
+                  : twitchApi
+                    ? 'Search Twitch channels — or paste a link'
+                    : 'Twitch channel name (e.g. shroud) — or paste a twitch.tv link'
             }
             className="min-w-0 flex-1 basis-[calc(100%-40px)] bg-transparent py-3 text-[17px] font-semibold text-ink outline-none placeholder:text-ink-3 sm:basis-auto"
           />

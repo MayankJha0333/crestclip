@@ -117,8 +117,7 @@ async function syncDodo(user: UserRow, sub: DodoSubscription): Promise<boolean> 
     if (stillMine) {
       // what changed, as lines in the credit history
       const ending = Boolean(sub.cancel_at_next_billing_date);
-      if (user.plan !== p.id)
-        await logPlan(user.id, user.plan === 'free' ? `Started the ${p.name} plan` : rank(p.id) > rank(user.plan) ? `Upgraded to ${p.name}` : `Switched to ${p.name}`);
+      if (user.plan !== p.id) await logPlan(user.id, user.plan === 'free' ? `Started the ${p.name} plan` : rank(p.id) > rank(user.plan) ? `Upgraded to ${p.name}` : `Switched to ${p.name}`);
       else if (!user.cancelAtPeriodEnd && ending) await logPlan(user.id, `${p.name} cancelled — stays active until ${day(end)}, then Free`);
       else if (user.cancelAtPeriodEnd && !ending) await logPlan(user.id, `${p.name} will keep renewing (cancellation undone)`);
       if (user.subscriptionStatus === 'active' && problem) await logPlan(user.id, `Renewal payment failed — update your payment method to keep ${p.name}`);
@@ -128,9 +127,7 @@ async function syncDodo(user: UserRow, sub: DodoSubscription): Promise<boolean> 
     // the credits come with a PAYMENT: the subscription's newest one (first month, renewal, or an upgrade's charge)
     const pays = await dodo.paymentsOf({ subscription_id: sub.subscription_id });
     for (const pay of pays) await recordPayment(user.id, pay, planId);
-    const latest = pays
-      .filter((x) => x.status === 'succeeded' && x.total_amount > 0 && !x.is_update_payment_method)
-      .sort((a, b) => (ms(b.created_at) ?? 0) - (ms(a.created_at) ?? 0))[0];
+    const latest = pays.filter((x) => x.status === 'succeeded' && x.total_amount > 0 && !x.is_update_payment_method).sort((a, b) => (ms(b.created_at) ?? 0) - (ms(a.created_at) ?? 0))[0];
     if (!latest) return false;
     await grantDodoMonth(user.id, latest.payment_id, end ?? nextMonth(ms(latest.created_at) ?? Date.now()), p);
     return true;
@@ -344,10 +341,7 @@ export const paymentHistory = async (user: UserRow) => await payments.forUser(us
 export async function receipt(user: UserRow, paymentId: string) {
   const payment = await payments.get(user.id, paymentId);
   if (!payment) throw new HttpError(404, 'We couldn’t find that payment on your account.');
-  const item =
-    payment.kind === 'topup'
-      ? `Credit top-up — ${TOPUP.credits} credits`
-      : `${planOf(payment.plan).name} plan — monthly subscription (${planOf(payment.plan).credits} credits)`;
+  const item = payment.kind === 'topup' ? `Credit top-up — ${TOPUP.credits} credits` : `${planOf(payment.plan).name} plan — monthly subscription (${planOf(payment.plan).credits} credits)`;
   return { payment, item, customer: { name: user.name, email: user.email }, seller: site(), provider: 'dodo' as const };
 }
 
@@ -369,6 +363,12 @@ export function assertAutopilot(user: UserRow) {
 
 /** What a Free user sees when they try a YouTube link (or YouTube in Explore). */
 export const YOUTUBE_LOCKED = 'YouTube links aren’t supported right now. Please upload the video file, or provide a Google Drive or Dropbox link.';
+
+/** Browsing YouTube in Explore is on Creator and Pro (Free still pastes YouTube links). */
+export const YOUTUBE_EXPLORE_LOCKED = 'Browsing YouTube in Explore is on the Creator and Pro plans. You can still paste any YouTube link here or in New clips.';
+export function assertYoutubeExplore(user: UserRow) {
+  if (!planOf(user.plan).youtubeExplore) throw new HttpError(403, YOUTUBE_EXPLORE_LOCKED);
+}
 
 export function assertYoutubeSource(user: UserRow) {
   if (!planOf(user.plan).youtubeSource) throw new HttpError(403, YOUTUBE_LOCKED);
@@ -593,7 +593,9 @@ async function adoptDodo(user: UserRow, sub: DodoSubscription): Promise<boolean>
     if (old && billing(old.status)) {
       if ((ms(old.created_at) ?? 0) > (ms(sub.created_at) ?? 0)) {
         // two paid at once (two checkout tabs): keep the newer, end the older so it never renews next to it
-        console.warn(`[billing] ${user.email}: two Dodo subscriptions were active — kept ${old.subscription_id}, cancelled the older ${sub.subscription_id} (refund its first payment in the Dodo dashboard if needed)`);
+        console.warn(
+          `[billing] ${user.email}: two Dodo subscriptions were active — kept ${old.subscription_id}, cancelled the older ${sub.subscription_id} (refund its first payment in the Dodo dashboard if needed)`,
+        );
         await dodo.updateSubscription(sub.subscription_id, { status: 'cancelled' }).catch((e) => console.warn('[billing] cancel older Dodo subscription:', (e as Error).message));
         return false;
       }
@@ -810,7 +812,9 @@ export async function handleDodoWebhook(rawBody: Buffer | undefined, h: { id: st
     return;
   }
   if (ev.type.startsWith('refund.') || ev.type.startsWith('dispute.'))
-    console.warn(`[billing] Dodo ${ev.type} for payment ${(ev.data as { payment_id?: string }).payment_id ?? '?'} — check it in the Dodo dashboard; credits aren’t taken back automatically (Settings → Admin can remove them).`);
+    console.warn(
+      `[billing] Dodo ${ev.type} for payment ${(ev.data as { payment_id?: string }).payment_id ?? '?'} — check it in the Dodo dashboard; credits aren’t taken back automatically (Settings → Admin can remove them).`,
+    );
 }
 
 // ---------------- admin ----------------

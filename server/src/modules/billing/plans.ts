@@ -39,8 +39,10 @@ export interface Plan {
   exportHeight: 1280 | 1920;
   scheduling: boolean;
   autopilot: boolean;
-  /** clip YouTube videos: paste YouTube links in New clips and browse YouTube in Explore */
+  /** clip YouTube videos: paste YouTube links (New clips, Explore's search box, the landing page) */
   youtubeSource: boolean;
+  /** browse and search YouTube in Explore (Free sees Twitch there; pasting a YouTube link still works) */
+  youtubeExplore: boolean;
   /** days a project and its clips are kept (RETENTION_DAYS on Free; paid plans keep them a month) */
   storageDays: number;
   /** the list on the pricing cards (built from the limits above, so it never goes out of date) */
@@ -70,6 +72,7 @@ export const PLANS: Record<PlanId, Plan> = {
     scheduling: false,
     autopilot: false,
     youtubeSource: true,
+    youtubeExplore: false,
     storageDays: config.retentionDays,
     points: [], // filled in below from the limits
   },
@@ -89,6 +92,7 @@ export const PLANS: Record<PlanId, Plan> = {
     scheduling: true,
     autopilot: false,
     youtubeSource: true,
+    youtubeExplore: true,
     storageDays: Math.max(30, config.retentionDays),
     points: [],
   },
@@ -108,6 +112,7 @@ export const PLANS: Record<PlanId, Plan> = {
     scheduling: true,
     autopilot: true,
     youtubeSource: true,
+    youtubeExplore: true,
     storageDays: Math.max(30, config.retentionDays),
     points: [],
   },
@@ -139,12 +144,7 @@ for (const p of Object.values(PLANS)) p.points = cardPoints(p);
 export const PLAN_ORDER: PlanId[] = ['free', 'creator', 'pro'];
 
 /** The billing promises, said out loud on the pricing page (each one answers a common complaint about clipping tools). */
-export const POLICY_LINES = [
-  'Pay per clip, not per minute of video',
-  'Clips that fail or don’t come out are refunded',
-  'Edits and re-renders are always free',
-  'Cancel any time and keep your files',
-];
+export const POLICY_LINES = ['Pay per clip, not per minute of video', 'Clips that fail or don’t come out are refunded', 'Edits and re-renders are always free', 'Cancel any time and keep your files'];
 
 /** One-off credit pack (US dollars; rupees before GST in India), for when the month's credits run out. */
 export const TOPUP = { credits: 100, price: 5, priceInr: 399, validDays: 365 };
