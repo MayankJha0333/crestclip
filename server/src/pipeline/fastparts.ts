@@ -330,7 +330,7 @@ export async function fetchPartFast(
   infoJson: string,
   range: { start: number; end: number },
   out: string,
-  opts: { proxy?: string | null; onProgress?: (frac: number) => void } = {},
+  opts: { proxy?: string | null; onProgress?: (frac: number) => void; only?: 'dash' | 'hls' } = {},
 ): Promise<'ok' | 'refused' | 'unsupported'> {
   let formats: Format[];
   try {
@@ -339,8 +339,9 @@ export async function fetchPartFast(
     return 'unsupported';
   }
   const proxy = opts.proxy ?? null;
-  const chosen = pick(formats);
+  const chosen = opts.only === 'hls' ? null : pick(formats);
   if (!chosen) {
+    if (opts.only === 'dash') return 'unsupported';
     // no DASH files (Twitch, Kick, Vimeo…): the HLS list of short files, only those the part needs
     const hls = pickHls(formats);
     return hls ? fetchHlsPart(hls, range, out, proxy, opts.onProgress) : 'unsupported';

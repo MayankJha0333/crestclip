@@ -22,12 +22,13 @@ import { resolveMusic } from './music.js';
 import { buildSignals, rangeScore } from './signals.js';
 import { sampleSpeech, spokenWords, transcribe } from './transcribe.js';
 import { findVisualMoments, mostlySilent, snapToShots, tooLittleSpeech, type VisualSource } from './visual.js';
-import { download, downloadAudio, fetchComments, fetchInfo, fetchWordTimings, type Comment, type SourceInfo } from './ytdlp.js';
+import { captionReactions, download, downloadAudio, fetchComments, fetchInfo, fetchWordTimings, type Comment, type SourceInfo } from './ytdlp.js';
 import { downloadPlan, endSectionMode, footageFor, footageSavings, infoJsonPath, prefetchFootage, readFootage, startSectionMode } from './footage.js';
 import { draftTranscript } from './asr.js';
 import { fetchAudioFast } from './fastparts.js';
+import { firstThatWorks, planFor, sourceKindOf } from './source.js';
 import { enqueueRender } from '../infra/queue.js';
-import { classifyFileLink, downloadFileLink, fileLinkLabel } from './filelink.js';
+import { classifyFileLink, downloadFileLink } from './filelink.js';
 import type { CaptionStyle, Layout, ProjectOptions, ReframePlan, Segment, Signals, TimeRange, Word } from '../types.js';
 import { BUSY, withClusterLock } from '../infra/shared.js';
 import { touch } from '../lib/activity.js';
@@ -163,22 +164,27 @@ async function runProject(id: string) {
     }
 
     // ---------- 1. fetch ----------
+    // what kind of source this is decides the fastest way to do each step (see source.ts)
+    let plan = planFor(sourceKindOf(p.sourceType, p.sourceUrl));
     stage(id, 'fetch', 0, p.sourceType === 'url' ? 'Reading the link…' : 'Reading your upload…');
     let src = p.mediaPath && fs.existsSync(p.mediaPath) ? p.mediaPath : null;
     // a file link (Google Drive, Dropbox, OneDrive, direct .mp4): download it, then treat it like an upload
     if (!src && p.sourceType === 'upload' && p.sourceUrl) {
       const link = classifyFileLink(p.sourceUrl);
       if (!link || 'error' in link) throw new Error(link && 'error' in link ? link.error : 'That link isn’t a video file.');
-      const where = fileLinkLabel[link.kind];
+      const where = plan.label;
       stage(id, 'fetch', 0.02, `Downloading from ${where}…`);
+      const t0 = Date.now();
       const got = await downloadFileLink(link, dir, (pct, detail) => stage(id, 'fetch', 0.02 + (pct / 100) * 0.9, `Downloading from ${where} · ${detail}`));
       src = got.file;
+      console.log(`[project ${id}] file from ${where} in ${((Date.now() - t0) / 1000).toFixed(0)}s`);
       const title = got.name
         .replace(/\.[^.]+$/, '')
         .replace(/[_-]+/g, ' ')
         .trim()
         .slice(0, 120);
       await projects.update(id, { mediaPath: src, ...(title && title !== 'video' ? { title } : {}) });
+      note(id, `Downloaded the file from ${where}`);
     }
     let info: SourceInfo | null = null;
     let commentsP: Promise<Comment[]> = Promise.resolve([]);
@@ -187,6 +193,7 @@ async function runProject(id: string) {
     let captions: { segments: Segment[]; silences: { s: number; e: number }[] } | null = null;
     if (p.sourceType === 'url' && p.sourceUrl) {
       info = await fetchInfo(p.sourceUrl, infoJsonPath(dir));
+      plan = planFor(sourceKindOf(p.sourceType, p.sourceUrl, info), info);
       assertNotLive(info);
       if (info.duration && info.duration > config.maxSourceMinutes * 60)
         throw new Error(`This video is ${Math.round(info.duration / 60)} min long. The limit is ${config.maxSourceMinutes} min (MAX_SOURCE_MINUTES).`);
@@ -199,34 +206,39 @@ async function runProject(id: string) {
         duration: info.duration,
         viewCount: info.viewCount,
       });
-      note(id, `Read the link · “${info.title}” · ${formatClock(info.duration)} long`);
-      if (info.isYouTube && p.options.useAudienceData) commentsP = fetchComments(info.webpageUrl);
+      note(id, `Read the ${plan.label} link · “${info.title}” · ${formatClock(info.duration)} long`);
+      if (plan.audience.includes('comments') && p.options.useAudienceData) commentsP = fetchComments(info.webpageUrl);
       if (!src) {
-        const smart = config.downloadMode === 'smart' && info.duration >= config.smartMinMinutes * 60 && info.liveStatus !== 'is_live';
+        const smart = plan.parts && config.downloadMode === 'smart' && info.duration >= config.smartMinMinutes * 60;
         const fetchStage = (label: string) => (pct: number, detail: string) => stage(id, 'fetch', 0.1 + (pct / 100) * 0.85, `${label} · ${detail}`);
-        if (config.captionsFirst && info.isYouTube && info.duration && info.liveStatus !== 'is_live' && !p.noSpeech) {
+        if (config.captionsFirst && plan.captions && info.duration && !p.noSpeech) {
           stage(id, 'fetch', 0.1, 'Reading the video’s captions…');
           const words = await fetchWordTimings(info.webpageUrl, work, infoJsonPath(dir)).catch((e) => (console.warn('[captions first]', (e as Error).message), null));
           const draft = words ? draftTranscript(words, info.duration) : null;
           if (draft && !tooLittleSpeech(draft.segments, info.duration)) {
             captions = draft;
+            console.log(`[project ${id}] transcript via the site's captions (${spokenWords(draft.segments)} words)`);
             note(id, `${spokenWords(draft.segments).toLocaleString('en')} words in the video’s own captions — no transcription needed first`);
-          }
+          } else console.log(`[project ${id}] no usable captions — the video will be transcribed`);
         }
         if (captions && smart) {
           // nothing else is needed before the moments: the video is fetched later, just for the clip parts
           startSectionMode(dir, info.webpageUrl, info.fullSizeEstimate);
         } else if (smart) {
-          // Long video: grab only the audio now. Video is fetched later, just for the clip parts.
-          try {
-            src =
-              (await fetchAudioFast(infoJsonPath(dir), path.join(dir, 'source-audio.m4a'), fetchStage('Downloading the audio'))) ??
-              (await downloadAudio(info.webpageUrl, dir, fetchStage('Downloading the audio'), infoJsonPath(dir)));
-            startSectionMode(dir, info.webpageUrl, info.fullSizeEstimate);
-          } catch (e) {
-            console.warn(`[project ${id}] audio-only download failed, downloading the full video instead:`, (e as Error).message);
-            src = null;
-          }
+          // Long video: grab only the sound now, the best way this site allows; video is fetched later, just for the clip parts.
+          const url = info.webpageUrl;
+          const ways = {
+            'hls-pieces': () => fetchAudioFast(infoJsonPath(dir), path.join(dir, 'source-audio.m4a'), fetchStage('Downloading the audio')),
+            ytdlp: () => downloadAudio(url, dir, fetchStage('Downloading the audio'), infoJsonPath(dir)),
+          };
+          const got = await firstThatWorks(
+            `[project ${id}] sound track`,
+            plan.audio.map((name) => ({ name, run: ways[name] })),
+          );
+          if (got) {
+            src = got.value;
+            startSectionMode(dir, url, info.fullSizeEstimate);
+          } else console.warn(`[project ${id}] no audio-only download — downloading the full video instead`);
         }
         if (!src && !readFootage(dir)) src = await download(info.webpageUrl, dir, fetchStage('Downloading'), infoJsonPath(dir));
       }
@@ -314,19 +326,25 @@ async function runProject(id: string) {
 
     // ---------- 4. find moments ----------
     stage(id, 'moments', 0.05, 'Reading the audience heatmap…');
-    // the comments are a hint, not a must: a slow fetch doesn't hold the moments up for more than a few seconds
+    // the comments are a hint, not a must: with a replay graph in hand a slow fetch waits a few seconds at most;
+    // without one they're the only word from the audience, so they get a little longer
     const t0 = Date.now();
-    const comments = await Promise.race([commentsP, new Promise<Comment[]>((res) => setTimeout(() => res([]), 12_000))]);
+    const commentsWait = info?.heatmap?.length ? 12_000 : 35_000;
+    const comments = await Promise.race([commentsP, new Promise<Comment[]>((res) => setTimeout(() => res([]), commentsWait))]);
     if (Date.now() - t0 > 2000) console.log(`[project ${id}] waited ${((Date.now() - t0) / 1000).toFixed(0)}s for the comments${comments.length ? '' : ' — going on without them'}`);
+    // laughter, applause and cheers in the captions stand in for loudness when the audio wasn't fetched
+    const reactions = captions && info ? await captionReactions(info.webpageUrl, work, infoJsonPath(dir)) : null;
     const signals: Signals = buildSignals({
       duration,
       heatmap: info?.heatmap ?? null,
       chapters: info?.chapters ?? [],
       comments,
       rmsPerSecond: rms,
+      reactions,
       useAudience: p.options.useAudienceData,
     });
     await projects.update(id, { signals });
+    console.log(`[project ${id}] audience signals: ${signals.sources.join(', ') || 'none'} (${plan.label})`);
 
     let cands: Awaited<ReturnType<typeof findMoments>>['clips'];
     let notes: string;

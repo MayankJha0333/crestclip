@@ -143,20 +143,40 @@ export async function downloadFileLink(link: FileLink, dir: string, onProgress: 
   fs.mkdirSync(dir, { recursive: true });
   const out = path.join(dir, `source${ext}`);
   const tmp = `${out}.part`;
+  const started = Date.now();
+  let lastReport = 0;
+  const report = (got: number) => {
+    const now = Date.now();
+    if (now - lastReport < 500 && got < total) return;
+    lastReport = now;
+    const speed = got / Math.max(0.5, (now - started) / 1000);
+    onProgress(total ? (got / total) * 100 : 0, `${total ? `${Math.round((got / total) * 100)}% of ${mb(total)}` : mb(got)} · ${mb(speed)}/s`);
+  };
+
+  // In parallel pieces when the host allows byte ranges (Drive, Dropbox and OneDrive do): several times faster than
+  // one stream for a big file. Otherwise, or if that goes wrong part-way, the one stream as before.
+  const ranges = total >= 16 * 1024 * 1024 && /bytes/i.test(res.headers.get('accept-ranges') ?? '');
+  if (ranges) {
+    await res.body.cancel().catch(() => {});
+    try {
+      await rangeDownload(res.url, total, tmp, report);
+      fs.renameSync(tmp, out);
+      onProgress(100, `${mb(total)} downloaded`);
+      return { file: out, name };
+    } catch (e) {
+      console.warn(`  [file link] parallel download failed (${(e as Error).message.slice(0, 120)}) — one stream instead`);
+      fs.rmSync(tmp, { force: true });
+      res = await publicFetch(res.url, { headers: { 'user-agent': UA } });
+      if (!res.ok || !res.body) throw new Error(`Couldn’t download from ${where} (error ${res.status}).`);
+    }
+  }
 
   let got = 0;
-  let lastReport = 0;
-  const started = Date.now();
   const counter = new Transform({
     transform(chunk: Buffer, _enc, cb) {
       got += chunk.length;
       if (got > limit) return cb(new Error(`This file is bigger than the ${config.maxUploadMb} MB limit.`));
-      const now = Date.now();
-      if (now - lastReport > 500) {
-        lastReport = now;
-        const speed = got / Math.max(0.5, (now - started) / 1000);
-        onProgress(total ? (got / total) * 100 : 0, `${total ? `${Math.round((got / total) * 100)}% of ${mb(total)}` : mb(got)} · ${mb(speed)}/s`);
-      }
+      report(got);
       cb(null, chunk);
     },
   });
@@ -173,4 +193,37 @@ export async function downloadFileLink(link: FileLink, dir: string, onProgress: 
   fs.renameSync(tmp, out);
   onProgress(100, `${mb(got)} downloaded`);
   return { file: out, name };
+}
+
+const PIECE = 8 * 1024 * 1024;
+const AT_ONCE = 8;
+
+/** The file in 8 MB pieces, eight at a time, each written straight to its place in `tmp`. */
+async function rangeDownload(url: string, total: number, tmp: string, report: (got: number) => void) {
+  const pieces: { from: number; to: number }[] = [];
+  for (let at = 0; at < total; at += PIECE) pieces.push({ from: at, to: Math.min(total - 1, at + PIECE - 1) });
+  const fd = fs.openSync(tmp, 'w');
+  let got = 0;
+  let next = 0;
+  try {
+    await Promise.all(
+      Array.from({ length: Math.min(AT_ONCE, pieces.length) }, async () => {
+        while (next < pieces.length) {
+          const i = next++;
+          const r = await publicFetch(url, { headers: { 'user-agent': UA, Range: `bytes=${pieces[i].from}-${pieces[i].to}` }, signal: AbortSignal.timeout(120_000) });
+          if (r.status !== 206) {
+            await r.body?.cancel().catch(() => {});
+            throw new Error(`piece ${i + 1} answered ${r.status}`);
+          }
+          const buf = Buffer.from(await r.arrayBuffer());
+          if (buf.length !== pieces[i].to - pieces[i].from + 1) throw new Error(`piece ${i + 1} came back ${buf.length} bytes`);
+          fs.writeSync(fd, buf, 0, buf.length, pieces[i].from);
+          got += buf.length;
+          report(got);
+        }
+      }),
+    );
+  } finally {
+    fs.closeSync(fd);
+  }
 }

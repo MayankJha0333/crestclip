@@ -470,6 +470,8 @@ export interface TimedWord {
   w: string;
   s: number;
   e: number;
+  /** a sound label rather than a word: [Laughter], [Applause], [Music]… */
+  tag?: boolean;
 }
 
 /**
@@ -478,7 +480,19 @@ export interface TimedWord {
  * none. The text is not used — only the timing.
  */
 export async function fetchWordTimings(url: string, dir: string, infoJson: string): Promise<TimedWord[] | null> {
-  // fetched once per video: every clip asks for them again when its captions are made
+  const all = await cachedWordTimings(url, dir, infoJson);
+  const words = all?.filter((w) => !w.tag) ?? null;
+  return words?.length ? words : null;
+}
+
+/** The sound labels in the captions — [Laughter], [Applause], [Cheering]… — and when they happen. */
+export async function captionReactions(url: string, dir: string, infoJson: string): Promise<{ t: number; label: string }[]> {
+  const all = await cachedWordTimings(url, dir, infoJson).catch(() => null);
+  return (all ?? []).filter((w) => w.tag).map((w) => ({ t: w.s, label: w.w.replace(/^\[|\]$/g, '').toLowerCase() }));
+}
+
+/** Fetched once per video (every clip asks again when its captions are made); sound labels kept, marked `tag`. */
+async function cachedWordTimings(url: string, dir: string, infoJson: string): Promise<TimedWord[] | null> {
   const cache = path.join(dir, 'words.json');
   try {
     const c = JSON.parse(fs.readFileSync(cache, 'utf8')) as TimedWord[] | null;
@@ -529,14 +543,15 @@ async function readWordTimings(url: string, dir: string, infoJson: string): Prom
     const end = ((ev.tStartMs ?? 0) + (ev.dDurationMs ?? 0)) / 1000;
     for (const sg of ev.segs ?? []) {
       const w = (sg.utf8 ?? '').trim();
-      if (!w || /^\[.*\]$/.test(w)) continue; // [Music], [Applause]
-      words.push({ w, s: ((ev.tStartMs ?? 0) + (sg.tOffsetMs ?? 0)) / 1000, e: end });
+      if (!w) continue;
+      const tag = /^\[.*\]$/.test(w); // [Music], [Laughter], [Applause]: kept as labels, never as words
+      words.push({ w, s: ((ev.tStartMs ?? 0) + (sg.tOffsetMs ?? 0)) / 1000, e: end, ...(tag ? { tag } : {}) });
     }
   }
   words.sort((a, b) => a.s - b.s);
   // only starts are given: a word lasts until the next one starts (at most 0.8 s, so it doesn't run through a pause)
   for (let i = 0; i < words.length; i++) words[i].e = Math.max(words[i].s + 0.05, Math.min(words[i].e, words[i + 1]?.s ?? Infinity, words[i].s + 0.8));
-  return words.length ? words : null;
+  return words.some((w) => !w.tag) ? words : null;
 }
 
 /** Run yt-dlp and parse its JSON output (used by Explore for search / channel listings). */

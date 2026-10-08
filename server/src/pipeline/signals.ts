@@ -16,6 +16,8 @@ export function buildSignals(input: {
   chapters: Signals['chapters'];
   comments: Comment[];
   rmsPerSecond: number[] | null;
+  /** sound labels from the captions ([Laughter], [Applause]…): a stand-in for loudness when the audio isn't here */
+  reactions?: { t: number; label: string }[] | null;
   useAudience: boolean;
 }): Signals {
   const { duration } = input;
@@ -27,8 +29,12 @@ export function buildSignals(input: {
   const commentBins = input.useAudience ? commentTimestampBins(input.comments, duration) : null;
   if (commentBins) sources.push('comments');
 
-  const loudnessBins = input.rmsPerSecond?.length ? loudBins(input.rmsPerSecond) : null;
+  let loudnessBins = input.rmsPerSecond?.length ? loudBins(input.rmsPerSecond) : null;
   if (loudnessBins) sources.push('loudness');
+  else if (input.reactions?.length) {
+    loudnessBins = reactionBins(input.reactions, duration);
+    if (loudnessBins) sources.push('reactions');
+  }
 
   let curve: number[];
   let curveKind: Signals['curveKind'];
@@ -69,6 +75,22 @@ function resampleHeat(heat: HeatPoint[], duration: number): number[] {
   // The very first seconds are almost always "replayed" because every viewer starts there — damp them.
   for (let i = 0; i < 3; i++) bins[i] *= 0.35 + i * 0.2;
   return normalize(bins);
+}
+
+/** Laughter, applause and cheering in the captions, each spread over ~±10 s, as a curve like loudness. */
+function reactionBins(reactions: { t: number; label: string }[], duration: number): number[] | null {
+  if (!duration) return null;
+  const bins = new Array(BINS).fill(0);
+  const weight = (label: string) => (/laugh|applau|cheer|scream|gasp/.test(label) ? 1 : /music|silence|inaudible|blank/.test(label) ? 0 : 0.4);
+  let hits = 0;
+  for (const r of reactions) {
+    const w = weight(r.label);
+    if (!w) continue;
+    hits++;
+    const c = (r.t / duration) * BINS;
+    for (let i = Math.max(0, Math.floor(c - 2)); i <= Math.min(BINS - 1, Math.ceil(c + 2)); i++) bins[i] += w * Math.exp(-((i - c) * (i - c)) / 2);
+  }
+  return hits >= 3 ? normalize(bins) : null;
 }
 
 const TS = /(?<![\d:])(?:(\d{1,2}):)?(\d{1,2}):(\d{2})(?![\d:])/g;

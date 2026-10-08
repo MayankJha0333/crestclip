@@ -6,6 +6,7 @@ import { probe } from './media.js';
 import { pool } from '../lib/proc.js';
 import { download, downloadSections, proxyForVideo, refreshInfo, type Section } from './ytdlp.js';
 import { fetchPartFast } from './fastparts.js';
+import { firstThatWorks, planFor, sourceKindOf } from './source.js';
 import { withClusterLock } from '../infra/shared.js';
 
 /**
@@ -121,26 +122,7 @@ function fetchRange(p: ProjectRow, dir: string, r: { start: number; end: number 
     async () => {
       const idx = readFootage(dir);
       if (!idx || idx.sections.some((s) => covers(s, r.start, r.end))) return; // another worker got it (or the whole video)
-      const secDir = path.join(dir, 'sections');
-      fs.mkdirSync(secDir, { recursive: true });
-      // by byte range first (seconds); yt-dlp's cut (about playback speed) when the video can't be fetched that way
-      const want = { start: Math.max(0, Math.floor(r.start)), end: Math.ceil(r.end) };
-      const file = path.join(secDir, `sec_${want.start}-${want.end}.mp4`);
-      const info = infoJsonPath(dir);
-      let fast = fs.existsSync(info) ? await fetchPartFast(info, want, file, { proxy: proxyForVideo(idx.url), onProgress }) : 'unsupported';
-      if (fast === 'refused' && (await refreshedInfo(p.id, idx.url, info))) fast = await fetchPartFast(info, want, file, { proxy: proxyForVideo(idx.url), onProgress });
-      let got: Section[];
-      if (fast === 'ok') got = [{ ...want, file }];
-      else {
-        // a refused or broken stream is often fine a few seconds later: one more go before giving up on the part
-        try {
-          got = await downloadSections(idx.url, secDir, [r], (d) => onProgress(d), info);
-        } catch (e) {
-          console.warn(`[project ${p.id}] part ${r.start}–${r.end} failed once (${(e as Error).message.slice(0, 120)}) — trying again in 8 s`);
-          await new Promise((res) => setTimeout(res, 8000));
-          got = await downloadSections(idx.url, secDir, [r], (d) => onProgress(d), info);
-        }
-      }
+      const got = await fetchPart(p, dir, idx.url, r, onProgress);
       await recordSections(p, dir, got);
     },
     { wait: true, ttlMs: 120_000 },
@@ -148,6 +130,45 @@ function fetchRange(p: ProjectRow, dir: string, r: { start: number; end: number 
   fetching.set(key, job);
   job.finally(() => fetching.get(key) === job && fetching.delete(key)).catch(() => {});
   return job;
+}
+
+/** One part of the video, the fastest way this source allows (see source.ts), falling through to the next way. */
+async function fetchPart(p: ProjectRow, dir: string, url: string, r: { start: number; end: number }, onProgress: (frac: number) => void): Promise<Section[]> {
+  const secDir = path.join(dir, 'sections');
+  fs.mkdirSync(secDir, { recursive: true });
+  const want = { start: Math.max(0, Math.floor(r.start)), end: Math.ceil(r.end) };
+  const file = path.join(secDir, `sec_${want.start}-${want.end}.mp4`);
+  const info = infoJsonPath(dir);
+  const plan = planFor(sourceKindOf('url', url));
+  // the byte-range ways: 'refused' (403) means fresh links from another player client may work — once per video
+  const byRange = (only: 'dash' | 'hls') => async (): Promise<Section[] | null> => {
+    if (!fs.existsSync(info)) return null;
+    let got = await fetchPartFast(info, want, file, { proxy: proxyForVideo(url), onProgress, only });
+    if (got === 'refused' && (await refreshedInfo(p.id, url, info))) got = await fetchPartFast(info, want, file, { proxy: proxyForVideo(url), onProgress, only });
+    if (got === 'refused') throw new Error('the stream links were refused');
+    return got === 'ok' ? [{ ...want, file }] : null;
+  };
+  const ways: Record<(typeof plan.footage)[number], () => Promise<Section[] | null>> = {
+    'dash-ranges': byRange('dash'),
+    'hls-pieces': byRange('hls'),
+    'ytdlp-cut': async () => {
+      // a refused or broken stream is often fine a few seconds later: one more go before giving up on the part
+      try {
+        return await downloadSections(url, secDir, [r], (d) => onProgress(d), info);
+      } catch (e) {
+        console.warn(`[project ${p.id}] part ${r.start}–${r.end} failed once (${(e as Error).message.slice(0, 120)}) — trying again in 8 s`);
+        await new Promise((res) => setTimeout(res, 8000));
+        return downloadSections(url, secDir, [r], (d) => onProgress(d), info);
+      }
+    },
+    'whole-file': async () => null, // handled by prefetchFootage once every way of cutting a part has failed
+  };
+  const got = await firstThatWorks(
+    `[project ${p.id}] part ${want.start}–${want.end}s`,
+    plan.footage.filter((w) => w !== 'whole-file').map((name) => ({ name, run: ways[name] })),
+  );
+  if (!got) throw new Error(`Could not fetch ${want.start}–${want.end}s of the video.`);
+  return got.value;
 }
 
 /**
@@ -181,9 +202,9 @@ export async function prefetchFootage(
       }),
     );
   } catch (e) {
-    // YouTube always allows parts: a failure there is a block or a hiccup, and the whole video (gigabytes, through
-    // the proxy when blocked) would fare no better — the clip shows the error and can be retried
-    if (/youtu\.?be/i.test(idx.url)) throw e;
+    // YouTube and Twitch always allow parts: a failure there is a block or a hiccup, and the whole video (gigabytes,
+    // through the proxy when blocked) would fare no better — the clip shows the error and can be retried
+    if (!planFor(sourceKindOf('url', idx.url)).footage.includes('whole-file')) throw e;
     // Some sites don't allow downloading just a part. Fall back to the whole video once, then everything uses it.
     await withLock(p.id, async () => {
       if (!readFootage(dir)) return; // another worker already switched
