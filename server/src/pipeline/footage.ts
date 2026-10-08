@@ -129,7 +129,18 @@ function fetchRange(p: ProjectRow, dir: string, r: { start: number; end: number 
       const info = infoJsonPath(dir);
       let fast = fs.existsSync(info) ? await fetchPartFast(info, want, file, { proxy: proxyForVideo(idx.url), onProgress }) : 'unsupported';
       if (fast === 'refused' && (await refreshedInfo(p.id, idx.url, info))) fast = await fetchPartFast(info, want, file, { proxy: proxyForVideo(idx.url), onProgress });
-      const got = fast === 'ok' ? [{ ...want, file }] : await downloadSections(idx.url, secDir, [r], (d) => onProgress(d), info);
+      let got: Section[];
+      if (fast === 'ok') got = [{ ...want, file }];
+      else {
+        // a refused or broken stream is often fine a few seconds later: one more go before giving up on the part
+        try {
+          got = await downloadSections(idx.url, secDir, [r], (d) => onProgress(d), info);
+        } catch (e) {
+          console.warn(`[project ${p.id}] part ${r.start}–${r.end} failed once (${(e as Error).message.slice(0, 120)}) — trying again in 8 s`);
+          await new Promise((res) => setTimeout(res, 8000));
+          got = await downloadSections(idx.url, secDir, [r], (d) => onProgress(d), info);
+        }
+      }
       await recordSections(p, dir, got);
     },
     { wait: true, ttlMs: 120_000 },
@@ -170,6 +181,9 @@ export async function prefetchFootage(
       }),
     );
   } catch (e) {
+    // YouTube always allows parts: a failure there is a block or a hiccup, and the whole video (gigabytes, through
+    // the proxy when blocked) would fare no better — the clip shows the error and can be retried
+    if (/youtu\.?be/i.test(idx.url)) throw e;
     // Some sites don't allow downloading just a part. Fall back to the whole video once, then everything uses it.
     await withLock(p.id, async () => {
       if (!readFootage(dir)) return; // another worker already switched
