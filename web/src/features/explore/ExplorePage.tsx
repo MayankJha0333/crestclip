@@ -70,7 +70,7 @@ function FeedSection({ title, subtitle, action, children, loading }: { title: st
 export function ExplorePage() {
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
-  // YouTube in Explore is on Creator and Pro — Free only ever sees Twitch here
+  // YouTube in Explore: on every plan today (a plan with youtubeSource off would only see Twitch here)
   const ytOk = useAccount().plan.youtubeSource !== false;
   const source = (!ytOk || params.get('source') === 'twitch' ? 'twitch' : 'youtube') as ExploreSource;
   const q = params.get('q') ?? '';

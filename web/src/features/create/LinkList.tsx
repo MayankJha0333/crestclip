@@ -39,7 +39,7 @@ export function LinkList({
   onDraft: (v: string) => void;
   onFile: (f: File) => void;
   onSubmit: () => void;
-  /** YouTube links allowed on this plan (Creator and Pro) */
+  /** YouTube links allowed on this plan */
   youtube?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);

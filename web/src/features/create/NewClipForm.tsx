@@ -121,7 +121,7 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
   const account = useAccount();
   const { refresh } = useAuth();
   const plan = account.plan;
-  const ytOk = plan.youtubeSource !== false; // YouTube links: Creator and Pro
+  const ytOk = plan.youtubeSource !== false; // YouTube links: every plan (the switch stays, in case a plan ever turns them off)
   const MAX_VIDEOS = plan.maxVideosPerProject;
   const balance = account.credits.balance;
   // what this will cost: credits per clip × clips × videos (unused clips are given back)

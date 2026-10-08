@@ -21,7 +21,7 @@ exploreRouter.get(
   '/search',
   asyncHandler(async (req, res) => {
     const q = validate(searchQuerySchema, req.query, 'Type something to search for.');
-    if (q.source === 'youtube') assertYoutubeSource(me(req)); // YouTube in Explore is on Creator and Pro
+    if (q.source === 'youtube') assertYoutubeSource(me(req)); // YouTube in Explore: only if the plan allows YouTube links (all plans today)
     res.json(await service.search(q).catch(sourceFailed));
   }),
 );

@@ -69,7 +69,7 @@ export const PLANS: Record<PlanId, Plan> = {
     exportHeight: 1280,
     scheduling: false,
     autopilot: false,
-    youtubeSource: false,
+    youtubeSource: true,
     storageDays: config.retentionDays,
     points: [], // filled in below from the limits
   },
