@@ -17,9 +17,10 @@ export function CaptionSample({ style, scale = 1 }: { style: CaptionStyle; scale
 }
 
 /** Caption style tiles — each shows a live sample of the style. */
-export function CaptionPicker({ value, onChange, compact }: { value: CaptionStyle; onChange: (v: CaptionStyle) => void; compact?: boolean }) {
+/** `fitContainer`: go to 6 in a row by the width of the nearest `@container`, not the screen (for narrow columns). */
+export function CaptionPicker({ value, onChange, compact, fitContainer }: { value: CaptionStyle; onChange: (v: CaptionStyle) => void; compact?: boolean; fitContainer?: boolean }) {
   return (
-    <div role="group" aria-label="Caption style" className={cn('grid grid-cols-3 gap-2.5', !compact && 'sm:grid-cols-6')}>
+    <div role="group" aria-label="Caption style" className={cn('grid grid-cols-3 gap-2.5', !compact && (fitContainer ? '@xl:grid-cols-6' : 'sm:grid-cols-6'))}>
       {CAPTION_ORDER.map((s) => (
         <button
           key={s}
@@ -33,7 +34,7 @@ export function CaptionPicker({ value, onChange, compact }: { value: CaptionStyl
           )}
         >
           <span className={cn('grid place-items-center overflow-hidden rounded-xl bg-[radial-gradient(circle_at_30%_30%,#7b6a8e,#2f2540)] p-1.5', compact ? 'h-11' : 'h-16')}>
-            <CaptionSample style={s} scale={compact ? 0.5 : 0.7} />
+            <CaptionSample style={s} scale={compact ? 0.5 : 0.6} />
           </span>
           <span className={cn('text-center font-extrabold', compact ? 'text-xs' : 'text-[13px]')}>{CAPTIONS[s].name}</span>
         </button>

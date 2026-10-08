@@ -99,8 +99,8 @@ function Step({ n, title, hint, done, children, last }: { n: number; title: stri
 }
 
 /**
- * Start a project. Left: what to clip (links or a file, plus instructions).
- * Right: how the clips look, with a live phone preview — then go.
+ * Start a project. Left: three steps — what to clip, what the AI should look for, how the clips look.
+ * Right (stays in view while scrolling): a live phone preview, how many clips and how long — then go.
  * Several links become ONE project that holds every video.
  */
 export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
@@ -141,7 +141,7 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
   const videos = mode === 'upload' ? 1 : folderLink ? Math.max(1, folderVideos) : Math.max(1, links.length);
   // one YouTube link: its length, so the clip count and the wait can be sized to the video
   const peek = useLinkPeek(mode === 'link' && links.length === 1 && !folderLink && linkInfos0(links[0], ytOk) ? links[0] : null);
-  const knownDur = mode === 'upload' ? fileDur : peek?.duration ?? null;
+  const knownDur = mode === 'upload' ? fileDur : (peek?.duration ?? null);
   useEffect(() => {
     if (!knownDur || countTouched || brief0(instructions)) return;
     // a first-timer on the free credits starts with 3 clips, so one try doesn't use up most of the month
@@ -154,8 +154,7 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
   const linkInfos = links.map((u) => ({ url: u, info: detectLink(u, { youtube: ytOk }) }));
   const brief = previewInstructions(instructions);
   const newFromBrief = brief.links.filter((u) => !links.includes(u));
-  const videoReady =
-    mode === 'upload' ? Boolean(file) : folderLink ? !folderMixed && folderVideos > 0 : links.length > 0 && linkInfos.every((l) => l.info && !l.info.error);
+  const videoReady = mode === 'upload' ? Boolean(file) : folderLink ? !folderMixed && folderVideos > 0 : links.length > 0 && linkInfos.every((l) => l.info && !l.info.error);
   const set = <K extends keyof ProjectOptions>(k: K, v: ProjectOptions[K]) => setOpts((o) => ({ ...o, [k]: v }));
   const watermark = useWatermark();
   // the instructions win over the picks for whatever they say about the logo
@@ -181,7 +180,10 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
     setBusy(true);
     try {
       if (mode === 'link') {
-        if (!links.length) throw new Error(ytOk ? 'Paste a full video link first (YouTube, Twitch, Google Drive, Dropbox…)' : 'Paste a full video link first (Google Drive, Dropbox, Twitch…), or upload the video file.');
+        if (!links.length)
+          throw new Error(
+            ytOk ? 'Paste a full video link first (YouTube, Twitch, Google Drive, Dropbox…)' : 'Paste a full video link first (Google Drive, Dropbox, Twitch…), or upload the video file.',
+          );
         const bad = linkInfos.find((l) => !l.info || l.info.error);
         if (bad) throw new Error(bad.info?.error ? `${bad.info.label}: ${bad.info.error}` : `“${bad.url}” isn’t a video link`);
         if (folderLink) {
@@ -229,18 +231,18 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
       ? folderLink
         ? 'Reading your folder…'
         : instructions.trim()
-        ? 'Reading your instructions…'
-        : 'Starting…'
+          ? 'Reading your instructions…'
+          : 'Starting…'
       : folderLink && folderVideos
         ? `Clip ${folderVideos === 1 ? '1 video' : `up to ${folderVideos} videos`} from the folder`
         : many
           ? `Clip ${links.length} videos`
-        : 'Find the best moments';
+          : 'Find the best moments';
 
   return (
     <form
       onSubmit={submit}
-      className="relative grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_390px]"
+      className="relative grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,1fr)_380px]"
       onDragOver={(e) => {
         if (busy || !e.dataTransfer.types.includes('Files')) return;
         e.preventDefault();
@@ -270,9 +272,7 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
           title={mode === 'upload' ? 'Upload your video' : folderLink && !folderMixed ? 'Your Drive folder' : links.length > 1 ? `Your videos · ${links.length}` : 'Add your videos'}
           hint={
             <span className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-              {mode === 'upload'
-                ? 'One file at a time — or drop it anywhere on this card.'
-                : `One link or many (up to ${MAX_VIDEOS}) — they all go into one project. A Google Drive folder works too.`}
+              {mode === 'upload' ? 'One file at a time — or drop it anywhere on this card.' : `One link or many (up to ${MAX_VIDEOS}) — they all go into one project. A Google Drive folder works too.`}
               <Segmented
                 label="Source"
                 size="sm"
@@ -381,7 +381,7 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
           )}
         </Step>
 
-        <Step n={2} last done={Boolean(instructions.trim())} title="Tell the AI what you want" hint="Optional — every clip follows these rules. You can paste a whole brief.">
+        <Step n={2} done={Boolean(instructions.trim())} title="Tell the AI what you want" hint="Optional — every clip follows these rules. You can paste a whole brief.">
           <textarea
             aria-label="Instructions for the AI"
             rows={instructions ? Math.min(10, Math.max(3, instructions.split('\n').length + 1)) : 3}
@@ -428,13 +428,35 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
             </div>
           )}
         </Step>
+
+        <Step n={3} last title="Make them look yours" hint="Captions, music and your logo. The phone preview changes as you pick.">
+          <div className="flex flex-col gap-5 @container">
+            <div>
+              <FieldLabel>Caption style</FieldLabel>
+              <CaptionPicker fitContainer value={opts.captionStyle} onChange={(v) => set('captionStyle', v)} />
+            </div>
+            <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2">
+              <label className="flex items-center justify-between gap-3 rounded-2xl bg-row px-3.5 py-2.5 shadow-flat">
+                <span className="min-w-0">
+                  <b className="block text-sm">Background music</b>
+                  <span className="block text-xs text-ink-3">{opts.music === 'none' ? 'Off — just the video’s own sound' : 'On, quietly under the voice · change the mood in More options'}</span>
+                </span>
+                <Toggle checked={opts.music !== 'none'} onChange={(on) => set('music', on ? 'auto' : 'none')}>
+                  <span className="sr-only">Background music</span>
+                </Toggle>
+              </label>
+              <ClipSettings value={opts} onChange={setOpts} />
+            </div>
+            <LogoPicker value={opts.logo} onChange={(v) => set('logo', v)} ask={textLogo} />
+          </div>
+        </Step>
       </div>
 
-      {/* ---------- right: how the clips look + go ---------- */}
-      <aside className="flex flex-col gap-4 rounded-[28px] bg-surface p-5 shadow-clay lg:sticky lg:top-6">
+      {/* ---------- right: the preview, how many clips + go ---------- */}
+      <aside className="flex flex-col gap-4 rounded-[28px] bg-surface p-5 shadow-clay xl:sticky xl:top-6">
         <h2 className="text-xl">Your clips</h2>
 
-        <div className="grid grid-cols-[150px_minmax(0,1fr)] items-start gap-4">
+        <div className="grid grid-cols-[170px_minmax(0,1fr)] items-start gap-4">
           <LivePreview
             opts={opts}
             link={mode === 'link' ? (links[0] ?? null) : null}
@@ -479,7 +501,7 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
                 {knownDur ? `${fmtTime(knownDur)} video · ` : ''}~{wait} min wait{videos > 1 ? ' per video' : ''}
               </small>
             </div>
-            <label className="flex flex-col">
+            <label className="flex max-w-56 flex-col">
               <FieldLabel>Length</FieldLabel>
               {brief.length && instructions.trim() ? (
                 <span className="rounded-2xl bg-good-bg px-3 py-2 text-sm font-bold text-good-ink">{brief.length} · from your text</span>
@@ -496,25 +518,6 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
             <p className="text-xs leading-snug text-ink-3">The preview shows your hook headline and caption style. Each clip gets its own words.</p>
           </div>
         </div>
-
-        <div>
-          <FieldLabel>Caption style</FieldLabel>
-          <CaptionPicker compact value={opts.captionStyle} onChange={(v) => set('captionStyle', v)} />
-        </div>
-
-        <label className="flex items-center justify-between gap-3 rounded-2xl bg-row px-3.5 py-2.5 shadow-flat">
-          <span className="min-w-0">
-            <b className="block text-sm">Background music</b>
-            <span className="block text-xs text-ink-3">{opts.music === 'none' ? 'Off — just the video’s own sound' : 'On, quietly under the voice · change the mood in More options'}</span>
-          </span>
-          <Toggle checked={opts.music !== 'none'} onChange={(on) => set('music', on ? 'auto' : 'none')}>
-            <span className="sr-only">Background music</span>
-          </Toggle>
-        </label>
-
-        <LogoPicker value={opts.logo} onChange={(v) => set('logo', v)} ask={textLogo} />
-
-        <ClipSettings value={opts} onChange={setOpts} />
 
         {error && (
           <p role="alert" className="flex items-start gap-2 rounded-2xl bg-bad-bg px-3.5 py-3 text-sm font-bold text-bad-ink">
@@ -537,7 +540,10 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
               {!busy && <Wand2 size={20} />}
               {submitLabel}
             </Button>
-            <p className="mt-2.5 text-center text-xs text-ink-3" title={`${cost.toLocaleString()} of your ${balance.toLocaleString()} credits (${perClip} per clip); clips that don’t come out are refunded`}>
+            <p
+              className="mt-2.5 text-center text-xs text-ink-3"
+              title={`${cost.toLocaleString()} of your ${balance.toLocaleString()} credits (${perClip} per clip); clips that don’t come out are refunded`}
+            >
               Up to {(opts.clipCount * videos).toLocaleString()} clip{opts.clipCount * videos === 1 ? '' : 's'} · you can make {Math.floor(balance / perClip).toLocaleString()} more
               {cost > balance &&
                 (folderLink ? (
