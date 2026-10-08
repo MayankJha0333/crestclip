@@ -126,6 +126,7 @@ export async function processProject(id: string) {
   console.log(
     `[project ${id}] AI usage: ${t.calls} calls · in ${(t.text / 1000).toFixed(0)}K text + ${(t.audio / 1000).toFixed(0)}K audio + ${(t.video / 1000).toFixed(0)}K video + ${(t.image / 1000).toFixed(0)}K image tokens · out ${(t.output / 1000).toFixed(1)}K (${(t.thoughts / 1000).toFixed(1)}K thinking)`,
   );
+  console.log(`[project ${id}] AI time by step: ${aiUsage.byLabel.map((r) => `${r.label} ×${r.calls} ${(r.ms / 1000).toFixed(0)}s`).join(' · ')}`);
 }
 
 async function runProject(id: string) {
@@ -309,7 +310,9 @@ async function runProject(id: string) {
 
     // ---------- 4. find moments ----------
     stage(id, 'moments', 0.05, 'Reading the audience heatmap…');
+    const t0 = Date.now();
     const comments = await commentsP;
+    if (Date.now() - t0 > 2000) console.log(`[project ${id}] waited ${((Date.now() - t0) / 1000).toFixed(0)}s for the comments`);
     const signals: Signals = buildSignals({
       duration,
       heatmap: info?.heatmap ?? null,
@@ -391,6 +394,7 @@ async function runProject(id: string) {
     }
     // an upload named "6AA26DA6 8EC2 404C…" or "IMG 4021" gets the AI's title for the video (a link keeps its real title)
     if (videoTitle && !info && junkTitle(p.title)) await projects.update(id, { title: videoTitle });
+    console.log(`[project ${id}] ${cands.length} candidates found (${sinceStart(id)})`);
     let picked = snapClips(cands, tr.segments, sil, duration, p.options);
     if (noSpeech && pr.width && src) picked = await snapToShots(picked, src, duration); // start and end on a camera cut
     // a separate, blind judge grades the clips (the picker marks its own picks far too kindly)
@@ -737,8 +741,9 @@ async function renderOnce(clipId: string) {
     const thumbOut = path.join(dir, 'clips', `${c.id}_v${version}.jpg`);
     await thumbnail(out, Math.min(1.2, total / 3), thumbOut, 540).catch(() => {});
 
-    // keep a copy in the cloud bucket, then remove the previous render (here and there)
-    await Promise.all([saveToCloud(out), saveToCloud(fs.existsSync(thumbOut) ? thumbOut : null)]);
+    // the clip is served from this disk right away; its cloud copy is made in the background (a slow or flaky
+    // upload used to hold the clip at "rendering" for a minute — and the storage pass copies any file it misses)
+    void Promise.all([saveToCloud(out), saveToCloud(fs.existsSync(thumbOut) ? thumbOut : null)]);
     for (const old of [c.filePath, c.thumbPath])
       if (old && old !== out && old !== thumbOut) {
         fs.rmSync(old, { force: true });
