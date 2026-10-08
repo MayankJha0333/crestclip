@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import { format } from 'node:util';
 import { Queue as BullQueue, QueueEvents, Worker, type Job } from 'bullmq';
@@ -7,6 +8,12 @@ import { config } from '../config.js';
 import { clips, projects } from '../db/index.js';
 import { ensureRedis } from './redis.js';
 import { activity } from '../lib/activity.js';
+
+/**
+ * This process's name in the queue. The workers run with the server's own network, so every container sees the same
+ * hostname and usually the same pid (1) — a short random part keeps two workers from looking like one.
+ */
+const WORKER_NAME = `${os.hostname()}-${process.pid}-${randomUUID().slice(0, 6)}`;
 
 /**
  * CrestClip's work queue.
@@ -281,7 +288,7 @@ export async function startWorkers(): Promise<boolean> {
       {
         connection: dup(),
         prefix: PREFIX,
-        name: `${os.hostname()}-${process.pid}`, // which container — shown in the dashboard's worker list
+        name: WORKER_NAME, // which worker process — the dashboard counts workers by this name
         concurrency: Math.max(1, concurrency),
         lockDuration: LOCK_MS, // a worker that stops renewing for 3 min (dead, frozen) loses the job to another
         stalledInterval: Math.min(60_000, LOCK_MS / 2),
