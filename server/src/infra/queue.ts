@@ -201,7 +201,8 @@ async function add(
 
 /** `front` = a person is waiting for it (New clips, Retry); resumed and Autopilot work queues behind. */
 export const enqueueProject = (id: string, front = false) => add('project', id, { id }, front);
-export const enqueueRender = (clipId: string) => add('render', clipId, { clipId }, false);
+/** `front` = part of a video someone is waiting on right now (its clips go before Autopilot and re-renders). */
+export const enqueueRender = (clipId: string, front = false) => add('render', clipId, { clipId }, front);
 /** Prepare hand-picked parts of a project, then render them (see projects.service runPick). */
 export const enqueuePick = (data: { projectId: string; ids: string[]; paid: string | null }) => add('pick', `${data.projectId}-${data.ids.join('_')}`.slice(0, 200), data, true);
 

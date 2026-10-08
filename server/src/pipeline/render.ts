@@ -108,7 +108,9 @@ function buildVideoGraph(plan: ReframePlan, w: number, h: number, smooth = false
   if (layout === 'fit' || (layout === 'split' && !plan.splitCenters)) {
     return [
       `[0:v]split=2[bgsrc][fgsrc]`,
-      `[bgsrc]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=28:3,eq=brightness=-0.07:saturation=1.15[bg]`,
+      // the blurred backdrop is made at a quarter size and scaled back up: a blur this heavy looks the same, and it
+      // costs a fraction of blurring 1080×1920 pixels on every frame
+      `[bgsrc]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=7:3,eq=brightness=-0.07:saturation=1.15,scale=1080:1920:flags=bilinear[bg]`,
       `[fgsrc]scale=1080:-2:flags=lanczos[fg]`,
       `[bg][fg]overlay=(W-w)/2:(H-h)/2-90,setsar=1[v0]`,
     ].join(';');

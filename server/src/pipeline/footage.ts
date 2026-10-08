@@ -70,7 +70,7 @@ function planRanges(ranges: { start: number; end: number }[], duration: number) 
   return out;
 }
 
-// one download at a time per project (clips rendering in parallel may ask for footage together)
+// the index file (footage.json) is written by one process at a time; downloads themselves run side by side
 const locks = new Map<string, Promise<unknown>>();
 function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const prev = locks.get(key) ?? Promise.resolve();
@@ -81,41 +81,11 @@ function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   return next;
 }
 
-/** Download the video parts for these ranges that aren't on disk yet. */
-export function prefetchFootage(p: ProjectRow, dir: string, ranges: { start: number; end: number }[], onProgress: (done: number, total: number, detail: string) => void = () => {}): Promise<void> {
+/** Add downloaded parts to the index (skipping any another worker added meanwhile). */
+function recordSections(p: ProjectRow, dir: string, got: Section[]) {
   return withLock(p.id, async () => {
-    const idx = readFootage(dir);
-    if (!idx) return;
-    const missing = ranges.filter((r) => !idx.sections.some((s) => covers(s, r.start, r.end)));
-    if (!missing.length) return;
-    let got: Section[];
-    try {
-      // YouTube serves each part at roughly playback speed, so fetch up to 3 parts at the same time.
-      const plan = planRanges(missing, p.duration ?? 0);
-      const done = new Array(plan.length).fill(0);
-      const report = () => {
-        const sum = done.reduce((a, b) => a + b, 0);
-        onProgress(sum, plan.length, `part ${Math.min(plan.length, Math.floor(sum) + 1)} of ${plan.length}`);
-      };
-      got = (
-        await pool(plan, 3, (r, i) =>
-          downloadSections(idx.url, path.join(dir, 'sections'), [r], (d) => ((done[i] = Math.max(done[i], d)), report()), infoJsonPath(dir)).then((x) => {
-            done[i] = 1;
-            report();
-            return x;
-          }),
-        )
-      ).flat();
-    } catch (e) {
-      // Some sites don't allow downloading just a part. Fall back to the whole video once, then everything uses it.
-      console.warn(`[project ${p.id}] part download failed (${(e as Error).message.slice(0, 200)}) — downloading the whole video instead`);
-      const full = await download(idx.url, dir, (pct, d) => onProgress(pct / 100, 1, `whole video · ${d}`), infoJsonPath(dir));
-      const pr = await probe(full);
-      await projects.update(p.id, { mediaPath: full, width: pr.width, height: pr.height });
-      endSectionMode(dir);
-      return;
-    }
-    const cur = readFootage(dir) ?? idx;
+    const cur = readFootage(dir);
+    if (!cur) return; // switched to the whole video meanwhile
     for (const s of got) {
       if (cur.sections.some((x) => x.file === s.file)) continue;
       // trust the real length of the file over the requested range (e.g. near the end of the video)
@@ -127,6 +97,73 @@ export function prefetchFootage(p: ProjectRow, dir: string, ranges: { start: num
     writeFootage(dir, cur);
   });
 }
+
+// one download per part, however many clips (or workers) ask for it
+const fetching = new Map<string, Promise<void>>();
+function fetchRange(p: ProjectRow, dir: string, r: { start: number; end: number }, onProgress: (frac: number) => void): Promise<void> {
+  const key = `${p.id}:${r.start}-${r.end}`;
+  const cur = fetching.get(key);
+  if (cur) return cur;
+  const job = withClusterLock(
+    `footage:${key}`,
+    async () => {
+      const idx = readFootage(dir);
+      if (!idx || idx.sections.some((s) => covers(s, r.start, r.end))) return; // another worker got it (or the whole video)
+      const got = await downloadSections(idx.url, path.join(dir, 'sections'), [r], (d) => onProgress(d), infoJsonPath(dir));
+      await recordSections(p, dir, got);
+    },
+    { wait: true, ttlMs: 120_000 },
+  ).then(() => {});
+  fetching.set(key, job);
+  job.finally(() => fetching.get(key) === job && fetching.delete(key)).catch(() => {});
+  return job;
+}
+
+/**
+ * Download the video parts for these ranges that aren't on disk yet — several at once: YouTube serves each part at
+ * about playback speed, so eight at a time finish in an eighth of the time. Each part is on its own, so a clip's
+ * render can start the moment its part lands (see process.ts) rather than when every part has.
+ */
+export async function prefetchFootage(
+  p: ProjectRow,
+  dir: string,
+  ranges: { start: number; end: number }[],
+  onProgress: (done: number, total: number, detail: string) => void = () => {},
+  /** exact: the ranges are already padded download ranges (from downloadPlan) — fetch them as they are */
+  opts: { exact?: boolean } = {},
+): Promise<void> {
+  const idx = readFootage(dir);
+  if (!idx) return;
+  const missing = ranges.filter((r) => !idx.sections.some((s) => covers(s, r.start, r.end)));
+  if (!missing.length) return;
+  const plan = opts.exact ? missing : planRanges(missing, p.duration ?? 0);
+  const done = new Array(plan.length).fill(0);
+  const report = () => {
+    const sum = done.reduce((a, b) => a + b, 0);
+    onProgress(sum, plan.length, `part ${Math.min(plan.length, Math.floor(sum) + 1)} of ${plan.length}`);
+  };
+  try {
+    await pool(plan, config.sectionDownloads, (r, i) =>
+      fetchRange(p, dir, r, (d) => ((done[i] = Math.max(done[i], d)), report())).then(() => {
+        done[i] = 1;
+        report();
+      }),
+    );
+  } catch (e) {
+    // Some sites don't allow downloading just a part. Fall back to the whole video once, then everything uses it.
+    await withLock(p.id, async () => {
+      if (!readFootage(dir)) return; // another worker already switched
+      console.warn(`[project ${p.id}] part download failed (${(e as Error).message.slice(0, 200)}) — downloading the whole video instead`);
+      const full = await download(idx.url, dir, (pct, d) => onProgress(pct / 100, 1, `whole video · ${d}`), infoJsonPath(dir));
+      const pr = await probe(full);
+      await projects.update(p.id, { mediaPath: full, width: pr.width, height: pr.height });
+      endSectionMode(dir);
+    });
+  }
+}
+
+/** The padded, merged download ranges for these clip parts (what prefetchFootage would fetch). */
+export const downloadPlan = (ranges: { start: number; end: number }[], duration: number) => planRanges(ranges, duration);
 
 /** The file (and time offset) to cut [start, end] from. Downloads the part if needed. */
 export async function footageFor(p: ProjectRow, dir: string, start: number, end: number): Promise<Footage> {

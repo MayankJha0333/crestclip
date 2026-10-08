@@ -148,7 +148,21 @@ export const config = {
     gaId: env('GA_MEASUREMENT_ID'),
     clarityId: env('CLARITY_PROJECT_ID'),
   },
-  sendVideoToGemini: env('GEMINI_SEND_VIDEO', 'true') !== 'false',
+  /**
+   * Also let Gemini watch the video (≤45 min) while it looks for moments. Off by default: it adds minutes to every
+   * video, and the transcript + rewatch graph + comments already say where the moments are.
+   */
+  sendVideoToGemini: env('GEMINI_SEND_VIDEO', 'false') === 'true',
+  /** How hard the moment-finding call thinks: MINIMAL | LOW | MEDIUM | HIGH. LOW is 2–3× faster than MEDIUM. */
+  momentsThinking: env('MOMENTS_THINKING', 'LOW') as 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH',
+  /** Transcription requests (30-second pieces) in flight at once. */
+  transcribeParallel: num('TRANSCRIBE_PARALLEL', 24),
+  /**
+   * Use the video site's own captions (YouTube's speech recognition) as the first transcript, so a 2-hour video needs
+   * no audio download and no transcription before its moments are found. The clip parts are transcribed properly
+   * (clean phrasing, the chosen script) just before they're rendered. Off = always transcribe the whole video first.
+   */
+  captionsFirst: env('CAPTIONS_FIRST', 'true') !== 'false',
   fakeAi: env('CRESTCLIP_FAKE_AI') === '1',
 
   // Tools
@@ -200,6 +214,8 @@ export const config = {
   smartMinMinutes: num('SMART_DOWNLOAD_MIN_MINUTES', 8),
   // extra seconds kept around each clip part, so small trims in the editor don't need another download
   sectionPad: num('SECTION_PAD_SECONDS', 20),
+  /** Clip parts downloaded at once per video (each arrives at about playback speed, so more at once = done sooner). */
+  sectionDownloads: num('SECTION_DOWNLOADS', 8),
   // Background music: Google's Lyria model on Vertex AI (same project/credits as Gemini)
   musicModel: env('MUSIC_MODEL', 'lyria-002'),
   musicLocation: env('MUSIC_LOCATION', 'us-central1'),
@@ -224,7 +240,8 @@ export const config = {
   jobIdleMinutes: num('JOB_IDLE_MINUTES', 30),
   /** A job that waited in line this long without starting (e.g. no worker running) is cancelled and refunded. */
   queueMaxWaitHours: num('QUEUE_MAX_WAIT_HOURS', 24),
-  x264Preset: env('X264_PRESET', 'medium'),
+  /** x264 speed/quality trade-off for the final clips. veryfast is ~2× faster than medium and looks the same on a phone. */
+  x264Preset: env('X264_PRESET', 'veryfast'),
 };
 
 export const aiReady = () => config.fakeAi || Boolean(config.gcpProject) || Boolean(config.vertexApiKey);

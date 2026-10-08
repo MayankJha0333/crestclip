@@ -366,10 +366,11 @@ export async function downloadSections(
       '--merge-output-format',
       'mp4',
       ...want.flatMap((r) => ['--download-sections', `*${r.start}-${r.end}`]),
-      '--force-keyframes-at-cuts',
-      // cut exactly (re-encode) at high quality — the final render re-encodes anyway
+      // The part is copied as it comes (no re-encode: that used to cost a full 1080p encode per clip before the real
+      // one). ffmpeg starts at the keyframe before `start` and marks the file so that its time 0 is `start` exactly —
+      // checked frame by frame — so the clip cut from it lands where the transcript says.
       '--downloader-args',
-      'ffmpeg_o:-c:v libx264 -preset veryfast -crf 19 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart -f mp4',
+      'ffmpeg_o:-movflags +faststart -f mp4',
       '-o',
       path.join(dir, 'sec_%(section_start)d-%(section_end)d.%(ext)s'),
     ],
@@ -414,6 +415,25 @@ export interface TimedWord {
  * none. The text is not used — only the timing.
  */
 export async function fetchWordTimings(url: string, dir: string, infoJson: string): Promise<TimedWord[] | null> {
+  // fetched once per video: every clip asks for them again when its captions are made
+  const cache = path.join(dir, 'words.json');
+  try {
+    const c = JSON.parse(fs.readFileSync(cache, 'utf8')) as TimedWord[] | null;
+    if (c === null || (Array.isArray(c) && c.length)) return c;
+  } catch {
+    /* not fetched yet */
+  }
+  const words = await readWordTimings(url, dir, infoJson);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(cache, JSON.stringify(words));
+  } catch {
+    /* the cache is only a shortcut */
+  }
+  return words;
+}
+
+async function readWordTimings(url: string, dir: string, infoJson: string): Promise<TimedWord[] | null> {
   let auto: Record<string, { ext?: string; url?: string }[]> = {};
   let lang: string | null = null;
   try {

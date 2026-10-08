@@ -59,7 +59,15 @@ export interface ProjectRow {
   aiNotes: string | null;
   /** AI tokens this project used (saved when it finishes), so its real cost can be read off the database */
   aiUsage?: AiUsage | null;
+  /** when the work on this video started (the page shows the time elapsed) */
+  startedAt?: number | null;
+  /** when it's expected to be done (a running estimate, from how long each step usually takes) */
+  etaAt?: number | null;
+  /** what the AI found and did, as it happened — shown on the page while people wait (newest last, capped) */
+  feed?: { t: number; text: string; kind?: 'moment' | 'clip' | 'info' }[] | null;
 }
+
+export type FeedItem = NonNullable<ProjectRow['feed']>[number];
 
 const col = () => collection<Doc<ProjectRow>>(COLLECTIONS.projects);
 const toProject = (d: Doc<ProjectRow>): ProjectRow => {
@@ -93,10 +101,13 @@ const UPDATABLE = [
   'aiUsage',
   'creditsCharged',
   'errorCode',
+  'startedAt',
+  'etaAt',
+  'feed',
 ] as const;
 
 /** Fields the projects list needs (the big transcript and signals stay out). */
-const LIST_FIELDS = { transcript: 0, signals: 0, description: 0, aiNotes: 0, mediaPath: 0 } as const;
+const LIST_FIELDS = { transcript: 0, signals: 0, description: 0, aiNotes: 0, mediaPath: 0, feed: 0 } as const;
 
 export const projects = {
   async create(p: { userId: string; sourceType: 'url' | 'upload' | 'group'; sourceUrl?: string; title?: string; options: ProjectOptions; parentId?: string | null }): Promise<ProjectRow> {
@@ -160,6 +171,10 @@ export const projects = {
   },
   async update(id: string, patch: Partial<Omit<ProjectRow, 'id' | 'createdAt'>>) {
     await col().updateOne({ _id: id }, { $set: setFields(patch, UPDATABLE) });
+  },
+  /** Add a line to the project's live feed (atomic, so clips finishing on different workers can all write). */
+  async note(id: string, item: FeedItem) {
+    await col().updateOne({ _id: id }, { $push: { feed: { $each: [item], $slice: -40 } } });
   },
   /** Delete a project with its clips (and those clips' posts and Autopilot entries). Its videos are removed by the caller. */
   async remove(id: string) {

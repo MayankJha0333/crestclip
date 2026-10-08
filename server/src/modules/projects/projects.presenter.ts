@@ -59,6 +59,9 @@ export function publicProject(p: ProjectRow, withDetail = false) {
     stageDetail: p.status === 'queued' || p.status === 'processing' ? p.stageDetail : null,
     /** queued: how many videos run before this one (0 = starting now) */
     queueAhead: p.status === 'queued' ? projectQueuePosition(p.id) : null,
+    /** while working: when it started and when it should be done (so the page can show elapsed and "about N min left") */
+    startedAt: p.status === 'processing' ? (p.startedAt ?? null) : null,
+    etaAt: p.status === 'processing' ? (p.etaAt ?? null) : null,
     progress: p.progress,
     error: publicError(p.error),
     /** 'credits' | 'plan_limit' — the person can fix it by upgrading */
@@ -81,6 +84,8 @@ export function publicProject(p: ProjectRow, withDetail = false) {
             : null,
           hasTranscript: Boolean(p.transcript?.length),
           sourceVideoUrl: sourceVideoUrl(p),
+          /** what the AI found and did, as it happened (while working and once done) */
+          feed: p.feed ?? [],
         }
       : {}),
   };

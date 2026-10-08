@@ -192,6 +192,11 @@ export interface Project {
   stageDetail: string | null;
   /** queued: videos running before this one (0 = starting now); null = unknown */
   queueAhead?: number | null;
+  /** while working: when it started, and when it's expected to finish (a running estimate) */
+  startedAt?: number | null;
+  etaAt?: number | null;
+  /** what the AI found and did, as it happened (detail view only) */
+  feed?: { t: number; text: string; kind?: 'moment' | 'clip' | 'info' }[];
   progress: number;
   error: string | null;
   /** set when the person can fix the failure by upgrading or buying credits */

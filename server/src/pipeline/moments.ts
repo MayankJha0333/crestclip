@@ -255,11 +255,11 @@ ${transcriptForPrompt(input.segments)}`;
   type Raw = { notes?: string; video_title?: string; clips: (Omit<ClipCandidate, 'rubric'> & Record<string, number>)[] };
   let raw: Raw;
   try {
-    raw = await generateJson<Raw>({ system: SYSTEM, parts, schema: clipSchema, thinking: 'MEDIUM', lowMediaRes: true, maxOutputTokens: 40000, label: 'find viral moments' });
+    raw = await generateJson<Raw>({ system: SYSTEM, parts, schema: clipSchema, thinking: config.momentsThinking, lowMediaRes: true, maxOutputTokens: 40000, label: 'find viral moments' });
   } catch (e) {
     if (!input.videoPart) throw e;
     // Video input can fail (size limits, preview YouTube support) — fall back to transcript + signals only.
-    raw = await generateJson<Raw>({ system: SYSTEM, parts: [part.text(prompt)], schema: clipSchema, thinking: 'MEDIUM', maxOutputTokens: 40000, label: 'find viral moments' });
+    raw = await generateJson<Raw>({ system: SYSTEM, parts: [part.text(prompt)], schema: clipSchema, thinking: config.momentsThinking, maxOutputTokens: 40000, label: 'find viral moments' });
   }
 
   const clips = parseClips(raw.clips);

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { config } from '../config.js';
 import { withRequiredTags } from './instructions.js';
 import { clips as clipDb, projects, type AiUsage, type ClipDefaults, type ClipRow, type ProjectRow } from '../db/index.js';
-import { limiter, pool, run } from '../lib/proc.js';
+import { limiter, run } from '../lib/proc.js';
 import { projectDir } from '../lib/paths.js';
 import { buildAss, wordsInRange, type EmojiCue } from './captions.js';
 import { part, uploadToGcs, deleteFromGcs, usage, usageTotals, withUsageLedger } from './gemini.js';
@@ -20,13 +20,15 @@ import { crestclipMark, watermarkForRender, watermarkTopBottom } from './waterma
 import { BillingError, chargeProject, refundProject, renderRules, settleProject } from '../modules/billing/billing.service.js';
 import { resolveMusic } from './music.js';
 import { buildSignals, rangeScore } from './signals.js';
-import { sampleSpeech, transcribe } from './transcribe.js';
+import { sampleSpeech, spokenWords, transcribe } from './transcribe.js';
 import { findVisualMoments, mostlySilent, snapToShots, tooLittleSpeech, type VisualSource } from './visual.js';
 import { download, downloadAudio, fetchComments, fetchInfo, fetchWordTimings, type Comment, type SourceInfo } from './ytdlp.js';
-import { endSectionMode, footageFor, footageSavings, infoJsonPath, prefetchFootage, readFootage, startSectionMode } from './footage.js';
+import { downloadPlan, endSectionMode, footageFor, footageSavings, infoJsonPath, prefetchFootage, readFootage, startSectionMode } from './footage.js';
+import { draftTranscript } from './asr.js';
+import { enqueueRender } from '../infra/queue.js';
 import { classifyFileLink, downloadFileLink, fileLinkLabel } from './filelink.js';
 import type { CaptionStyle, Layout, ProjectOptions, ReframePlan, Segment, Signals, TimeRange, Word } from '../types.js';
-import { withClusterLock } from '../infra/shared.js';
+import { BUSY, withClusterLock } from '../infra/shared.js';
 import { touch } from '../lib/activity.js';
 
 type Stage = 'fetch' | 'listen' | 'transcribe' | 'moments' | 'render';
@@ -40,15 +42,55 @@ const STAGE_RANGE: Record<Stage, [number, number]> = {
 
 const progressWrites = new Map<string, Promise<void>>();
 
+// ---------------- "about 2 min left": how long each step usually takes ----------------
+// Seconds per step, from measurements; each finished step nudges its number towards what this server just saw, so
+// the estimate follows the machine it runs on. The render figure is per clip per render slot.
+const STAGE_ORDER: Stage[] = ['fetch', 'listen', 'transcribe', 'moments', 'render'];
+const usual: Record<Stage, number> = { fetch: 12, listen: 8, transcribe: 45, moments: 40, render: 50 };
+const stageStarted = new Map<string, { s: Stage; at: number }>();
+const etaPlan = new Map<string, { clips: number }>();
+function budget(id: string, s: Stage) {
+  if (s !== 'render') return usual[s];
+  const clips = etaPlan.get(id)?.clips ?? 10;
+  return usual.render * Math.ceil(clips / Math.max(1, config.renderConcurrency)) + (readFootage(projectDir(id)) ? 25 : 0);
+}
+/** Seconds still to go: the rest of this step, plus every step after it. */
+function etaSeconds(id: string, s: Stage, frac: number) {
+  let left = budget(id, s) * (1 - frac);
+  for (const later of STAGE_ORDER.slice(STAGE_ORDER.indexOf(s) + 1)) left += budget(id, later);
+  return Math.round(left);
+}
+function learn(id: string, s: Stage, secs: number) {
+  if (secs < 1) return; // skipped steps don't count
+  const per = s === 'render' ? secs / Math.ceil((etaPlan.get(id)?.clips ?? 10) / Math.max(1, config.renderConcurrency)) : secs;
+  usual[s] = Math.max(1, usual[s] * 0.6 + per * 0.4);
+}
+
 /** Show progress. Writes go out one after another per project, and never hold up (or break) the work itself. */
 function stage(id: string, s: Stage, frac = 0, detail = '') {
   touch(); // progress = the job is alive
   const [a, b] = STAGE_RANGE[s];
-  const patch = { stage: s, progress: +(a + (b - a) * Math.max(0, Math.min(1, frac))).toFixed(1), stageDetail: detail };
+  const prev = stageStarted.get(id);
+  if (prev?.s !== s) {
+    if (prev) learn(id, prev.s, (Date.now() - prev.at) / 1000);
+    stageStarted.set(id, { s, at: Date.now() });
+  }
+  const f = Math.max(0, Math.min(1, frac));
+  const patch = { stage: s, progress: +(a + (b - a) * f).toFixed(1), stageDetail: detail, etaAt: Date.now() + etaSeconds(id, s, f) * 1000 };
   const write = (progressWrites.get(id) ?? Promise.resolve()).then(() => projects.update(id, patch)).catch((e) => console.warn(`[project ${id}] progress:`, (e as Error).message));
   progressWrites.set(id, write);
   void write.then(() => progressWrites.get(id) === write && progressWrites.delete(id));
 }
+
+/** A line for the page's live feed ("what the AI found") — never holds up the work. */
+function note(id: string, text: string, kind: 'moment' | 'clip' | 'info' = 'info') {
+  const item = { t: Date.now(), text, kind };
+  // in line with this process's progress writes (a database that applies updates one document at a time can't lose one)
+  const write = (progressWrites.get(id) ?? Promise.resolve()).then(() => projects.note(id, item)).catch(() => {});
+  progressWrites.set(id, write);
+  void write.then(() => progressWrites.get(id) === write && progressWrites.delete(id));
+}
+
 
 /** Wait for queued progress writes, so the final status isn't overwritten by a late one. */
 const progressSaved = (id: string) => progressWrites.get(id) ?? Promise.resolve();
@@ -87,16 +129,16 @@ async function runProject(id: string) {
   const work = path.join(dir, 'work');
   fs.mkdirSync(work, { recursive: true });
   fs.mkdirSync(path.join(dir, 'clips'), { recursive: true });
-  await projects.update(id, { status: 'processing', error: null, errorCode: null });
+  await projects.update(id, { status: 'processing', error: null, errorCode: null, startedAt: Date.now(), etaAt: null, feed: [] });
+  stageStarted.delete(id);
   const startedUsage = { ...usage };
 
   try {
     // Resume: moments already found → only (re)render what's missing.
     const existing = await clipDb.forProject(id);
-    if (p.transcript && p.signals && existing.length && p.mediaPath && fs.existsSync(p.mediaPath)) {
+    if (p.transcript && p.signals && existing.length && ((p.mediaPath && fs.existsSync(p.mediaPath)) || readFootage(dir))) {
       await refreshTranscript(id).catch((e) => console.error(`[project ${id}] transcribing again failed:`, e));
       const todo = (await clipDb.forProject(id)).filter((c) => c.status !== 'ready');
-      await fetchClipFootage(id, todo);
       await renderAll(id, todo);
       await progressSaved(id);
       await projects.update(id, { status: 'done', stage: 'done', progress: 100, stageDetail: '' });
@@ -129,6 +171,9 @@ async function runProject(id: string) {
     }
     let info: SourceInfo | null = null;
     let commentsP: Promise<Comment[]> = Promise.resolve([]);
+    // "captions first": the site's own speech recognition stands in for the transcript, so the moments of a long
+    // video are found without downloading its audio or transcribing it (see asr.ts)
+    let captions: { segments: Segment[]; silences: { s: number; e: number }[] } | null = null;
     if (p.sourceType === 'url' && p.sourceUrl) {
       info = await fetchInfo(p.sourceUrl, infoJsonPath(dir));
       if (info.duration && info.duration > config.maxSourceMinutes * 60)
@@ -142,11 +187,24 @@ async function runProject(id: string) {
         duration: info.duration,
         viewCount: info.viewCount,
       });
+      note(id, `Read the link · “${info.title}” · ${formatClock(info.duration)} long`);
       if (info.isYouTube && p.options.useAudienceData) commentsP = fetchComments(info.webpageUrl);
       if (!src) {
         const smart = config.downloadMode === 'smart' && info.duration >= config.smartMinMinutes * 60 && info.liveStatus !== 'is_live';
         const fetchStage = (label: string) => (pct: number, detail: string) => stage(id, 'fetch', 0.1 + (pct / 100) * 0.85, `${label} · ${detail}`);
-        if (smart) {
+        if (config.captionsFirst && info.isYouTube && info.duration && info.liveStatus !== 'is_live' && !p.noSpeech) {
+          stage(id, 'fetch', 0.1, 'Reading the video’s captions…');
+          const words = await fetchWordTimings(info.webpageUrl, work, infoJsonPath(dir)).catch((e) => (console.warn('[captions first]', (e as Error).message), null));
+          const draft = words ? draftTranscript(words, info.duration) : null;
+          if (draft && !tooLittleSpeech(draft.segments, info.duration)) {
+            captions = draft;
+            note(id, `${spokenWords(draft.segments).toLocaleString('en')} words in the video’s own captions — no transcription needed first`);
+          }
+        }
+        if (captions && smart) {
+          // nothing else is needed before the moments: the video is fetched later, just for the clip parts
+          startSectionMode(dir, info.webpageUrl, info.fullSizeEstimate);
+        } else if (smart) {
           // Long video: grab only the audio now. Video is fetched later, just for the clip parts.
           try {
             src = await downloadAudio(info.webpageUrl, dir, fetchStage('Downloading the audio'), infoJsonPath(dir));
@@ -156,18 +214,18 @@ async function runProject(id: string) {
             src = null;
           }
         }
-        if (!src) src = await download(info.webpageUrl, dir, fetchStage('Downloading'), infoJsonPath(dir));
+        if (!src && !readFootage(dir)) src = await download(info.webpageUrl, dir, fetchStage('Downloading'), infoJsonPath(dir));
       }
     }
-    if (!src) throw new Error('No video file to work with.');
-    const pr = await probe(src, { audioOnlyOk: true });
+    if (!src && !readFootage(dir)) throw new Error('No video file to work with.');
+    const pr = src ? await probe(src, { audioOnlyOk: true }) : { width: 0, height: 0, duration: 0, hasAudio: true };
     if (!pr.width && !readFootage(dir)) throw new Error('This file has no video track.');
     if (pr.width && readFootage(dir)) endSectionMode(dir); // the "audio" download turned out to be a full video — use it as is
     const duration = pr.duration || info?.duration || 0;
     if (!duration) throw new Error('Could not read the video length.');
     await chargeProject(id, duration, `Clipping “${(await projects.get(id))?.title ?? 'your video'}”`); // uploads / file links (links were charged above)
     const thumb = path.join(dir, 'thumb.jpg');
-    if (pr.width) await thumbnail(src, Math.min(duration * 0.15, 60), thumb).catch(() => {});
+    if (src && pr.width) await thumbnail(src, Math.min(duration * 0.15, 60), thumb).catch(() => {});
     else if (info?.thumbnail) await remoteThumbnail(info.thumbnail, thumb, work).catch(() => {});
     await projects.update(id, {
       mediaPath: src,
@@ -177,7 +235,7 @@ async function runProject(id: string) {
       thumbPath: fs.existsSync(thumb) ? thumb : null,
     });
     void saveToCloud(fs.existsSync(thumb) ? thumb : null);
-    stage(id, 'fetch', 1, pr.width ? 'Video ready' : 'Audio ready — video will be fetched only for the clips');
+    stage(id, 'fetch', 1, pr.width ? 'Video ready' : captions ? 'Captions read — video will be fetched only for the clips' : 'Audio ready — video will be fetched only for the clips');
 
     // ---------- 2. listen ----------
     // No talking (no audio track, near-silent, or music only) → "no-speech mode": the AI watches the video instead.
@@ -187,14 +245,19 @@ async function runProject(id: string) {
     const rmsPath = path.join(work, 'rms.json');
     let sil: { s: number; e: number }[] = [];
     let rms: number[] | null = null;
-    if (!pr.hasAudio) {
+    if (captions && !src) {
+      // the pauses come from the captions' word times; there's no audio file to measure energy on
+      sil = captions.silences;
+      fs.writeFileSync(silPath, JSON.stringify(sil));
+      stage(id, 'listen', 1, 'Pauses read from the captions');
+    } else if (!pr.hasAudio) {
       stage(id, 'listen', 1, 'No sound track — CrestClip will watch the video instead');
     } else if (fs.existsSync(audio) && fs.existsSync(silPath) && fs.existsSync(rmsPath)) {
       sil = JSON.parse(fs.readFileSync(silPath, 'utf8'));
       rms = JSON.parse(fs.readFileSync(rmsPath, 'utf8'));
     } else {
       stage(id, 'listen', 0, 'Pulling out the audio…');
-      await extractAudio(src, audio);
+      await extractAudio(src!, audio);
       stage(id, 'listen', 0.5, 'Measuring energy and pauses…');
       [rms, sil] = await Promise.all([loudnessPerSecond(audio, work).catch((e) => (console.warn('[loudness]', e.message), null)), findSilences(audio).catch(() => [] as { s: number; e: number }[])]);
       fs.writeFileSync(silPath, JSON.stringify(sil));
@@ -203,7 +266,13 @@ async function runProject(id: string) {
 
     // ---------- 3. transcribe (reuse a saved transcript on retry) ----------
     let segments: Segment[] = noSpeech ? [] : (p.transcript ?? []);
-    if (!noSpeech && !segments.length) {
+    if (captions && !noSpeech && !segments.length) {
+      segments = captions.segments;
+      // only the clip parts get the proper transcript (clean phrasing, the chosen script), just before they render
+      fs.writeFileSync(coveredPath(dir), '[]');
+      await projects.update(id, { transcript: segments, transcriptRev: TRANSCRIPT_REV, noSpeech: false });
+      stage(id, 'transcribe', 1, 'Using the video’s captions for now');
+    } else if (!noSpeech && !segments.length) {
       if (mostlySilent(sil, duration)) {
         noSpeech = true;
       } else if (duration > 10 * 60) {
@@ -216,10 +285,12 @@ async function runProject(id: string) {
         const got = await transcribe(audio, duration, work, (d, t) => stage(id, 'transcribe', d / t, `Transcribing · part ${d} of ${t}`), sil, p.options.captionLanguage ?? 'auto');
         if (tooLittleSpeech(got.segments, duration)) noSpeech = true;
         else segments = await withMeasuredTimes(got.segments, info?.webpageUrl, dir);
+        if (!noSpeech) note(id, `Transcribed · ${spokenWords(segments).toLocaleString('en')} words`);
       }
       if (noSpeech) {
         segments = [];
         console.log(`[project ${id}] no talking found — switching to no-speech mode`);
+        note(id, 'No talking found — CrestClip will watch the video for its moments');
       }
       await projects.update(id, { transcript: segments, transcriptRev: TRANSCRIPT_REV, noSpeech });
     } else if (noSpeech && !p.noSpeech) {
@@ -243,7 +314,7 @@ async function runProject(id: string) {
     let cands: Awaited<ReturnType<typeof findMoments>>['clips'];
     let notes: string;
     let videoTitle: string | null = null;
-    const source: VisualSource | null = info?.isYouTube ? { kind: 'youtube', url: info.webpageUrl } : pr.width ? { kind: 'file', src } : null;
+    const source: VisualSource | null = info?.isYouTube ? { kind: 'youtube', url: info.webpageUrl } : pr.width && src ? { kind: 'file', src } : null;
     if (noSpeech) {
       if (!source) throw new Error('This video has no talking, and the picture isn’t available to watch.');
       stage(id, 'moments', 0.1, 'No talking — watching the video for moments…');
@@ -269,7 +340,7 @@ async function runProject(id: string) {
         try {
           if (info?.isYouTube) {
             videoPart = part.uri(info.webpageUrl, 'video/mp4', { fps: 0.5 });
-          } else if (config.gcsBucket && pr.width) {
+          } else if (config.gcsBucket && pr.width && src) {
             stage(id, 'moments', 0.15, 'Uploading a preview to Cloud Storage…');
             const proxy = path.join(work, 'proxy.mp4');
             await makeProxy(src, proxy);
@@ -306,11 +377,13 @@ async function runProject(id: string) {
       });
       notes = found.notes;
       videoTitle = found.videoTitle;
+      for (const c of cands.slice(0, 6)) note(id, `${formatClock(c.start)} — “${(c.hook || c.title).slice(0, 90)}”`, 'moment');
+      if (cands.length > 6) note(id, `…and ${cands.length - 6} more candidates`);
     }
     // an upload named "6AA26DA6 8EC2 404C…" or "IMG 4021" gets the AI's title for the video (a link keeps its real title)
     if (videoTitle && !info && junkTitle(p.title)) await projects.update(id, { title: videoTitle });
     let picked = snapClips(cands, tr.segments, sil, duration, p.options);
-    if (noSpeech && pr.width) picked = await snapToShots(picked, src, duration); // start and end on a camera cut
+    if (noSpeech && pr.width && src) picked = await snapToShots(picked, src, duration); // start and end on a camera cut
     // a separate, blind judge grades the clips (the picker marks its own picks far too kindly)
     stage(id, 'moments', 0.96, 'Grading the clips…');
     picked = await judgeClips({
@@ -328,10 +401,10 @@ async function runProject(id: string) {
     const saved = await clipDb.replaceForProject(id, final, clipDefaults(p.options, noSpeech));
     await projects.update(id, { aiNotes: notes });
     await settleProject(id, saved.length, `Clipping “${(await projects.get(id))?.title ?? 'your video'}”`); // fewer clips than asked → credits back
+    note(id, `The judge kept ${saved.length} of ${cands.length} candidates`);
     stage(id, 'moments', 1, `Found ${saved.length} moments`);
 
-    // ---------- 5. fetch only the clip parts (section mode), then reframe + render ----------
-    await fetchClipFootage(id, saved);
+    // ---------- 5. each clip: fetch its part (section mode), reframe + render — best clip first ----------
     await renderAll(id, saved);
     const used = { calls: usage.calls - startedUsage.calls, input: usage.input - startedUsage.input, output: usage.output - startedUsage.output };
     await progressSaved(id);
@@ -356,25 +429,6 @@ function savingsText(dir: string) {
   return `Downloaded ${mb(s.downloaded)} instead of ~${mb(s.full)}`;
 }
 
-/** Section mode: download the video only for the clips, all in one go (no-op for full downloads). */
-async function fetchClipFootage(projectId: string, list: ClipRow[]) {
-  const p = await projects.get(projectId);
-  const dir = projectDir(projectId);
-  if (!p || !list.length || !readFootage(dir)) return;
-  stage(projectId, 'render', 0, 'Downloading only the clip parts…');
-  try {
-    await prefetchFootage(
-      p,
-      dir,
-      list.map((c) => ({ start: c.start, end: c.end })),
-      (done, total, detail) => stage(projectId, 'render', (done / total) * 0.3, `Downloading only the clip parts · ${detail}`),
-    );
-  } catch (e) {
-    // Not fatal here: each clip retries its own part when it renders, and shows an error if that fails too.
-    console.warn(`[project ${projectId}] part download failed:`, (e as Error).message);
-  }
-}
-
 /** Project thumbnail from the video's poster image (section mode has no local video yet). */
 async function remoteThumbnail(url: string, out: string, work: string) {
   const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
@@ -385,16 +439,77 @@ async function remoteThumbnail(url: string, out: string, work: string) {
   fs.rmSync(tmp, { force: true });
 }
 
+/**
+ * Render the clips, best first, each as soon as its part of the video is here: the parts download several at a
+ * time (section mode), and every render goes on the shared render queue, so all the workers pitch in and the first
+ * clip shows up long before the last part has landed.
+ */
 async function renderAll(projectId: string, list: ClipRow[]) {
-  let done = 0;
+  if (!list.length) return;
+  const p = (await projects.get(projectId))!;
+  const dir = projectDir(projectId);
+  const sections = Boolean(readFootage(dir));
   const total = list.length;
-  const base = readFootage(projectDir(projectId)) ? 0.3 : 0; // the first 30% was the part download
-  stage(projectId, 'render', base, `Reframing & rendering 0 of ${total}`);
-  await pool(list, config.renderConcurrency, async (c) => {
-    await renderClipJob(c.id).catch(() => {});
+  const order = [...list].sort((a, b) => (b.peakScore ?? 0) - (a.peakScore ?? 0));
+  etaPlan.set(projectId, { clips: total });
+  stage(projectId, 'render', 0, sections ? `Downloading the clip parts · 0 of ${total} started` : `Reframing & rendering 0 of ${total}`);
+  if (sections) note(projectId, `Downloading only the clip parts — ${Math.min(config.sectionDownloads, total)} at a time, best clip first`);
+
+  // the padded download ranges (nearby clips share one); each clip waits only for the range it needs
+  const plan = sections ? downloadPlan(order.flatMap(clipParts), p.duration ?? 0) : [];
+  const rangeFor = (r: TimeRange) => plan.find((x) => x.start <= r.start + 0.01 && x.end >= r.end - 0.01) ?? r;
+  const fetched = new Map<string, Promise<void>>();
+  const fetchSlot = limiter(config.sectionDownloads);
+  let started = 0;
+  const fetchRange = (r: TimeRange) => {
+    const key = `${r.start}-${r.end}`;
+    let job = fetched.get(key);
+    if (!job) {
+      job = fetchSlot(async () => {
+        started++;
+        stage(projectId, 'render', (0.3 * started) / Math.max(1, plan.length), `Downloading the clip parts · ${started} of ${plan.length} started`);
+        await prefetchFootage(p, dir, [r], undefined, { exact: true });
+      });
+      fetched.set(key, job);
+    }
+    return job;
+  };
+
+  let done = 0;
+  const finished = new Set<string>();
+  const onDone = (c: ClipRow) => {
+    if (finished.has(c.id)) return;
+    finished.add(c.id);
     done++;
-    stage(projectId, 'render', base + (1 - base) * (done / total), `Reframing & rendering ${done} of ${total}`);
-  });
+    stage(projectId, 'render', 0.3 + 0.7 * (done / total), `Rendering · ${done} of ${total} ready`);
+  };
+
+  await Promise.all(
+    order.map(async (c) => {
+      try {
+        if (sections) await Promise.all(clipParts(c).map((r) => fetchRange(rangeFor(r))));
+      } catch (e) {
+        // not fatal: the render fetches its own part again, and shows an error if that fails too
+        console.warn(`[project ${projectId}] part download failed for clip ${c.id}:`, (e as Error).message);
+      }
+      await enqueueRender(c.id, true);
+    }),
+  );
+  if (!done) stage(projectId, 'render', 0.3, `Rendering · 0 of ${total} ready`);
+  // the renders run on the shared queue (every worker helps); wait here until each clip is ready or gave up
+  const deadline = Date.now() + Math.max(15, config.renderMaxMinutes * Math.ceil(total / config.renderConcurrency)) * 60_000;
+  for (;;) {
+    const rows = await clipDb.forProject(projectId);
+    for (const c of rows) if (c.status === 'ready' || c.status === 'failed') onDone(c);
+    const open = rows.filter((c) => c.status !== 'ready' && c.status !== 'failed');
+    if (!open.length) break;
+    if (Date.now() > deadline) {
+      console.warn(`[project ${projectId}] ${open.length} clip(s) still rendering after the time limit — finishing the project without them`);
+      break;
+    }
+    await new Promise((res) => setTimeout(res, 1500));
+  }
+  etaPlan.delete(projectId);
 }
 
 const inflight = new Map<string, Promise<void>>();
@@ -442,10 +557,22 @@ async function renderOnce(clipId: string) {
   const moved = await refreshTranscript(asked.projectId).catch((e) => (console.error(`[project ${asked.projectId}] transcribing again failed:`, e), [] as string[]));
   for (const id of moved) if (id !== clipId) void renderClipJob(id);
   const c = (await clipDb.get(clipId))!;
-  const p = await projects.get(c.projectId);
+  let p = await projects.get(c.projectId);
   if (!p?.mediaPath && !readFootage(projectDir(c.projectId))) return;
   await clipDb.update(clipId, { status: 'rendering', error: null });
   const dir = projectDir(p!.id);
+  // "captions first" projects: the clip's part gets its proper transcript now (clean phrasing, the chosen script),
+  // a little wider than the clip so trims in the editor read well too
+  if (!p!.noSpeech && readCovered(dir) !== null) {
+    const pad = 8;
+    const want = clipParts(c).map((r) => ({ start: Math.max(0, r.start - pad), end: Math.min(p!.duration || r.end + pad, r.end + pad) }));
+    try {
+      await ensureTranscript(p!.id, want);
+      p = (await projects.get(c.projectId)) ?? p;
+    } catch (e) {
+      console.warn(`[clip ${clipId}] transcribing its part failed — captions use the site's words:`, (e as Error).message);
+    }
+  }
   const work = path.join(dir, 'work', `clip_${c.id}_${Date.now()}`);
   fs.mkdirSync(work, { recursive: true });
   try {
@@ -617,6 +744,7 @@ async function renderOnce(clipId: string) {
       reframe: plans.length > 1 ? { ...plans[0], parts: plans } : plans[0],
       ...(aud != null ? { audienceScore: aud } : {}),
     });
+    if (p!.status === 'processing') note(p!.id, `Clip ready — “${(c.title || c.hook || '').slice(0, 80)}”`, 'clip');
   } catch (e) {
     console.error(`[clip ${clipId}]`, e);
     await clipDb.update(clipId, { status: 'failed', error: (e as Error).message || String(e) });
@@ -759,11 +887,12 @@ function moveRange(r: TimeRange, from: Segment[], to: Segment[]): TimeRange | nu
 }
 
 /** The transcript's times moved onto the video's measured word times (YouTube's own speech recognition), if it has them. */
-async function withMeasuredTimes(segs: Segment[], url: string | null | undefined, dir: string): Promise<Segment[]> {
+async function withMeasuredTimes(segs: Segment[], url: string | null | undefined, dir: string, range?: TimeRange): Promise<Segment[]> {
   if (!url || !segs.length) return segs;
   try {
-    const words = await fetchWordTimings(url, path.join(dir, 'work'), infoJsonPath(dir));
-    return (words && retimeToWords(segs, words)) ?? segs;
+    let words = await fetchWordTimings(url, path.join(dir, 'work'), infoJsonPath(dir));
+    if (words && range) words = words.filter((w) => w.s >= range.start - 5 && w.s <= range.end + 5);
+    return (words?.length && retimeToWords(segs, words)) || segs;
   } catch (e) {
     console.warn('[word timings]', (e as Error).message);
     return segs;
@@ -788,32 +917,48 @@ async function ensureTranscript(projectId: string, ranges: TimeRange[], onProgre
   const p = (await projects.get(projectId))!;
   const dir = projectDir(projectId);
   const covered = readCovered(dir);
-  let segs = p.transcript ?? [];
+  const segs = p.transcript ?? [];
   if (covered === null && segs.length) return segs;
   const fresh = !segs.length || transcriptCurrent(p); // nothing older mixed in
   const cov = covered ?? [];
   const missing = ranges.filter((r) => !cov.some((c) => c.start <= r.start + 0.5 && c.end >= r.end - 0.5));
+  if (!missing.length) return segs;
+  // transcribe outside the lock (several clips do this at once, on different workers), merge under it
+  const pieces: { s0: number; e0: number; segs: Segment[] }[] = [];
   for (const [i, r] of missing.entries()) {
     const s0 = Math.max(0, r.start - 1.5);
     const e0 = Math.min(p.duration || r.end + 1.5, r.end + 1.5);
     const foot = await footageFor((await projects.get(projectId)) ?? p, dir, s0, e0);
-    const sub = path.join(dir, 'work', `tr_${Math.round(s0)}_${Math.round(e0)}`);
+    const sub = path.join(dir, 'work', `tr_${Math.round(s0)}_${Math.round(e0)}_${process.pid}`);
     fs.mkdirSync(sub, { recursive: true });
     try {
       const audio = path.join(sub, 'audio.mp3');
       await extractAudioRange(foot.src, s0 - foot.offset, e0 - s0, audio);
       const tr = await transcribe(audio, e0 - s0, sub, (d, t) => onProgress?.(i + d / t, missing.length), [], p.options.captionLanguage ?? 'auto');
       const shifted = tr.segments.map((sg) => ({ ...sg, s: sg.s + s0, e: sg.e + s0, words: sg.words.map((w) => ({ ...w, s: w.s + s0, e: w.e + s0 })) }));
-      segs = [...segs.filter((sg) => sg.e <= s0 || sg.s >= e0), ...shifted].sort((a, b) => a.s - b.s);
-      cov.push({ start: s0, end: e0 });
+      // onto the measured word times (the site's speech recognition) for this stretch, when it has them
+      pieces.push({ s0, e0, segs: await withMeasuredTimes(shifted, p.sourceUrl, dir, { start: s0, end: e0 }) });
     } finally {
       fs.rmSync(sub, { recursive: true, force: true });
     }
   }
-  if (missing.length) segs = await withMeasuredTimes(segs, p.sourceUrl, dir);
-  await projects.update(projectId, { transcript: segs, ...(fresh ? { transcriptRev: TRANSCRIPT_REV } : {}) });
-  fs.writeFileSync(coveredPath(dir), JSON.stringify(cov));
-  return segs;
+  const merged = await withClusterLock(
+    `transcript:${projectId}`,
+    async () => {
+      const now = (await projects.get(projectId))!;
+      let all = now.transcript ?? [];
+      const have = readCovered(dir) ?? [];
+      for (const pc of pieces) {
+        all = [...all.filter((sg) => sg.e <= pc.s0 || sg.s >= pc.e0), ...pc.segs].sort((a, b) => a.s - b.s);
+        have.push({ start: pc.s0, end: pc.e0 });
+      }
+      await projects.update(projectId, { transcript: all, ...(fresh ? { transcriptRev: TRANSCRIPT_REV } : {}) });
+      fs.writeFileSync(coveredPath(dir), JSON.stringify(have));
+      return all;
+    },
+    { wait: true, ttlMs: 60_000 },
+  );
+  return merged === BUSY ? segs : merged;
 }
 
 /** Tidy picked ranges: clamp to the video, merge overlaps, snap to sentence edges. */

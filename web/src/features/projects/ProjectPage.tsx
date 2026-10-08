@@ -10,7 +10,7 @@ import { Badge, Button, Card, EmptyState, Progress, Skeleton, Spinner, Tabs } fr
 import { ClipList, rankClips, type ClipSort } from './ClipList';
 import { UpgradeCallout } from '../billing/UpgradeCallout';
 import { DeleteProjectDialog } from './DeleteProjectDialog';
-import { ProcessingCard } from './ProcessingCard';
+import { ProcessingCard, wantsNotice } from './ProcessingCard';
 import { ProjectHeader } from './ProjectHeader';
 import { isWorking } from './ProjectCard';
 import { canWatchSource, SourceTab, type SourceTabHandle } from './SourceTab';
@@ -29,6 +29,39 @@ export function ProjectPage() {
   return <ProjectView key={id} id={id} />; // a fresh view per project, so moving between projects never shows the last one's data
 }
 
+/**
+ * The tab's title counts the clips in ("3/12 ready · …"), so a person who switched tabs sees progress at a glance;
+ * and if they asked to be told, a browser notification goes out the moment the last clip is in.
+ */
+function useFinishNotice(p: Project | null | undefined) {
+  const working = Boolean(p && (isWorking(p) || p.clips?.some((c) => c.status === 'pending' || c.status === 'rendering')));
+  const ready = p?.clips?.filter((c) => c.status === 'ready').length ?? 0;
+  const total = p?.clips?.length ?? 0;
+  const wasWorking = useRef(false);
+  useEffect(() => {
+    if (!p) return;
+    const base = `${p.title || 'Your clips'} — CrestClip`;
+    if (working) {
+      document.title = total ? `${ready}/${total} ready · ${base}` : `${Math.round(p.progress)}% · ${base}`;
+      wasWorking.current = true;
+      return;
+    }
+    document.title = wasWorking.current ? `✓ ${ready} clips ready · ${base}` : base;
+    if (wasWorking.current && wantsNotice(p.id) && 'Notification' in window && Notification.permission === 'granted') {
+      wasWorking.current = false;
+      try {
+        const n = new Notification(`${ready} clip${ready === 1 ? '' : 's'} ready`, { body: p.title || 'Your video is done', tag: `project-${p.id}` });
+        n.onclick = () => {
+          window.focus();
+          n.close();
+        };
+      } catch {
+        /* a browser that can't show one */
+      }
+    }
+  }, [p, working, ready, total]);
+}
+
 function ProjectView({ id }: { id: string }) {
   const [p, setP] = useCachedState<Project>(`project:${id}`);
   const [err, setErr] = useState<string | null>(null);
@@ -42,6 +75,7 @@ function ProjectView({ id }: { id: string }) {
   );
   const busy = !p || isWorking(p) || Boolean(p.clips?.some((c) => c.status === 'pending' || c.status === 'rendering'));
   usePolling(load, busy ? 2000 : 30000);
+  useFinishNotice(p);
   // credits are taken once the video is read and given back for clips that don't come out: keep the meter in step
   const { refresh } = useAuth();
   const charged = p?.creditsCharged;
@@ -125,7 +159,7 @@ function SingleProject({ p, load }: { p: Project; load: () => void }) {
       <DeleteProjectDialog project={deleting ? p : null} onCancel={() => setDeleting(false)} onDeleted={() => nav('/app/projects')} />
 
       <div className="mt-5 flex flex-col gap-5">
-        {working && <ProcessingCard p={p} />}
+        {working && <ProcessingCard p={p} readyCount={ready} />}
         {p.status === 'failed' &&
           (p.errorCode ? (
             <UpgradeCallout

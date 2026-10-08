@@ -83,7 +83,7 @@ export async function transcribe(
   const chunks = chunkPlan(duration, silences);
   let done = 0;
   let lang = '';
-  const results = await pool(chunks, 8, async (c, i) => {
+  const results = await pool(chunks, config.transcribeParallel, async (c, i) => {
     const file = path.join(workDir, `chunk_${String(i).padStart(3, '0')}.mp3`);
     // each chunk's answer is kept next to its audio: a restart mid-way (deploy, crash) picks up where it stopped
     // instead of paying for the whole video again; the key holds the script choice and the chunk's exact bounds
