@@ -81,7 +81,7 @@ function connectVia(proxy: string, host: string, port: number): Promise<tls.TLSS
 }
 
 /** One byte range of a file, as yt-dlp fetches them (a plain Range request; YouTube serves these at full speed). */
-function getRange(url: string, from: number, to: number, headers: Record<string, string>, proxy: string | null): Promise<Buffer> {
+function getRange(url: string, from: number, to: number, headers: Record<string, string>, proxy: string | null, hops = 0): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const go = (createConnection?: () => tls.TLSSocket) => {
@@ -89,6 +89,11 @@ function getRange(url: string, from: number, to: number, headers: Record<string,
         u,
         { method: 'GET', headers: { ...headers, Range: `bytes=${from}-${to}` }, timeout: 60_000, ...(createConnection ? { createConnection, agent: false } : {}) },
         (res) => {
+          // YouTube sometimes points at another of its servers first
+          if (res.statusCode && [301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && hops < 3) {
+            res.resume();
+            return getRange(new URL(res.headers.location, u).toString(), from, to, headers, proxy, hops + 1).then(resolve, reject);
+          }
           if (res.statusCode !== 206) {
             res.resume();
             return reject(new Error(`range request answered ${res.statusCode}`));
