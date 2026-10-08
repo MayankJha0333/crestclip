@@ -25,6 +25,7 @@ import { findVisualMoments, mostlySilent, snapToShots, tooLittleSpeech, type Vis
 import { download, downloadAudio, fetchComments, fetchInfo, fetchWordTimings, type Comment, type SourceInfo } from './ytdlp.js';
 import { downloadPlan, endSectionMode, footageFor, footageSavings, infoJsonPath, prefetchFootage, readFootage, startSectionMode } from './footage.js';
 import { draftTranscript } from './asr.js';
+import { fetchAudioFast } from './fastparts.js';
 import { enqueueRender } from '../infra/queue.js';
 import { classifyFileLink, downloadFileLink, fileLinkLabel } from './filelink.js';
 import type { CaptionStyle, Layout, ProjectOptions, ReframePlan, Segment, Signals, TimeRange, Word } from '../types.js';
@@ -218,7 +219,9 @@ async function runProject(id: string) {
         } else if (smart) {
           // Long video: grab only the audio now. Video is fetched later, just for the clip parts.
           try {
-            src = await downloadAudio(info.webpageUrl, dir, fetchStage('Downloading the audio'), infoJsonPath(dir));
+            src =
+              (await fetchAudioFast(infoJsonPath(dir), path.join(dir, 'source-audio.m4a'), fetchStage('Downloading the audio'))) ??
+              (await downloadAudio(info.webpageUrl, dir, fetchStage('Downloading the audio'), infoJsonPath(dir)));
             startSectionMode(dir, info.webpageUrl, info.fullSizeEstimate);
           } catch (e) {
             console.warn(`[project ${id}] audio-only download failed, downloading the full video instead:`, (e as Error).message);
@@ -369,10 +372,12 @@ async function runProject(id: string) {
       stage(id, 'moments', 0.35, 'Hunting for viral moments…');
       // the #1 audience peak gets its own small search at the same time (used only if the main search skips it)
       const peakP = startPeakClip({ segments: tr.segments, duration, title: info?.title ?? p.title ?? 'Untitled', channel: info?.channel ?? '', signals, options: p.options });
-      // a long video is searched in parallel stretches of ~40 minutes (one request each, all at once), each asked
+      // a long video is searched in parallel stretches (one request each, all at once), each asked
       // for its own best moments; the judge then grades them all together, so the long ones take no longer than
       // a short one. Short videos stay as one request.
-      const windows = videoPart || duration <= 45 * 60 ? 1 : Math.min(4, Math.ceil(duration / (40 * 60)));
+      // (~20-minute stretches, up to 6: most of a request's time is writing out its clips, so fewer clips per request
+      // answer sooner; one 30-minute stretch was measured at 60–120 s)
+      const windows = videoPart || duration <= 25 * 60 ? 1 : Math.min(6, Math.ceil(duration / (20 * 60)));
       const askEach = Math.max(2, Math.ceil(Math.max(1, Math.min(30, p.options.clipCount)) / windows));
       if (windows > 1) note(id, `Long video: searching ${windows} stretches of it at the same time`);
       const parts = await Promise.all(

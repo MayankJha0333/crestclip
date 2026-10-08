@@ -380,3 +380,57 @@ export async function fetchPartFast(
     fs.rmSync(aFile, { force: true });
   }
 }
+
+/**
+ * The whole sound track of an HLS video (Twitch's "Audio_Only"), its short files fetched 16 at a time: yt-dlp takes
+ * them one after another (~1 MB/s); this takes seconds. Null when there's no such track — the caller uses yt-dlp.
+ */
+export async function fetchAudioFast(infoJson: string, out: string, onProgress?: (pct: number, detail: string) => void): Promise<string | null> {
+  let formats: Format[];
+  try {
+    formats = (JSON.parse(fs.readFileSync(infoJson, 'utf8')) as { formats?: Format[] }).formats ?? [];
+  } catch {
+    return null;
+  }
+  const f = formats
+    .filter((x) => x.url && /^m3u8/.test(x.protocol ?? '') && (!x.vcodec || x.vcodec === 'none') && x.acodec && x.acodec !== 'none')
+    .sort((a, b) => (b.abr ?? b.tbr ?? 0) - (a.abr ?? a.tbr ?? 0))[0];
+  if (!f) return null;
+  const headers = f.http_headers ?? {};
+  const tmp = `${out}.${process.pid}.seg`;
+  const t0 = Date.now();
+  try {
+    const list = parseM3u8((await get(f.url!, headers, null, null)).toString('utf8'), f.url!);
+    if (!list) return null;
+    const segs = list.segments;
+    const got: Buffer[] = new Array(segs.length);
+    let next = 0;
+    let done = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(16, segs.length) }, async () => {
+        while (next < segs.length) {
+          const i = next++;
+          got[i] = await get(segs[i].url, headers, null, null);
+          done++;
+          if (done % 20 === 0 || done === segs.length) onProgress?.((done / segs.length) * 100, `${done} of ${segs.length} pieces`);
+        }
+      }),
+    );
+    const fd = fs.openSync(tmp, 'w');
+    try {
+      if (list.init) fs.writeSync(fd, await get(list.init, headers, null, null));
+      for (const b of got) fs.writeSync(fd, b);
+    } finally {
+      fs.closeSync(fd);
+    }
+    await run(config.ffmpeg, ['-y', '-v', 'error', '-i', tmp, '-map', '0:a:0', '-c', 'copy', '-f', 'mp4', out], { timeoutMs: 10 * 60_000 });
+    console.log(`  [fast audio] ${segs.length} pieces · ${(got.reduce((n, x) => n + x.length, 0) / 1e6).toFixed(0)} MB in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+    return out;
+  } catch (e) {
+    console.warn(`  [fast audio] ${(e as Error).message.slice(0, 200)} — using yt-dlp`);
+    fs.rmSync(out, { force: true });
+    return null;
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
+}
