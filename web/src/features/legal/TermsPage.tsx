@@ -23,14 +23,16 @@ export function TermsPage() {
           <li>You must be at least 18 years old to use {b.name}.</li>
           <li>Give us accurate details and keep your password safe. You’re responsible for what happens in your account.</li>
           <li>One person, one free account. Creating extra accounts to get more free credits isn’t allowed.</li>
-          <li>You can delete your account any time in Settings, or by emailing us — see <Link to="/data-deletion">Delete your data</Link>.</li>
+          <li>
+            You can delete your account any time in Settings, or by emailing us — see <Link to="/data-deletion">Delete your data</Link>.
+          </li>
         </ul>
       </Section>
 
       <Section title="3. What the service does">
         <p>
-          {b.name} takes a video you link to or upload, finds its strongest moments with AI, and turns them into short vertical clips with captions that you can edit, download and post
-          to YouTube or Instagram. We keep improving the service, so features may change.
+          {b.name} takes a video you link to or upload, finds its strongest moments with AI, and turns them into short vertical clips with captions that you can edit, download and post to YouTube or
+          Instagram. We keep improving the service, so features may change.
         </p>
       </Section>
 
@@ -67,14 +69,16 @@ export function TermsPage() {
       <Section title="7. Plans, prices and payments">
         <ul>
           <li>
-            <strong>Prices are set in US dollars (USD)</strong> and shown on the Pricing page. Checkout shows the final amount: in India it is charged in rupees (₹), elsewhere in your local
-            currency where available, otherwise in US dollars. Taxes such as GST or sales tax are added where they apply. If your bank converts the amount, it may add its own fee.
+            <strong>Prices are set in US dollars (USD), with separate prices in rupees (₹) for India</strong>, all shown on the Pricing page. Checkout shows the final amount: in India it is charged in
+            rupees, elsewhere in your local currency where available, otherwise in US dollars. Taxes such as GST or sales tax are added where they apply. If your bank converts the amount, it may add
+            its own fee.
           </li>
           <li>
             <strong>Free plan:</strong> a monthly amount of credits with lower limits. No card needed.
           </li>
           <li>
-            <strong>Paid plans</strong> are monthly subscriptions, charged in advance through Dodo Payments, our online reseller and merchant of record. They <strong>renew automatically every month</strong> until you cancel.
+            <strong>Paid plans</strong> are monthly subscriptions, charged in advance through Dodo Payments, our online reseller and merchant of record. They{' '}
+            <strong>renew automatically every month</strong> until you cancel.
           </li>
           <li>If we change prices, we’ll tell you before your next renewal, and you can cancel before the new price applies.</li>
         </ul>

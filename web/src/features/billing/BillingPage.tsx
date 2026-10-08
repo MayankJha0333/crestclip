@@ -7,13 +7,13 @@ import { toast } from '../../lib/toast';
 import { Badge, Button, Card, CardHeader, ConfirmDialog, PageHeader, Skeleton } from '../../components/ui';
 import { useAuth } from '../auth/auth';
 import { checkoutReturn, goToCheckout } from './checkout';
-import { money, shortDate } from './money';
+import { money, priceText, priceValue, shortDate, useIndia } from './money';
 import { PlanCards } from './PlanCards';
 import { track } from '../../lib/analytics';
 
-
 /** Plan & credits: what you have, what it costs, upgrade / top up / cancel, and the history. */
 export function BillingPage() {
+  const india = useIndia();
   const { me, refresh } = useAuth();
   const [info, setInfo] = useState<PlansInfo | null>(null);
   const [data, setData] = useState<(BillingAccount & { history: CreditEvent[]; payments: Payment[] }) | null>(null);
@@ -106,7 +106,7 @@ export function BillingPage() {
     try {
       const start = await api.subscribe(plan.id);
       if ('url' in start) {
-        track('begin_checkout', { currency: 'USD', value: plan.price, plan: plan.id });
+        track('begin_checkout', { ...priceValue(plan, india), plan: plan.id });
         goToCheckout(start.url); // keeps "busy" while the page changes
         return;
       }
@@ -130,7 +130,7 @@ export function BillingPage() {
     try {
       const start = await api.buyTopup();
       if (!('url' in start)) throw new Error('Unexpected checkout');
-      track('begin_checkout', { currency: 'USD', value: info.topup.price, plan: 'topup' });
+      track('begin_checkout', { ...priceValue(info.topup, india), plan: 'topup' });
       goToCheckout(start.url);
     } catch (e) {
       toast((e as Error).message, 'error');
@@ -192,6 +192,9 @@ export function BillingPage() {
 
   const plan = data.plan;
   const paid = plan.id !== 'free';
+  // the plan's price in the currency they actually pay (their last plan payment), else by where they are
+  const lastPlanPay = data.payments.find((x) => x.kind === 'subscription' && x.currency);
+  const paysInr = lastPlanPay ? lastPlanPay.currency?.toUpperCase() === 'INR' : india;
   const usedPct = Math.min(100, (data.credits.usedThisMonth / Math.max(1, data.credits.monthly)) * 100);
   const rank = (id: PlanId) => info.plans.findIndex((p) => p.id === id);
   const noPay = !data.paymentsReady;
@@ -231,7 +234,7 @@ export function BillingPage() {
             <b className="font-display text-3xl">{plan.name}</b>
             {data.paymentProblem ? <Badge tone="warn">Payment failed</Badge> : data.cancelAtPeriodEnd ? <Badge tone="warn">Ending</Badge> : paid ? <Badge tone="good">Active</Badge> : null}
           </span>
-          <span className="text-sm text-ink-3">{paid ? `${money(plan.price)} / month` : 'Free forever'}</span>
+          <span className="text-sm text-ink-3">{paid ? `${priceText(plan, paysInr)} / month${paysInr ? ' + GST' : ''}` : 'Free forever'}</span>
           <p className="mt-4 flex items-center gap-2 text-sm text-ink-2">
             <CalendarClock size={15} className="shrink-0 text-accent" />
             {data.cycleEnd
@@ -303,7 +306,8 @@ export function BillingPage() {
           <span className="text-xs font-extrabold tracking-wider text-ink-3 uppercase">Need more now?</span>
           <b className="mt-1 font-display text-2xl">{info.topup.credits} credits</b>
           <span className="text-sm text-ink-3">
-            {money(info.topup.price)} once · use within {Math.round(info.topup.validDays / 30)} months
+            {priceText(info.topup, india)}
+            {india ? ' + GST' : ''} once · use within {Math.round(info.topup.validDays / 30)} months
           </span>
           <p className="mt-4 text-sm text-ink-2">Adds to your balance right away — handy when you have a big batch this month. Works on any plan.</p>
           <div className="mt-auto pt-5">
@@ -322,6 +326,7 @@ export function BillingPage() {
           {data.billedBy === 'dodo' && plan.id !== 'pro' && ' Upgrading starts your new plan today with its full monthly credits; you pay its price minus what’s left of your current month.'}
         </p>
         <PlanCards
+          note={false}
           plans={info.plans}
           current={plan.id}
           action={(p) =>
@@ -340,8 +345,10 @@ export function BillingPage() {
           }
         />
         <p className="mt-4 text-center text-xs text-ink-3">
-          Prices in US dollars (USD). In India you pay in rupees (₹) by UPI or card; elsewhere checkout shows your local currency where it can. Taxes such as GST or sales tax are added at checkout where they
-          apply. Payments are handled by Dodo Payments, our merchant of record. The credits you already have stay until they expire.
+          {india
+            ? 'Prices in rupees (₹) for India — pay by UPI or card; 18% GST is added at checkout.'
+            : 'Prices in US dollars (USD); checkout shows your local currency where it can, and adds sales tax or VAT where it applies. In India, plans have their own rupee prices.'}{' '}
+          Payments are handled by Dodo Payments, our merchant of record. The credits you already have stay until they expire.
         </p>
       </section>
 

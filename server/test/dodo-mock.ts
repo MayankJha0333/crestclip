@@ -54,6 +54,9 @@ export function startMockDodo(opts: { apiKey: string; products: Product[] }) {
   const pays = new Map<string, Pay>();
   const calls: { method: string; path: string; body: Json | null }[] = [];
   const product = (pid: string) => opts.products.find((p) => p.product_id === pid);
+  /** localized prices per product, and each product's pricing mode (as Dodo keeps them) */
+  const localized = new Map<string, { id: string; currency: string; amount: number; country_code: string | null; archived: boolean }[]>();
+  const pricingMode = new Map<string, string | null>();
 
   const server = http.createServer((req, res) => {
     let raw = '';
@@ -141,6 +144,29 @@ export function startMockDodo(opts: { apiKey: string; products: Product[] }) {
         const p = pays.get(parts[1]);
         return p ? send(200, p) : send(404, { code: 'NOT_FOUND', message: 'Payment not found' });
       }
+      // localized prices (fixed prices per country)
+      if (parts[0] === 'products' && parts[1]) {
+        if (!product(parts[1])) return send(404, { code: 'NOT_FOUND', message: 'Product not found' });
+        const list = localized.get(parts[1]) ?? [];
+        if (m === 'PATCH' && parts.length === 2) {
+          if (body && 'pricing_mode' in body) pricingMode.set(parts[1], (body.pricing_mode as string) ?? null);
+          return send(200, { product_id: parts[1], pricing_mode: pricingMode.get(parts[1]) ?? null });
+        }
+        if (parts[2] === 'localized-prices' && m === 'GET' && parts.length === 3) return send(200, { items: list });
+        if (parts[2] === 'localized-prices' && m === 'POST') {
+          if (pricingMode.get(parts[1]) !== 'by_country') return send(422, { code: 'INVALID', message: 'Product is not in by_country mode' });
+          if (list.some((r) => !r.archived && r.country_code === body?.country_code)) return send(409, { code: 'CONFLICT', message: 'An active rule exists for that country' });
+          const r = { id: id('lp'), currency: String(body?.currency), amount: Number(body?.amount), country_code: (body?.country_code as string) ?? null, archived: false };
+          localized.set(parts[1], [...list, r]);
+          return send(200, { ...r, product_id: parts[1], mode: 'by_country' });
+        }
+        if (parts[2] === 'localized-prices' && parts[3] && m === 'PATCH') {
+          const r = list.find((x) => x.id === parts[3]);
+          if (!r) return send(404, { code: 'NOT_FOUND', message: 'Rule not found' });
+          r.amount = Number(body?.amount);
+          return send(200, r);
+        }
+      }
       send(404, { code: 'NOT_FOUND', message: `No mock for ${m} ${url.pathname}` });
     });
   });
@@ -148,6 +174,7 @@ export function startMockDodo(opts: { apiKey: string; products: Product[] }) {
   const mock = {
     server,
     calls,
+    localized,
     subs,
     pays,
     customers,

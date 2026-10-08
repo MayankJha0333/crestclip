@@ -64,15 +64,15 @@ ${list(['<strong>Drop a video</strong> — paste a YouTube, Twitch, Vimeo or Goo
 ${list(FEATURES)}
 <h2>Pricing</h2>
 ${list(planLines())}
-<p>Prices in US dollars. Every clip costs ${CREDITS_PER_CLIP} credits; edits and re-renders are free. <a href="/pricing">See full pricing</a>.</p>
+<p>Prices in US dollars, with rupee prices for India. Every clip costs ${CREDITS_PER_CLIP} credits; edits and re-renders are free. <a href="/pricing">See full pricing</a>.</p>
 ${nav()}`,
     },
     '/pricing': {
       title: `Pricing — ${NAME} AI clip maker`,
-      description: `${NAME} pricing in US dollars: a free plan, Creator at $${PLANS.creator.price}/month and Pro at $${PLANS.pro.price}/month. Every clip costs ${CREDITS_PER_CLIP} credits; edits are free.`,
+      description: `${NAME} pricing: a free plan, Creator at $${PLANS.creator.price}/month (₹${PLANS.creator.priceInr} in India) and Pro at $${PLANS.pro.price}/month (₹${PLANS.pro.priceInr.toLocaleString('en-IN')} in India). Every clip costs ${CREDITS_PER_CLIP} credits; edits are free.`,
       changefreq: 'monthly',
       priority: '0.8',
-      body: `<h1>${NAME} pricing</h1><p>Simple monthly plans in US dollars. Start free — no card needed.</p>${list(planLines())}${nav()}`,
+      body: `<h1>${NAME} pricing</h1><p>Simple monthly plans in US dollars, and in rupees (plus GST) for India. Start free — no card needed.</p>${list(planLines())}${nav()}`,
     },
     '/crayo-alternative': {
       title: `${NAME} vs Crayo — a Crayo alternative for clipping long videos`,

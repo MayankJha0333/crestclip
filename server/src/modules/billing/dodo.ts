@@ -103,6 +103,15 @@ export interface DodoPayment {
   product_cart?: { product_id: string; quantity: number }[] | null;
 }
 
+export interface DodoLocalizedPrice {
+  id: string;
+  currency: string;
+  /** smallest unit (paise for INR) */
+  amount: number;
+  country_code?: string | null;
+  archived?: boolean;
+}
+
 export const dodo = {
   /** A customer for this email (Dodo returns the existing one when the email is already known). */
   createCustomer: (email: string, name: string | null, metadata: Record<string, string>) => call<DodoCustomer>('POST', '/customers', { email, name: name || email.split('@')[0], metadata }),
@@ -136,6 +145,18 @@ export const dodo = {
   payment: (id: string) => call<DodoPayment>('GET', `/payments/${encodeURIComponent(id)}`),
   paymentsOf: (filter: { customer_id?: string; subscription_id?: string }) =>
     call<{ items: DodoPayment[] }>('GET', `/payments?${q({ ...filter, status: 'succeeded', page_size: 100 })}`).then((r) => r.items ?? []),
+
+  /**
+   * Fixed prices for some countries on a product ("localized pricing"): a buyer whose billing country matches pays
+   * that amount, in that currency, unchanged. https://docs.dodopayments.com/features/localized-pricing
+   */
+  localizedPrices: (productId: string) =>
+    call<{ items?: DodoLocalizedPrice[] } | DodoLocalizedPrice[]>('GET', `/products/${encodeURIComponent(productId)}/localized-prices`).then((r) => (Array.isArray(r) ? r : (r.items ?? []))),
+  usePricesByCountry: (productId: string) => call<unknown>('PATCH', `/products/${encodeURIComponent(productId)}`, { pricing_mode: 'by_country' }),
+  addLocalizedPrice: (productId: string, p: { currency: string; country_code: string; amount: number }) =>
+    call<DodoLocalizedPrice>('POST', `/products/${encodeURIComponent(productId)}/localized-prices`, p),
+  updateLocalizedPrice: (productId: string, priceId: string, amount: number) =>
+    call<DodoLocalizedPrice>('PATCH', `/products/${encodeURIComponent(productId)}/localized-prices/${encodeURIComponent(priceId)}`, { amount }),
 
   /** A link to Dodo's customer portal: change card / UPI mandate, see invoices, cancel. */
   portal: (customerId: string) => call<{ link: string }>('POST', `/customers/${encodeURIComponent(customerId)}/customer-portal/session`).then((r) => r.link),

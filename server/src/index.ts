@@ -11,6 +11,7 @@ import { startScheduler } from './modules/publishing/publishing.service.js';
 import { connectDb, sessions } from './db/index.js';
 import { importSqliteOnce } from './db/import-sqlite.js';
 import { startRetention } from './modules/projects/retention.js';
+import { ensureIndiaPrices } from './modules/billing/billing.service.js';
 
 // a background task that fails (e.g. the database blinked) is logged, not fatal
 process.on('unhandledRejection', (e) => console.error('[background]', e));
@@ -66,6 +67,8 @@ if (has('worker')) {
 // ---- scheduler: exactly one. Posts at the booked time, Autopilot, storage cleanup, queue repair.
 if (has('scheduler')) {
   startScheduler();
+  // Indian buyers pay the rupee prices in plans.ts: make sure the Dodo products say so (once per start)
+  setTimeout(() => void ensureIndiaPrices().catch((e) => console.warn('[billing] India prices:', (e as Error).message)), 3000);
   if (!has('web')) void startAutopilot({ runWorkers: true });
   startRetention(); // 7-day storage: delete old projects here and in the cloud bucket
   setInterval(() => void sessions.prune().catch(() => {}), 6 * 3600_000).unref(); // drop expired log-ins

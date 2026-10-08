@@ -454,6 +454,8 @@ export interface Plan {
   tagline: string;
   /** monthly price in US dollars */
   price: number;
+  /** monthly price in India, in rupees before GST */
+  priceInr?: number;
   currency: 'USD';
   /** credits added every month */
   credits: number;
@@ -480,11 +482,15 @@ export interface PlansInfo {
   topup: Topup;
   /** the billing promises shown on the pricing page */
   policy?: string[];
+  /** India pays its own rupee prices (plan.priceInr), plus GST */
+  india?: { currency: 'INR'; gstPercent: number };
 }
 /** The one-off credit pack (price in US dollars). */
 export interface Topup {
   credits: number;
   price: number;
+  /** rupees before GST, in India */
+  priceInr?: number;
   validDays: number;
 }
 export interface BillingAccount {

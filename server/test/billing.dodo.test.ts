@@ -581,6 +581,25 @@ try {
     assert.equal((await call(us, 'GET', `/billing/payments/${p.id}/receipt`)).status, 404);
   });
 
+  await step('India prices: each product gets ₹999 / ₹1,999 / ₹399 for India, once; a changed price is corrected', async () => {
+    const { ensureIndiaPrices } = await import('../src/modules/billing/billing.service.js');
+    await ensureIndiaPrices();
+    const rule = (pid: string) => mock.localized.get(pid)?.find((r) => r.country_code === 'IN');
+    assert.deepEqual([rule(P.creator)?.amount, rule(P.pro)?.amount, rule(P.topup)?.amount], [99900, 199900, 39900]);
+    assert.equal(rule(P.creator)?.currency, 'INR');
+    const before = mock.calls.length;
+    await ensureIndiaPrices(); // already right → only reads
+    assert.ok(mock.calls.slice(before).every((c) => c.method === 'GET'));
+    rule(P.pro)!.amount = 150000; // someone changed it in the dashboard
+    await ensureIndiaPrices();
+    assert.equal(rule(P.pro)?.amount, 199900);
+    assert.equal(mock.localized.get(P.pro)?.length, 1);
+    const plans = (await call(null, 'GET', '/billing/plans')).data;
+    assert.deepEqual(plans.plans.map((x: { priceInr: number }) => x.priceInr), [0, 999, 1999]);
+    assert.equal(plans.topup.priceInr, 399);
+    assert.equal(plans.india.gstPercent, 18);
+  });
+
   console.log(`\n${passed} checks passed\n`);
 } finally {
   await closeAll();

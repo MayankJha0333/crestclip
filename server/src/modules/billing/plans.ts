@@ -5,8 +5,9 @@ import type { PlanId } from '../../db/index.js';
  * Plans, prices and limits — the one place to change them.
  *
  * Prices are in US dollars. Paid plans and the top-up are products in Dodo Payments (DODO_PRODUCT_* in the
- * settings); if you change a price here, change the matching Dodo product to the same amount. Buyers in India see and
- * pay the price in rupees at checkout (Dodo's Adaptive Currency).
+ * settings); if you change a dollar price here, change the matching Dodo product to the same amount. India has its own
+ * rupee prices (priceInr): the app adds them to the Dodo products itself as an "India" price (see ensureIndiaPrices),
+ * so Indian buyers are charged exactly that, plus GST.
  *
  * Credits are spent per clip: every clip CrestClip makes costs CREDITS_PER_CLIP. A video asked for 8 clips takes
  * 40 credits up front; if fewer clips come out, the difference goes back. Editing and re-rendering clips is always
@@ -20,8 +21,10 @@ export interface Plan {
   id: PlanId;
   name: string;
   tagline: string;
-  /** monthly price in US dollars */
+  /** monthly price in US dollars (everywhere except India) */
   price: number;
+  /** monthly price in India, in rupees before GST (Dodo charges this exact amount to Indian billing addresses) */
+  priceInr: number;
   /** credits added every month (÷ CREDITS_PER_CLIP = clips a month) */
   credits: number;
   /** unused monthly credits stay usable for one more month */
@@ -56,6 +59,7 @@ export const PLANS: Record<PlanId, Plan> = {
     name: 'Free',
     tagline: 'For trying CrestClip on a few videos.',
     price: 0,
+    priceInr: 0,
     credits: 60,
     rollover: false,
     maxVideoMinutes: 30,
@@ -74,6 +78,7 @@ export const PLANS: Record<PlanId, Plan> = {
     name: 'Creator',
     tagline: 'For creators posting clips every week.',
     price: 15,
+    priceInr: 999,
     credits: 400,
     rollover: true,
     maxVideoMinutes: 120,
@@ -92,6 +97,7 @@ export const PLANS: Record<PlanId, Plan> = {
     name: 'Pro',
     tagline: 'For clippers, agencies and long streams.',
     price: 29,
+    priceInr: 1999,
     credits: 1000,
     rollover: true,
     maxVideoMinutes: 180,
@@ -140,7 +146,10 @@ export const POLICY_LINES = [
   'Cancel any time and keep your files',
 ];
 
-/** One-off credit pack (price in US dollars), for when the month's credits run out. */
-export const TOPUP = { credits: 100, price: 5, validDays: 365 };
+/** One-off credit pack (US dollars; rupees before GST in India), for when the month's credits run out. */
+export const TOPUP = { credits: 100, price: 5, priceInr: 399, validDays: 365 };
+
+/** Indian prices are shown before GST; checkout adds it. */
+export const INDIA_GST_PERCENT = 18;
 
 export const planOf = (id: string | null | undefined): Plan => PLANS[(id as PlanId) in PLANS ? (id as PlanId) : 'free'];

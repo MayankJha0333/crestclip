@@ -2,7 +2,7 @@ import { config } from '../../config.js';
 import { site } from '../system/system.service.js';
 import { credits, creditsVersion, NotEnoughCredits, payments, projects, users, type PlanId, type UserRow } from '../../db/index.js';
 import { HttpError } from '../../lib/http.js';
-import { CREDITS_PER_CLIP, creditsForClips, CURRENCY, PLAN_ORDER, PLANS, planOf, POLICY_LINES, TOPUP, type Plan } from './plans.js';
+import { CREDITS_PER_CLIP, creditsForClips, CURRENCY, INDIA_GST_PERCENT, PLAN_ORDER, PLANS, planOf, POLICY_LINES, TOPUP, type Plan } from './plans.js';
 import { dodo, DodoError, dodoReady, ms, planForProduct, productForPlan, validDodoWebhook, type DodoEvent, type DodoPayment, type DodoSubscription } from './dodo.js';
 
 const DAY = 86400_000;
@@ -184,7 +184,47 @@ async function downgrade(user: UserRow, why: string, onlyIf?: { dodoSubscription
 /** A plan as the app shows it (price in US dollars, and how many clips its credits make). */
 export const publicPlan = (p: Plan) => ({ ...p, currency: CURRENCY, clips: Math.floor(p.credits / CREDITS_PER_CLIP) });
 /** The public pricing table (landing page, pricing page, Plan page). */
-export const plansInfo = () => ({ currency: CURRENCY, creditsPerClip: CREDITS_PER_CLIP, plans: PLAN_ORDER.map((id) => publicPlan(PLANS[id])), topup: TOPUP, policy: POLICY_LINES });
+export const plansInfo = () => ({
+  currency: CURRENCY,
+  creditsPerClip: CREDITS_PER_CLIP,
+  plans: PLAN_ORDER.map((id) => publicPlan(PLANS[id])),
+  topup: TOPUP,
+  policy: POLICY_LINES,
+  india: { currency: 'INR' as const, gstPercent: INDIA_GST_PERCENT },
+});
+
+/**
+ * Make each Dodo product charge Indian buyers the rupee price from plans.ts (a "by country" price for IN). Runs once
+ * when the server starts; it only adds or corrects the India price and never touches the dollar price. Safe to run
+ * again — a price that's already right is left alone.
+ */
+export async function ensureIndiaPrices() {
+  if (!dodoReady()) return;
+  const wanted: [string, string, number][] = [
+    ['Creator', config.dodoProductCreator, PLANS.creator.priceInr],
+    ['Pro', config.dodoProductPro, PLANS.pro.priceInr],
+    ['Top-up', config.dodoProductTopup, TOPUP.priceInr],
+  ];
+  for (const [name, productId, rupees] of wanted) {
+    if (!productId || !rupees) continue;
+    const amount = Math.round(rupees * 100);
+    try {
+      const rules = (await dodo.localizedPrices(productId).catch(() => [])).filter((r) => !r.archived);
+      const india = rules.find((r) => r.country_code?.toUpperCase() === 'IN');
+      if (india?.currency === 'INR' && india.amount === amount) continue;
+      if (india) {
+        await dodo.updateLocalizedPrice(productId, india.id, amount);
+        console.log(`[billing] Dodo ${name}: India price changed to ₹${rupees}`);
+        continue;
+      }
+      await dodo.usePricesByCountry(productId).catch((e) => console.warn(`[billing] Dodo ${name}: couldn't switch to prices by country:`, (e as Error).message));
+      await dodo.addLocalizedPrice(productId, { currency: 'INR', country_code: 'IN', amount });
+      console.log(`[billing] Dodo ${name}: India price set to ₹${rupees} (+ GST)`);
+    } catch (e) {
+      console.warn(`[billing] Dodo ${name}: couldn't set the India price (₹${rupees}) — add it in the Dodo dashboard (product → Localized pricing → India):`, (e as Error).message);
+    }
+  }
+}
 
 type Summary = Awaited<ReturnType<typeof buildSummary>>;
 const summaryCache = new Map<string, { key: string; at: number; value: Summary }>();

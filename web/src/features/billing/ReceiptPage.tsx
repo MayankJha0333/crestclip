@@ -126,9 +126,8 @@ export function ReceiptPage() {
         </table>
 
         <p className="mt-10 text-sm text-[#6b625a]">
-          Thank you for using {s.name}.{' '}
-          This purchase was processed by Dodo Payments, our online reseller and merchant of record, who also issues the tax invoice.{' '}
-          Questions about this payment? Write to {s.email ?? 'us'} and include the receipt number. Refunds follow our policy at {s.url.replace(/^https?:\/\//, '')}
+          Thank you for using {s.name}. This purchase was processed by Dodo Payments, our online reseller and merchant of record, who also issues the tax invoice. Questions about this payment? Write
+          to {s.email ?? 'us'} and include the receipt number. Refunds follow our policy at {s.url.replace(/^https?:\/\//, '')}
           /refunds.
         </p>
       </article>

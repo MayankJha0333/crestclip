@@ -11,7 +11,7 @@ import { CurveSvg, HeroArt } from './art';
 import { FAQ, FEATURES, SAMPLE_CLIPS, STEPS } from './content';
 import { useAuth } from '../auth/auth';
 import { initialPlans } from '../../lib/initialData';
-import { money } from '../billing/money';
+import { priceText, useIndia } from '../billing/money';
 import { PlanCards } from '../billing/PlanCards';
 import { SiteFooter } from '../../components/SiteFooter';
 import { PeakPreview } from './PeakPreview';
@@ -34,6 +34,7 @@ const SIGNALS = [
 ];
 
 export function LandingPage() {
+  const india = useIndia();
   const nav = useNavigate();
   const { me } = useAuth();
   const [url, setUrl] = useState('');
@@ -258,7 +259,7 @@ export function LandingPage() {
         <SectionTitle
           eyebrow="Pricing"
           title="Simple plans that grow with your channel"
-          sub={`Prices in US dollars. Every clip costs ${pricing?.creditsPerClip ?? 5} credits; edits and re-renders are free, and clips that don’t come out give their credits back.`}
+          sub={`${india ? 'Prices in rupees for India, plus GST.' : 'Prices in US dollars.'} Every clip costs ${pricing?.creditsPerClip ?? 5} credits; edits and re-renders are free, and clips that don’t come out give their credits back.`}
         />
         <div className="mt-12">
           {pricing ? (
@@ -284,7 +285,8 @@ export function LandingPage() {
           ) : null}
           {pricing && (
             <p className="mt-6 text-center text-ink-3">
-              Need more in a busy month? Add {pricing.topup.credits} credits ({Math.floor(pricing.topup.credits / pricing.creditsPerClip)} clips) for {money(pricing.topup.price)} — on any plan.
+              Need more in a busy month? Add {pricing.topup.credits} credits ({Math.floor(pricing.topup.credits / pricing.creditsPerClip)} clips) for {priceText(pricing.topup, india)}
+              {india ? ' + GST' : ''} — on any plan.
             </p>
           )}
         </div>

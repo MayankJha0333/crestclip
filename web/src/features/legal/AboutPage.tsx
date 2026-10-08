@@ -30,7 +30,7 @@ export function AboutPage() {
 
       <Section title="Pricing">
         <p>
-          There’s a free plan, and monthly plans in US dollars for people who clip more. Every clip uses {b.creditsPerClip} credits, and editing clips is always free. See{' '}
+          There’s a free plan, and monthly plans (in US dollars, or rupees in India) for people who clip more. Every clip uses {b.creditsPerClip} credits, and editing clips is always free. See{' '}
           <a href="/#pricing">Pricing</a> for the current plans.
         </p>
       </Section>
