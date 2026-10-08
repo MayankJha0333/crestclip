@@ -4,7 +4,8 @@ import { config } from '../config.js';
 import { projects, type ProjectRow } from '../db/index.js';
 import { probe } from './media.js';
 import { pool } from '../lib/proc.js';
-import { download, downloadSections, type Section } from './ytdlp.js';
+import { download, downloadSections, proxyForVideo, type Section } from './ytdlp.js';
+import { fetchPartFast } from './fastparts.js';
 import { withClusterLock } from '../infra/shared.js';
 
 /**
@@ -109,7 +110,13 @@ function fetchRange(p: ProjectRow, dir: string, r: { start: number; end: number 
     async () => {
       const idx = readFootage(dir);
       if (!idx || idx.sections.some((s) => covers(s, r.start, r.end))) return; // another worker got it (or the whole video)
-      const got = await downloadSections(idx.url, path.join(dir, 'sections'), [r], (d) => onProgress(d), infoJsonPath(dir));
+      const secDir = path.join(dir, 'sections');
+      fs.mkdirSync(secDir, { recursive: true });
+      // by byte range first (seconds); yt-dlp's cut (about playback speed) when the video can't be fetched that way
+      const want = { start: Math.max(0, Math.floor(r.start)), end: Math.ceil(r.end) };
+      const file = path.join(secDir, `sec_${want.start}-${want.end}.mp4`);
+      const fast = fs.existsSync(infoJsonPath(dir)) && (await fetchPartFast(infoJsonPath(dir), want, file, { proxy: proxyForVideo(idx.url), onProgress }));
+      const got = fast ? [{ ...want, file }] : await downloadSections(idx.url, secDir, [r], (d) => onProgress(d), infoJsonPath(dir));
       await recordSections(p, dir, got);
     },
     { wait: true, ttlMs: 120_000 },

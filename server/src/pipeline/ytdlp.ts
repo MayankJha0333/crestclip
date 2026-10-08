@@ -77,6 +77,11 @@ function proxyFor(key: string): string | null {
   return pick.replaceAll('{session}', `${hash.slice(0, 7)}${(turn % 36).toString(36)}`).replaceAll('{port}', String(port));
 }
 
+/** The proxy a video's own requests (not through yt-dlp) must use: the one its yt-dlp steps use, or none. */
+export function proxyForVideo(url: string): string | null {
+  return config.ytdlpProxies.length && (config.ytdlpProxyMode === 'always' || viaProxy.has(url)) ? proxyFor(url) : null;
+}
+
 /** Never show the proxy's username/password in logs or to people. */
 export const redactProxy = (s: string) => s.replace(/(\/\/)[^\s/@:]+:[^\s/@]+@/g, '$1***:***@');
 
@@ -256,7 +261,7 @@ export async function fetchInfo(url: string, saveTo?: string): Promise<SourceInf
 }
 
 /** Top comments (only used to find timestamps people mention, e.g. "12:34 was insane"). Best effort. */
-export async function fetchComments(url: string, max = 400): Promise<Comment[]> {
+export async function fetchComments(url: string, max = 200): Promise<Comment[]> {
   try {
     const { stdout } = await ytdlp(['-J', '--skip-download', '--write-comments', '--extractor-args', `youtube:comment_sort=top;max_comments=${max},all,0`, url], { timeoutMs: 150_000 });
     const j = JSON.parse(stdout);

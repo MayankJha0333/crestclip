@@ -310,9 +310,10 @@ async function runProject(id: string) {
 
     // ---------- 4. find moments ----------
     stage(id, 'moments', 0.05, 'Reading the audience heatmap…');
+    // the comments are a hint, not a must: a slow fetch doesn't hold the moments up for more than a few seconds
     const t0 = Date.now();
-    const comments = await commentsP;
-    if (Date.now() - t0 > 2000) console.log(`[project ${id}] waited ${((Date.now() - t0) / 1000).toFixed(0)}s for the comments`);
+    const comments = await Promise.race([commentsP, new Promise<Comment[]>((res) => setTimeout(() => res([]), 12_000))]);
+    if (Date.now() - t0 > 2000) console.log(`[project ${id}] waited ${((Date.now() - t0) / 1000).toFixed(0)}s for the comments${comments.length ? '' : ' — going on without them'}`);
     const signals: Signals = buildSignals({
       duration,
       heatmap: info?.heatmap ?? null,
