@@ -35,8 +35,8 @@ import { Button, buttonClass, Card, Chip, Dialog, Field, FieldLabel, Input, Page
 import { CaptionPicker } from '../clip-settings/CaptionPicker';
 import { MotionPicker } from '../clip-settings/MotionPicker';
 import { SOCIAL } from '../schedule/postStatus';
-import { allZones, compact, defaultTimes, EMPTY_AUTOPILOT, prettyTime, REGIONS, sourceText } from './helpers';
-import { LANGUAGES } from './languages';
+import { allZones, AUTOPILOT_TEMPLATES, compact, defaultTimes, effectiveLanguages, EMPTY_AUTOPILOT, prettyTime, REGION_LANGUAGES, REGIONS, sourceText } from './helpers';
+import { LANGUAGES, languageLabel } from './languages';
 import { track } from '../../lib/analytics';
 
 const STEPS: { key: string; label: string; title: string; hint: string; Icon: LucideIcon }[] = [
@@ -148,7 +148,7 @@ function Section({ title, hint, children }: { title?: string; hint?: ReactNode; 
 
 /** Everything chosen so far, one line per step, each with a jump back. */
 function Summary({ f, accounts, onEdit }: { f: AutopilotInput; accounts: Account[] | null; onEdit: (step: number) => void }) {
-  const lang = (f.filters.languages ?? []).map((c) => LANGUAGES.find((l) => l.code === c)?.label ?? c);
+  const lang = (effectiveLanguages(f.filters.languages, f.sources)?.codes ?? []).map(languageLabel);
   const names = f.targets.map((t) => {
     const a = accounts?.find((x) => x.id === t.connectionId);
     return a ? (a.handle ?? a.name) : null;
@@ -193,7 +193,9 @@ function Summary({ f, accounts, onEdit }: { f: AutopilotInput; accounts: Account
 export function AutopilotEditorPage() {
   const { id } = useParams();
   const nav = useNavigate();
-  const [f, setF] = useState<AutopilotInput>(EMPTY_AUTOPILOT);
+  const [startParams] = useSearchParams();
+  // a new autopilot can start from a ready-made example (?template=…, from the Autopilot page)
+  const [f, setF] = useState<AutopilotInput>(() => AUTOPILOT_TEMPLATES.find((t) => !id && t.id === startParams.get('template'))?.apply(EMPTY_AUTOPILOT) ?? EMPTY_AUTOPILOT);
   const [loaded, setLoaded] = useState(!id);
   const [booked, setBooked] = useState(0); // posts already booked (edit only)
   const [savedPlan, setSavedPlan] = useState(''); // times/zone/accounts/caption as last saved
@@ -253,6 +255,17 @@ export function AutopilotEditorPage() {
   const langs = f.filters.languages ?? [];
   const setLangs = (v: string[]) => setF((x) => ({ ...x, filters: { ...x.filters, languages: v } }));
   const [showAllLangs, setShowAllLangs] = useState(false);
+  /**
+   * Add a topic. A country with no language picked yet also picks that country's languages (searching "in India"
+   * alone still finds Spanish videos) — said in a toast, and easy to change under Filters.
+   */
+  const addTopic = (src: AutopilotSource) => {
+    setF((x) => {
+      const fill = !x.filters.languages?.length && src.region ? REGION_LANGUAGES[src.region] : undefined;
+      if (fill) toast(`Keeping to ${fill.map(languageLabel).join(' and ')} videos — change it under Filters`);
+      return { ...x, sources: [...x.sources, src], filters: fill ? { ...x.filters, languages: fill } : x.filters };
+    });
+  };
   const setOpt = (k: string, v: unknown) => setF((x) => ({ ...x, options: { ...x.options, [k]: v } }));
   const setCount = (n: number) => {
     const count = Math.max(1, Math.min(12, n));
@@ -268,7 +281,7 @@ export function AutopilotEditorPage() {
     const value = srcText.trim();
     if (!value) return;
     if (srcKind === 'youtube_topic') {
-      set('sources', [...f.sources, { kind: 'youtube_topic', value, region: srcRegion || null, label: value, sort: srcSort }]);
+      addTopic({ kind: 'youtube_topic', value, region: srcRegion || null, label: value, sort: srcSort });
       return setSrcText('');
     }
     setAdding(true);
@@ -466,7 +479,7 @@ export function AutopilotEditorPage() {
                       onPickTopic={(t) => {
                         if (f.sources.some((x) => x.kind === 'youtube_topic' && x.value.toLowerCase() === t.toLowerCase() && (x.region ?? '') === srcRegion && (x.sort ?? 'views') === srcSort))
                           return toast('That topic is already added');
-                        set('sources', [...f.sources, { kind: 'youtube_topic', value: t, region: srcRegion || null, label: t, sort: srcSort }]);
+                        addTopic({ kind: 'youtube_topic', value: t, region: srcRegion || null, label: t, sort: srcSort });
                         setSrcText('');
                       }}
                     />
@@ -609,6 +622,11 @@ export function AutopilotEditorPage() {
                   <div>
                     <FieldLabel>Spoken language</FieldLabel>
                     <p className="-mt-1 mb-2.5 text-[12.5px] text-ink-3">Only clip videos in these languages. CrestClip checks each video before spending credits.</p>
+                    {!langs.length && effectiveLanguages(langs, f.sources)?.fromCountry && (
+                      <p className="mb-2.5 rounded-2xl bg-info-bg px-3 py-2 text-[12.5px] font-bold text-info-ink">
+                        Your topics are searched by country, so only {effectiveLanguages(langs, f.sources)!.codes.map(languageLabel).join(' and ')} videos are clipped. Pick languages to change that.
+                      </p>
+                    )}
                     <div role="group" aria-label="Spoken language" className="flex flex-wrap gap-1.5">
                       <button
                         type="button"

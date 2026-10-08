@@ -1,13 +1,13 @@
 import { useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, CalendarClock, ChevronRight, Clock, Loader2, Pause, Play, Plus, Sparkles } from 'lucide-react';
+import { AlertTriangle, CalendarClock, ChevronRight, Clock, Cpu, Loader2, Mic, Pause, Play, Plus, Sparkles, Trophy, Youtube } from 'lucide-react';
 import { api, type AutopilotSummary } from '../../lib/api';
 import { usePolling } from '../../lib/hooks';
 import { useCachedState } from '../../lib/cache';
 import { toast } from '../../lib/toast';
-import { Button, buttonClass, Card, EmptyState, PageHeader, Skeleton } from '../../components/ui';
+import { Button, buttonClass, Card, PageHeader, Skeleton } from '../../components/ui';
 import { cn } from '../../lib/cn';
-import { dayName } from './helpers';
+import { AUTOPILOT_TEMPLATES, dayName } from './helpers';
 import { BotIcon, SchedulerBanner, SourceChips, StatusPill, useScheduler } from './shared';
 import { useAccount } from '../auth/auth';
 import { UpgradeCallout } from '../billing/UpgradeCallout';
@@ -41,6 +41,37 @@ const Stat = ({ value, label, hint }: { value: number; label: string; hint: stri
     <small className="text-[11.5px] font-bold tracking-wide text-ink-3 uppercase">{label}</small>
   </div>
 );
+
+const TEMPLATE_ICON = { mic: Mic, cpu: Cpu, trophy: Trophy, channel: Youtube } as const;
+const TEMPLATE_TONE = { mic: 'clay-tangerine', cpu: 'clay-sky', trophy: 'clay-mint', channel: 'clay-butter' } as const;
+
+/** Real starting points: each opens the editor already filled in (sources, language, filters) — tweak and save. */
+function Templates({ allowed, compact }: { allowed: boolean; compact?: boolean }) {
+  return (
+    <div className={cn('grid gap-3', compact ? 'sm:grid-cols-2 xl:grid-cols-4' : 'sm:grid-cols-2')}>
+      {AUTOPILOT_TEMPLATES.map((t) => {
+        const Icon = TEMPLATE_ICON[t.icon];
+        return (
+          <Link
+            key={t.id}
+            to={allowed ? `/app/autopilot/new?template=${t.id}` : '/app/billing'}
+            className="group flex items-start gap-3 rounded-[22px] bg-row p-4 text-ink no-underline shadow-flat transition-all hover:-translate-y-0.5 hover:shadow-[0_0_0_1px_var(--line-strong)]"
+          >
+            <span className={cn('grid size-10 shrink-0 place-items-center rounded-2xl text-[#2b1407]', TEMPLATE_TONE[t.icon])}>
+              <Icon size={19} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <b className="flex items-center gap-1 font-display text-[16px]">
+                {t.title} <ChevronRight size={15} className="text-ink-3 transition-transform group-hover:translate-x-0.5" />
+              </b>
+              <small className="mt-0.5 block text-[12.5px] leading-snug text-ink-3">{t.blurb}</small>
+            </span>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
 
 export function AutopilotListPage() {
   const [list, setList] = useCachedState<AutopilotSummary[]>('autopilots');
@@ -92,29 +123,33 @@ export function AutopilotListPage() {
           <Skeleton className="h-60 rounded-[28px]" />
         </div>
       ) : list.length === 0 ? (
-        <Card className="p-6">
-          <EmptyState
-            icon={<Sparkles size={28} />}
-            title="No autopilots yet"
-            action={
-              allowed ? (
-                <Link to="/app/autopilot/new" className={buttonClass('primary')}>
-                  <Sparkles size={17} /> Create your first autopilot
+        <Card className="p-5 sm:p-7">
+          <div className="mx-auto max-w-3xl">
+            <span className="mx-auto mb-3 grid size-14 place-items-center rounded-2xl text-white clay-tangerine">
+              <Sparkles size={26} />
+            </span>
+            <h2 className="text-center text-2xl">Start from an example</h2>
+            <p className="mx-auto mt-1 mb-6 max-w-xl text-center text-sm text-ink-2">
+              Each one opens filled in — sources, language and filters. Change anything, pick your accounts and times, and save. Every clip waits for your OK unless you say otherwise.
+            </p>
+            <Templates allowed={allowed} />
+            <div className="mt-5 flex justify-center">
+              {allowed && (
+                <Link to="/app/autopilot/new" className={buttonClass('secondary')}>
+                  <Plus size={17} /> Start from scratch
                 </Link>
-              ) : undefined
-            }
-          >
-            Set one up in about two minutes. You stay in control — every clip waits for your OK unless you say otherwise.
-          </EmptyState>
-          <ol className="mx-auto grid max-w-3xl gap-3.5 pb-4 sm:grid-cols-3">
-            {HOW.map((s, i) => (
-              <li key={s.t} className="flex flex-col items-center gap-1 rounded-[20px] bg-row p-4 text-center shadow-flat">
-                <span className="mb-1 grid size-8.5 place-items-center rounded-xl bg-orange-bg font-black text-orange-ink">{i + 1}</span>
-                <b className="font-display">{s.t}</b>
-                <small className="text-[12.5px] leading-snug text-ink-3">{s.d}</small>
-              </li>
-            ))}
-          </ol>
+              )}
+            </div>
+            <ol className="mt-7 grid gap-3.5 border-t border-line pt-6 sm:grid-cols-3">
+              {HOW.map((s, i) => (
+                <li key={s.t} className="flex flex-col items-center gap-1 text-center">
+                  <span className="mb-1 grid size-8.5 place-items-center rounded-xl bg-orange-bg font-black text-orange-ink">{i + 1}</span>
+                  <b className="font-display">{s.t}</b>
+                  <small className="text-[12.5px] leading-snug text-ink-3">{s.d}</small>
+                </li>
+              ))}
+            </ol>
+          </div>
         </Card>
       ) : (
         <div className="grid gap-5 md:grid-cols-[repeat(auto-fill,minmax(340px,1fr))]">
@@ -228,6 +263,13 @@ export function AutopilotListPage() {
             </Card>
           ))}
         </div>
+      )}
+      {list && list.length > 0 && allowed && (
+        <section className="mt-10">
+          <h2 className="mb-1 text-xl">Another idea?</h2>
+          <p className="mb-4 text-sm text-ink-3">Start from an example — it opens filled in, ready to tweak.</p>
+          <Templates allowed={allowed} compact />
+        </section>
       )}
     </>
   );

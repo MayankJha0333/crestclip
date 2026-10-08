@@ -85,3 +85,84 @@ export const EMPTY_AUTOPILOT: AutopilotInput = {
   caption: DEFAULT_CAPTION,
   rightsConfirmed: false,
 };
+
+/**
+ * The spoken languages most of a country's YouTube is in — a topic searched "in India" still turns up Spanish videos
+ * (YouTube's region only leans the results), so picking a country also picks these unless languages are chosen.
+ * Keep in sync with server/src/pipeline/language.ts (REGION_LANGUAGES).
+ */
+export const REGION_LANGUAGES: Record<string, string[]> = {
+  IN: ['en', 'hi'],
+  US: ['en'],
+  GB: ['en'],
+  CA: ['en', 'fr'],
+  AU: ['en'],
+  AE: ['ar', 'en'],
+  SG: ['en'],
+  DE: ['de'],
+  FR: ['fr'],
+  BR: ['pt'],
+  JP: ['ja'],
+  ID: ['id'],
+  PH: ['en'],
+};
+
+/** What the server keeps to: the picked languages, or (none picked, only country topics) those countries' languages. */
+export function effectiveLanguages(chosen: string[] | undefined, sources: AutopilotSource[]): { codes: string[]; fromCountry: boolean } | null {
+  if (chosen?.length) return { codes: chosen, fromCountry: false };
+  if (!sources.length || sources.some((s) => s.kind !== 'youtube_topic' || !s.region || !REGION_LANGUAGES[s.region])) return null;
+  return { codes: [...new Set(sources.flatMap((s) => REGION_LANGUAGES[s.region!]))], fromCountry: true };
+}
+
+/** Ready-made starting points, so a new autopilot begins from something real instead of a blank form. */
+export const AUTOPILOT_TEMPLATES: {
+  id: string;
+  title: string;
+  blurb: string;
+  icon: 'mic' | 'cpu' | 'trophy' | 'channel';
+  apply: (base: AutopilotInput) => AutopilotInput;
+}[] = [
+  {
+    id: 'own-channel',
+    title: 'Your own channel',
+    blurb: 'Every new long video you upload becomes Shorts and Reels — no clipping by hand.',
+    icon: 'channel',
+    apply: (b) => ({ ...b, name: 'My channel → Shorts', clipsPerVideo: 3, filters: { ...b.filters, minViews: 0, maxAgeDays: 30, waitHours: 24 } }),
+  },
+  {
+    id: 'podcasts-in',
+    title: 'Indian podcast clips',
+    blurb: 'The most-watched new podcasts in India, in English or Hindi. 20 min and longer.',
+    icon: 'mic',
+    apply: (b) => ({
+      ...b,
+      name: 'Podcast clips · India',
+      sources: [{ kind: 'youtube_topic', value: 'podcast', region: 'IN', label: 'podcast', sort: 'views' }],
+      filters: { ...b.filters, languages: ['en', 'hi'], minMinutes: 20, minViews: 50_000 },
+    }),
+  },
+  {
+    id: 'ai-tech',
+    title: 'AI & tech explainers',
+    blurb: 'Trending English videos about AI and new tech, 8 minutes and up.',
+    icon: 'cpu',
+    apply: (b) => ({
+      ...b,
+      name: 'AI & tech · English',
+      sources: [{ kind: 'youtube_topic', value: 'AI explained', region: 'US', label: 'AI explained', sort: 'trending' }],
+      filters: { ...b.filters, languages: ['en'], minMinutes: 8, minViews: 20_000 },
+    }),
+  },
+  {
+    id: 'cricket-in',
+    title: 'Cricket talk',
+    blurb: 'Popular cricket analysis and interviews from India, in Hindi or English.',
+    icon: 'trophy',
+    apply: (b) => ({
+      ...b,
+      name: 'Cricket talk · India',
+      sources: [{ kind: 'youtube_topic', value: 'cricket analysis', region: 'IN', label: 'cricket analysis', sort: 'trending' }],
+      filters: { ...b.filters, languages: ['hi', 'en'], minMinutes: 8, minViews: 20_000 },
+    }),
+  },
+];

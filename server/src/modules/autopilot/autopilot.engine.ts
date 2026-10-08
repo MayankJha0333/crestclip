@@ -9,7 +9,7 @@ import { creditsForClips, planOf } from '../billing/plans.js';
 import type { ProjectOptions } from '../../types.js';
 import { channelVideos, topicVideos, uploadDateMs, videoDetails, type FoundVideo } from './autopilot.sources.js';
 import { upcomingSlots, type Slot } from './autopilot.time.js';
-import { guessSpokenLanguage, languageMismatch } from '../../pipeline/language.js';
+import { effectiveLanguages, guessSpokenLanguage, languageMismatch, REGION_LANGUAGES } from '../../pipeline/language.js';
 import { purgeProject } from '../projects/retention.js';
 
 /**
@@ -75,6 +75,7 @@ function blockedReason(f: AutopilotRow['config']['filters'], title: string | nul
 // ---------------- 1. scan ----------------
 async function scan(ap: AutopilotRow) {
   const f = ap.config.filters;
+  const langs = effectiveLanguages(f.languages, ap.config.sources);
   const errors: string[] = [];
   let added = 0;
   // the person's other autopilots that post to at least one of the same accounts: the same video must not be clipped
@@ -89,7 +90,7 @@ async function scan(ap: AutopilotRow) {
         if (!src.channelId) continue;
         found = await channelVideos(src.channelId);
       } else {
-        found = await topicVideos(src.value, src.region ?? null, f.maxAgeDays, f.languages?.length === 1 ? f.languages[0] : null, src.sort ?? 'views');
+        found = await topicVideos(src.value, src.region ?? null, f.maxAgeDays, langs?.length === 1 ? langs[0] : src.region ? (REGION_LANGUAGES[src.region]?.[0] ?? null) : null, src.sort ?? 'views');
       }
     } catch (e) {
       errors.push(`${src.label ?? src.value}: ${(e as Error).message}`);
@@ -102,7 +103,7 @@ async function scan(ap: AutopilotRow) {
       if (v.publishedAt && v.publishedAt < Date.now() - f.maxAgeDays * 86400_000) [status, reason] = ['skipped', `Older than ${f.maxAgeDays} days`];
       else if (v.duration != null && v.duration < f.minMinutes * 60) [status, reason] = ['skipped', v.duration <= 60 ? 'A Short' : `Shorter than ${f.minMinutes} min`];
       else if (v.duration != null && v.duration > f.maxMinutes * 60) [status, reason] = ['skipped', `Longer than ${f.maxMinutes} min`];
-      else if (languageMismatch(f.languages, null, v.title)) [status, reason] = ['skipped', languageMismatch(f.languages, null, v.title)];
+      else if (languageMismatch(langs, null, v.title)) [status, reason] = ['skipped', languageMismatch(langs, null, v.title)];
       else if (blockedReason(f, v.title, v.channel)) [status, reason] = ['skipped', blockedReason(f, v.title, v.channel)];
       else {
         const taken = await apVideos.takenBy(v.videoId, [...siblingName.keys()]);
@@ -200,8 +201,10 @@ async function startClipping(ap: AutopilotRow) {
       continue;
     }
     // no captions to tell the spoken language → ask the AI from the title and description (a Spanish title in Latin letters passes the script check)
-    const spoken = d.language ?? (f.languages?.length ? await guessSpokenLanguage(d.title || v.title || '', d.description ?? '') : null);
-    const wrongLanguage = languageMismatch(f.languages, spoken, d.title || v.title || '');
+    // a topic in a country with no language picked keeps to that country's languages (see effectiveLanguages)
+    const langs = effectiveLanguages(f.languages, ap.config.sources);
+    const spoken = d.language ?? (langs?.length ? await guessSpokenLanguage(d.title || v.title || '', d.description ?? '') : null);
+    const wrongLanguage = languageMismatch(langs, spoken, d.title || v.title || '');
     if (wrongLanguage) {
       await apVideos.update(v.id, { status: 'skipped', reason: wrongLanguage });
       continue;
@@ -557,10 +560,7 @@ export async function scanNow(apId: string) {
 export async function schedule(ap: AutopilotRow, days = 7) {
   const slots: Slot[] = upcomingSlots(ap.config.times, ap.config.timezone, Date.now() - 60 * 60_000, days);
   // all lookups at the same time (one wait, not one per slot)
-  const [skips, rows] = await Promise.all([
-    apSkips.list(ap.id),
-    Promise.all(slots.map((s) => Promise.all([posts.forSlot(ap.id, s.key), apClips.bySlot(ap.id, s.key)]))),
-  ]);
+  const [skips, rows] = await Promise.all([apSkips.list(ap.id), Promise.all(slots.map((s) => Promise.all([posts.forSlot(ap.id, s.key), apClips.bySlot(ap.id, s.key)])))]);
   return Promise.all(
     slots.map(async (s, i) => {
       const list = rows[i][0].filter((p) => p.status !== 'canceled');

@@ -81,6 +81,40 @@ export function languageMismatch(chosen: string[] | undefined, spoken: string | 
   return null;
 }
 
+// ---------------- a country picked for a topic → the languages people there watch ----------------
+
+/**
+ * The spoken languages most of a country's YouTube is in (codes from LANGUAGES). A topic searched "in India" still
+ * turns up Spanish or Portuguese videos — YouTube's region setting only leans the results — so when someone picks a
+ * country and no language, these are the languages kept. Keep in sync with web/src/features/autopilot/helpers.ts.
+ */
+export const REGION_LANGUAGES: Record<string, string[]> = {
+  IN: ['en', 'hi'],
+  US: ['en'],
+  GB: ['en'],
+  CA: ['en', 'fr'],
+  AU: ['en'],
+  AE: ['ar', 'en'],
+  SG: ['en'],
+  DE: ['de'],
+  FR: ['fr'],
+  BR: ['pt'],
+  JP: ['ja'],
+  ID: ['id'],
+  PH: ['en'],
+};
+
+/**
+ * The languages an autopilot keeps to: the ones picked; or, with none picked and every source a topic in a country,
+ * those countries' languages. Undefined = any language (a channel source means "this creator's videos, whatever
+ * language").
+ */
+export function effectiveLanguages(chosen: string[] | undefined, sources: { kind: string; region?: string | null }[]): string[] | undefined {
+  if (chosen?.length) return chosen;
+  if (!sources.length || sources.some((s) => s.kind !== 'youtube_topic' || !s.region || !REGION_LANGUAGES[s.region])) return undefined;
+  return [...new Set(sources.flatMap((s) => REGION_LANGUAGES[s.region!]))];
+}
+
 // ---------------- when YouTube has no captions: ask the AI from the words ----------------
 
 const guesses = new Map<string, { lang: string | null; sure: boolean }>();
