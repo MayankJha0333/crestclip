@@ -301,10 +301,20 @@ async function downloadWithFallbacks(opts: { url: string; infoJson?: string | nu
     const src = attempts[i];
     const isInfoAttempt = Boolean(fresh) && i === 0;
     try {
+      let flowing = false;
       await ytdlp([...opts.args, '--newline', ...(src ?? [])], {
         timeoutMs: opts.timeoutMs,
         idleTimeoutMs: opts.idleTimeoutMs ?? STALL_MS,
-        onLine: opts.onLine ? (l) => opts.onLine!(l) : undefined,
+        onLine: (l) => {
+          // bytes are arriving: this is the way in — the other parts waiting on the probe can start right away
+          if (!flowing && /time=\d|\[download\]\s+\d/.test(l)) {
+            flowing = true;
+            if (knownGood.size > 2000) knownGood.clear();
+            knownGood.set(opts.url, i);
+            settle();
+          }
+          opts.onLine?.(l);
+        },
         // the saved page info can simply be stale (its links refused): that's no reason to update yt-dlp
         noHeal: isInfoAttempt,
       });

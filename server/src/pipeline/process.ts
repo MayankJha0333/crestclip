@@ -72,7 +72,10 @@ function stage(id: string, s: Stage, frac = 0, detail = '') {
   const [a, b] = STAGE_RANGE[s];
   const prev = stageStarted.get(id);
   if (prev?.s !== s) {
-    if (prev) learn(id, prev.s, (Date.now() - prev.at) / 1000);
+    if (prev) {
+      learn(id, prev.s, (Date.now() - prev.at) / 1000);
+      console.log(`[project ${id}] ${prev.s} took ${((Date.now() - prev.at) / 1000).toFixed(0)}s → ${s} (${sinceStart(id)})`);
+    }
     stageStarted.set(id, { s, at: Date.now() });
   }
   const f = Math.max(0, Math.min(1, frac));
@@ -81,6 +84,9 @@ function stage(id: string, s: Stage, frac = 0, detail = '') {
   progressWrites.set(id, write);
   void write.then(() => progressWrites.get(id) === write && progressWrites.delete(id));
 }
+
+const jobStart = new Map<string, number>();
+const sinceStart = (id: string) => `${((Date.now() - (jobStart.get(id) ?? Date.now())) / 1000).toFixed(0)}s in`;
 
 /** A line for the page's live feed ("what the AI found") — never holds up the work. */
 function note(id: string, text: string, kind: 'moment' | 'clip' | 'info' = 'info') {
@@ -131,6 +137,7 @@ async function runProject(id: string) {
   fs.mkdirSync(path.join(dir, 'clips'), { recursive: true });
   await projects.update(id, { status: 'processing', error: null, errorCode: null, startedAt: Date.now(), etaAt: null });
   stageStarted.delete(id);
+  jobStart.set(id, Date.now());
   const startedUsage = { ...usage };
 
   try {
@@ -483,6 +490,8 @@ async function renderAll(projectId: string, list: ClipRow[]) {
     if (finished.has(c.id)) return;
     finished.add(c.id);
     done++;
+    if (done === 1) console.log(`[project ${projectId}] first clip ${c.status} ${sinceStart(projectId)}`);
+    if (done === total) console.log(`[project ${projectId}] all ${total} clips done ${sinceStart(projectId)}`);
     stage(projectId, 'render', 0.3 + 0.7 * (done / total), `Rendering · ${done} of ${total} ready`);
   };
 
