@@ -591,7 +591,9 @@ async function renderOnce(clipId: string) {
     const pad = 8;
     const want = clipParts(c).map((r) => ({ start: Math.max(0, r.start - pad), end: Math.min(p!.duration || r.end + pad, r.end + pad) }));
     try {
-      await ensureTranscript(p!.id, want);
+      // bounded: when the AI is slow, the captions use the site's own words rather than hold the clip up
+      const done = await Promise.race([ensureTranscript(p!.id, want).then(() => true), new Promise<boolean>((res) => setTimeout(() => res(false), 90_000))]);
+      if (!done) console.warn(`[clip ${clipId}] transcribing its part is taking too long — captions use the site's words`);
       p = (await projects.get(c.projectId)) ?? p;
     } catch (e) {
       console.warn(`[clip ${clipId}] transcribing its part failed — captions use the site's words:`, (e as Error).message);

@@ -99,6 +99,8 @@ export async function transcribe(
         audioTimestamp: true,
         thinking: 'MINIMAL',
         maxOutputTokens: 8192,
+        // a 30-second piece normally answers in a few seconds; a stuck call must not hold a clip for minutes
+        timeoutMs: 75_000,
         label: `transcribe chunk ${i + 1}/${chunks.length}`,
       });
     let r = cached ?? (await ask());
@@ -181,6 +183,7 @@ export async function sampleSpeech(audioPath: string, duration: number, workDir:
         schema,
         thinking: 'MINIMAL',
         maxOutputTokens: 4096,
+        timeoutMs: 75_000,
         label: `speech check ${i + 1}/${n}`,
       });
       return spokenWords((r.segments || []).map((x) => ({ text: String(x?.t ?? '') })));

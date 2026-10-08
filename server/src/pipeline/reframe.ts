@@ -132,6 +132,7 @@ async function analyzeFrames(opts: { src: string; start: number; end: number; wo
     schema,
     thinking: 'MINIMAL',
     maxOutputTokens: 16000,
+    timeoutMs: 120_000,
     label: 'find faces for reframing',
   });
   fs.rmSync(dir, { recursive: true, force: true });
