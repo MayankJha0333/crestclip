@@ -90,7 +90,7 @@ export async function transcribe(
     const cacheFile = path.join(workDir, `chunk_${String(i).padStart(3, '0')}.${script}.${Math.round(c.start)}-${Math.round(c.dur)}.json`);
     const cached = readChunkCache(cacheFile);
     if (!cached) await cutAudio(audioPath, file, c.start, c.dur);
-    const ask = () =>
+    const ask = (timeoutMs = 40_000) =>
       generateJson<RawChunk>({
         model: config.fastModel,
         system: sys,
@@ -100,7 +100,7 @@ export async function transcribe(
         thinking: 'MINIMAL',
         maxOutputTokens: 8192,
         // a 30-second piece normally answers in a few seconds; a stuck call must not hold a clip for minutes
-        timeoutMs: 40_000,
+        timeoutMs,
         label: `transcribe chunk ${i + 1}/${chunks.length}`,
       });
     // a stuck request (no answer in ~45 s, when a short piece normally takes a few) is asked once more rather than
@@ -109,7 +109,7 @@ export async function transcribe(
       ask().catch((e: Error) => {
         if (!/took too long/i.test(e.message)) throw e;
         console.warn(`[transcribe] chunk ${i + 1}/${chunks.length}: no answer in time — asking again`);
-        return ask();
+        return ask(75_000);
       });
     let r = cached ?? (await askOnce());
     if (!cached) {
