@@ -14,7 +14,6 @@ import { initialPlans } from '../../lib/initialData';
 import { priceText, useIndia } from '../billing/money';
 import { PlanCards } from '../billing/PlanCards';
 import { SiteFooter } from '../../components/SiteFooter';
-import { PeakPreview } from './PeakPreview';
 
 function SectionTitle({ eyebrow, title, sub, left }: { eyebrow: string; title: React.ReactNode; sub?: string; left?: boolean }) {
   return (
@@ -45,14 +44,13 @@ export function LandingPage() {
       .then(setPricing)
       .catch(() => {});
   }, []);
-  // a YouTube link shows its replay peaks right here, before any account; other links go to the app (sign-in first when needed)
-  const [preview, setPreview] = useState<string | null>(null);
+  // a pasted link goes straight to the clip page with the link filled in — via sign-in first when there's no account
+  // yet (sign-in brings them back to the clip page with the same link)
   const go = (e: React.FormEvent) => {
     e.preventDefault();
     const u = url.trim();
-    if (!u) return nav('/app');
-    if (/youtu\.be\/|youtube\.com\//i.test(u)) return setPreview(u);
-    nav(`/app?url=${encodeURIComponent(u)}`);
+    const app = u ? `/app?url=${encodeURIComponent(u)}` : '/app';
+    nav(me ? app : `/signup?next=${encodeURIComponent(app)}`);
   };
 
   return (
@@ -117,12 +115,11 @@ export function LandingPage() {
               className="min-w-0 flex-1 basis-[calc(100%-50px)] bg-transparent px-1 py-3 text-[17px] font-semibold text-ink outline-none placeholder:text-ink-3 sm:basis-auto"
             />
             <Button type="submit" variant="primary" className="w-full sm:w-auto">
-              <Wand2 size={18} /> Show me the peaks
+              <Wand2 size={18} /> Get my clips
             </Button>
           </form>
-          {preview && <PeakPreview url={preview} signedIn={Boolean(me)} onClose={() => setPreview(null)} />}
           <div className="mt-5 flex flex-wrap gap-4.5">
-            {['See the peaks before you sign up', 'Clips in minutes', 'You own every export'].map((t) => (
+            {['Free to start — no card', 'Clips in minutes', 'You own every export'].map((t) => (
               <span key={t} className="inline-flex items-center gap-1.5 text-sm font-bold text-ink-2">
                 <Check size={16} className="text-mint-d" /> {t}
               </span>
