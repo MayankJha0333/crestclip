@@ -165,7 +165,7 @@ export function wordingRule(o: Pick<ProjectOptions, 'captionLanguage'>): string 
   if (c === 'english') return 'WRITE title, video_title, hook, hooks and description in English, whatever language is spoken.';
   if (c === 'roman')
     return `${ENGLISH_TITLES} WRITE hook, hooks and description in the language the video is spoken in, but in Latin (English) letters — Hinglish for Hindi ("Ye sach hai?"), the way people type in chat. keywords are copied from the transcript as written there.`;
-  return `${ENGLISH_TITLES} WRITE hook, hooks and description in the language the video is spoken in, in its own script (a Hindi video gets Devanagari hooks; an English video English ones). keywords are copied from the transcript as written there.`;
+  return `${ENGLISH_TITLES} WRITE hook, hooks and description in the language the video is spoken in. Hindi (and Hindi mixed with English) is written in Latin (English) letters the way people type it in chat — Hinglish ("Ye sach hai?"), never Devanagari. Other languages use their own script (a Tamil video gets Tamil hooks; an English video English ones). keywords are copied from the transcript as written there.`;
 }
 
 /**

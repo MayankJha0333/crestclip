@@ -42,7 +42,7 @@ Never invent speech. If there is no speech, return an empty list.`;
 
 /** What the person chose for the words on screen (New clips → More options → Caption language). */
 export const SCRIPT_RULE: Record<CaptionLanguage, string> = {
-  auto: 'Write each language in its own script: Hindi, Marathi and Nepali in Devanagari, Bengali in Bengali script, Tamil in Tamil script, Arabic and Urdu in Arabic script, and so on. Never romanise. English words said inside another language stay in Latin letters.',
+  auto: 'Hindi (and Hindi mixed with English) is written in Latin (English) letters the way people type it in chat — Hinglish: "main hota na", "kya baat hai" — never in Devanagari, and not translated. Every other language is written in its own script: Marathi and Nepali in Devanagari, Bengali in Bengali script, Tamil in Tamil script, Arabic and Urdu in Arabic script, and so on. English words stay in Latin letters.',
   roman:
     'Write EVERYTHING in Latin (English) letters. Speech in Hindi, Urdu, Punjabi, Tamil or any other language is romanised the way people type it in chat (Hinglish: "main hota na", "kya baat hai"), NOT translated. English stays English.',
   english: 'Translate every phrase into natural, idiomatic English (keep names and brand words). The timestamps stay those of the original speech.',

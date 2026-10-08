@@ -65,7 +65,7 @@ export const CAPTION_ORDER: CaptionStyle[] = ['pop', 'clay', 'neon', 'comic', 'm
 
 /** Captions, hooks and titles: which language and script. */
 export const CAPTION_LANGUAGES: { value: 'auto' | 'roman' | 'english'; label: string; hint: string }[] = [
-  { value: 'auto', label: 'As spoken', hint: 'In the video’s own language and script — Hindi captions in Devanagari (हिंदी), English in English.' },
-  { value: 'roman', label: 'Hinglish / Roman', hint: 'As spoken, but in English letters — the way people type in chat ("main hota na"). Common on Indian Reels.' },
+  { value: 'auto', label: 'As spoken', hint: 'In the video’s own language — Hindi in Hinglish ("kya baat hai"), English in English, other languages in their own script.' },
+  { value: 'roman', label: 'Hinglish / Roman', hint: 'Every language in English letters — the way people type in chat ("main hota na"). Hindi, Tamil, Punjabi…' },
   { value: 'english', label: 'English', hint: 'Everything translated into English, whatever language is spoken.' },
 ];

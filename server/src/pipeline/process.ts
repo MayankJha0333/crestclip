@@ -25,11 +25,12 @@ import { findVisualMoments, mostlySilent, snapToShots, tooLittleSpeech, type Vis
 import { captionReactions, download, downloadAudio, fetchComments, fetchInfo, fetchWordTimings, type Comment, type SourceInfo } from './ytdlp.js';
 import { downloadPlan, endSectionMode, footageFor, footageSavings, infoJsonPath, prefetchFootage, readFootage, startSectionMode } from './footage.js';
 import { draftTranscript } from './asr.js';
+import { hasDevanagari, toHinglish } from './hinglish.js';
 import { fetchAudioFast } from './fastparts.js';
 import { firstThatWorks, planFor, sourceKindOf } from './source.js';
 import { enqueueRender } from '../infra/queue.js';
 import { classifyFileLink, downloadFileLink } from './filelink.js';
-import type { CaptionStyle, Layout, ProjectOptions, ReframePlan, Segment, Signals, TimeRange, Word } from '../types.js';
+import type { CaptionStyle, Keyword, Layout, ProjectOptions, ReframePlan, Segment, Signals, TimeRange, Word } from '../types.js';
 import { BUSY, withClusterLock } from '../infra/shared.js';
 import { touch } from '../lib/activity.js';
 
@@ -442,7 +443,10 @@ async function runProject(id: string) {
       visual: noSpeech && source ? { source, work, id } : null,
       label: `project ${id}`,
     });
-    const final = rankClips(picked, signals, duration, p.options).map((c) => ({ ...c, hashtags: withRequiredTags(c.hashtags, p.options) }));
+    const final = rankClips(picked, signals, duration, p.options).map((c) => {
+      const withTags = { ...c, hashtags: withRequiredTags(c.hashtags, p.options) };
+      return hinglishText(withTags, p.options);
+    });
     if (!final.length) throw new Error('No clip-worthy moments were found in this video.');
     const saved = await clipDb.replaceForProject(id, final, clipDefaults(p.options, noSpeech));
     await projects.update(id, { aiNotes: notes });
@@ -630,6 +634,23 @@ function assertNotLive(info: SourceInfo) {
     throw new Error('This stream is still live. Clip it once it has ended — the full recording is ready a few minutes after the stream stops.');
 }
 
+// ---------------- Hindi in Hinglish ----------------
+// "As spoken" and "Hinglish / Roman" both write Hindi in English letters. The AI does that itself; these catch any
+// Devanagari still left — mostly the site's own captions, used when a clip's own transcription was too slow.
+const romanHindi = (o: Pick<ProjectOptions, 'captionLanguage'>) => (o.captionLanguage ?? 'auto') !== 'english';
+const hinglish = (text: string, o: Pick<ProjectOptions, 'captionLanguage'>) => (text && romanHindi(o) ? toHinglish(text) : text);
+const hinglishWords = (words: Word[], o: Pick<ProjectOptions, 'captionLanguage'>) => (romanHindi(o) && words.some((w) => hasDevanagari(w.w)) ? words.map((w) => ({ ...w, w: toHinglish(w.w) })) : words);
+function hinglishText<T extends { hook?: string; hooks?: string[]; description?: string; keywords?: Keyword[] }>(c: T, o: Pick<ProjectOptions, 'captionLanguage'>): T {
+  if (!romanHindi(o)) return c;
+  return {
+    ...c,
+    ...(c.hook != null ? { hook: toHinglish(c.hook) } : {}),
+    ...(c.hooks ? { hooks: c.hooks.map(toHinglish) } : {}),
+    ...(c.description != null ? { description: toHinglish(c.description) } : {}),
+    ...(c.keywords ? { keywords: c.keywords.map((k) => ({ ...k, w: toHinglish(k.w) })) } : {}),
+  };
+}
+
 const near = (a: number | undefined, b: number) => a != null && Math.abs(a - b) < 0.05;
 
 /** A reframe plan re-timed to start `by` seconds later (for rendering a piece from the middle of a part). */
@@ -693,7 +714,7 @@ async function renderOnce(clipId: string) {
       plans.push(plan);
 
       const dur = seg.end - seg.start;
-      const words = await captionWords(p!.transcript ?? [], foot.src, ls, seg.start, seg.end);
+      const words = hinglishWords(await captionWords(p!.transcript ?? [], foot.src, ls, seg.start, seg.end), p!.options);
       const first = i === 0;
       const hookY = watermark && watermarkTopBottom(watermark) ? watermarkTopBottom(watermark)! + 30 : undefined;
       // captions go under the face: a bit lower when the face sits low in the frame, never into the apps' bottom area
@@ -701,7 +722,18 @@ async function renderOnce(clipId: string) {
       const captionY = face == null ? undefined : Math.round(Math.min(1360, Math.max(1180, face * 1920 + 380)));
       const captions = (w: Word[], d: number, withHook: boolean) =>
         canText
-          ? buildAss({ words: w, duration: d, style, layout: plan.layout, hook: withHook ? c.hook : '', showHook: withHook && c.showHook, keywords: c.keywords, emoji: c.emoji, hookY, captionY })
+          ? buildAss({
+              words: w,
+              duration: d,
+              style,
+              layout: plan.layout,
+              hook: withHook ? hinglish(c.hook, p!.options) : '',
+              showHook: withHook && c.showHook,
+              keywords: c.keywords?.map((k) => ({ ...k, w: hinglish(k.w, p!.options) })),
+              emoji: c.emoji,
+              hookY,
+              captionY,
+            })
           : null;
       const emojiImages = (cues: EmojiCue[] = []) =>
         cues.flatMap((em) => {
@@ -715,7 +747,7 @@ async function renderOnce(clipId: string) {
         const t0 = toFrame(c.teaser.start - seg.start);
         const tLen = Math.max(1 / 30, toFrame(c.teaser.end - c.teaser.start));
         const tAbs = seg.start + t0;
-        const tWords = await captionWords(p!.transcript ?? [], foot.src, ls + t0, tAbs, tAbs + tLen);
+        const tWords = hinglishWords(await captionWords(p!.transcript ?? [], foot.src, ls + t0, tAbs, tAbs + tLen), p!.options);
         const tCap = captions(tWords, tLen, false);
         const teaserOut = path.join(work, 'teaser.mp4');
         await renderClip({
@@ -1069,7 +1101,7 @@ async function packagePicked(p: ProjectRow, groups: TimeRange[][], segs: Segment
     clips: groups.map((g) => ({ parts: g, segments: segs.filter((s) => g.some((r) => s.e > r.start && s.s < r.end)) })),
   });
   return groups.map((g, i) => {
-    const d = described[i];
+    const d = hinglishText(described[i], p.options);
     const ai = aiScore(d.rubric);
     const aud = partsScore(p, g);
     return {
