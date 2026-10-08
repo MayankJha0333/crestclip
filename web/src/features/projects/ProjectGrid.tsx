@@ -71,44 +71,27 @@ export function ProjectGrid({ list, onChanged, limit, emptyAction = true }: { li
 }
 
 /**
- * One calm note above the projects instead of a countdown on every card: it only appears when something is about to
- * be deleted, names those projects, and (on Free) says how to keep things longer.
+ * One quiet line above the projects when something is about to be deleted. The cards themselves carry the
+ * "Deletes tomorrow / in 2 days" tag, so this only counts them.
  */
 function ExpiringSoon({ list }: { list: Project[] }) {
   const account = useAccount();
-  const soon = list
-    .filter((p) => !isWorking(p))
-    .map((p) => ({ p, left: deletesIn(p.expiresAt) }))
-    .filter((x) => x.left?.soon)
-    .sort((a, b) => (a.p.expiresAt ?? 0) - (b.p.expiresAt ?? 0));
-  if (!soon.length) return null;
-  const longer = account.plan.id === 'free';
+  const n = list.filter((p) => !isWorking(p) && deletesIn(p.expiresAt)?.soon).length;
+  if (!n) return null;
   return (
-    <div role="status" className="mb-5 flex items-start gap-3 rounded-[22px] bg-warn-bg px-4 py-3.5 text-sm text-warn-ink">
-      <Hourglass size={18} className="mt-0.5 shrink-0" />
-      <div className="min-w-0">
-        <b className="block">{soon.length === 1 ? '1 project is' : `${soon.length} projects are`} deleted in the next 2 days</b>
-        <p className="mt-0.5">
-          {soon.slice(0, 3).map(({ p, left }, i) => (
-            <span key={p.id}>
-              {i > 0 && ', '}
-              <Link to={`/app/p/${p.id}`} className="font-bold text-warn-ink underline underline-offset-2">
-                {(p.title || 'Untitled').length > 40 ? `${(p.title || '').slice(0, 38).trimEnd()}…` : p.title || 'Untitled'}
-              </Link>{' '}
-              ({left!.text.replace(/^Deletes /, '')})
-            </span>
-          ))}
-          {soon.length > 3 && ` and ${soon.length - 3} more`}. Download or post the clips you want to keep.
-          {longer && (
-            <>
-              {' '}
-              <Link to="/app/billing" className="font-bold text-warn-ink underline underline-offset-2">
-                Creator and Pro keep projects for 30 days.
-              </Link>
-            </>
-          )}
-        </p>
-      </div>
-    </div>
+    <p role="status" className="mb-4 text-sm text-ink-2">
+      <Hourglass size={15} className="mr-1.5 inline -translate-y-px text-warn-ink" />
+      <span>
+        <b className="text-warn-ink">
+          {n} project{n === 1 ? '' : 's'}
+        </b>{' '}
+        will be deleted within 2 days — download or post what you want to keep.
+      </span>
+      {account.plan.id === 'free' && (
+        <Link to="/app/billing" className="ml-2 font-bold whitespace-nowrap text-accent underline-offset-2 hover:underline">
+          Keep projects 30 days
+        </Link>
+      )}
+    </p>
   );
 }
