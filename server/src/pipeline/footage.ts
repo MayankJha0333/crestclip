@@ -4,7 +4,7 @@ import { config } from '../config.js';
 import { projects, type ProjectRow } from '../db/index.js';
 import { probe } from './media.js';
 import { pool } from '../lib/proc.js';
-import { download, downloadSections, proxyForVideo, type Section } from './ytdlp.js';
+import { download, downloadSections, proxyForVideo, refreshInfo, type Section } from './ytdlp.js';
 import { fetchPartFast } from './fastparts.js';
 import { withClusterLock } from '../infra/shared.js';
 
@@ -99,6 +99,17 @@ function recordSections(p: ProjectRow, dir: string, got: Section[]) {
   });
 }
 
+// the page info is read again once per video when its stream links are refused (every part that hit it waits for that one read)
+const refreshing = new Map<string, Promise<boolean>>();
+function refreshedInfo(projectId: string, url: string, info: string): Promise<boolean> {
+  let job = refreshing.get(projectId);
+  if (!job) {
+    job = refreshInfo(url, info).finally(() => setTimeout(() => refreshing.get(projectId) === job && refreshing.delete(projectId), 60_000));
+    refreshing.set(projectId, job);
+  }
+  return job;
+}
+
 // one download per part, however many clips (or workers) ask for it
 const fetching = new Map<string, Promise<void>>();
 function fetchRange(p: ProjectRow, dir: string, r: { start: number; end: number }, onProgress: (frac: number) => void): Promise<void> {
@@ -115,8 +126,10 @@ function fetchRange(p: ProjectRow, dir: string, r: { start: number; end: number 
       // by byte range first (seconds); yt-dlp's cut (about playback speed) when the video can't be fetched that way
       const want = { start: Math.max(0, Math.floor(r.start)), end: Math.ceil(r.end) };
       const file = path.join(secDir, `sec_${want.start}-${want.end}.mp4`);
-      const fast = fs.existsSync(infoJsonPath(dir)) && (await fetchPartFast(infoJsonPath(dir), want, file, { proxy: proxyForVideo(idx.url), onProgress }));
-      const got = fast ? [{ ...want, file }] : await downloadSections(idx.url, secDir, [r], (d) => onProgress(d), infoJsonPath(dir));
+      const info = infoJsonPath(dir);
+      let fast = fs.existsSync(info) ? await fetchPartFast(info, want, file, { proxy: proxyForVideo(idx.url), onProgress }) : 'unsupported';
+      if (fast === 'refused' && (await refreshedInfo(p.id, idx.url, info))) fast = await fetchPartFast(info, want, file, { proxy: proxyForVideo(idx.url), onProgress });
+      const got = fast === 'ok' ? [{ ...want, file }] : await downloadSections(idx.url, secDir, [r], (d) => onProgress(d), info);
       await recordSections(p, dir, got);
     },
     { wait: true, ttlMs: 120_000 },

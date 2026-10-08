@@ -225,6 +225,22 @@ async function infoJson(url: string): Promise<string> {
   throw lastErr;
 }
 
+/**
+ * Read the video's page again with the player clients that need no sign-in (what the downloads fall back to), and
+ * save it over the old page info: its stream links then work where the first ones were refused.
+ */
+export async function refreshInfo(url: string, saveTo: string): Promise<boolean> {
+  try {
+    const { stdout } = await ytdlp(['--extractor-args', YT_CLIENT_FALLBACKS[1]!, '-J', '--skip-download', url], { timeoutMs: 120_000 });
+    fs.writeFileSync(saveTo, stdout);
+    console.log(`  [yt-dlp] page info read again with ${YT_CLIENT_FALLBACKS[1]}`);
+    return true;
+  } catch (e) {
+    console.warn('  [yt-dlp] reading the page info again failed:', (e as Error).message.slice(0, 200));
+    return false;
+  }
+}
+
 export async function fetchInfo(url: string, saveTo?: string): Promise<SourceInfo> {
   const stdout = await infoJson(url);
   if (saveTo) fs.writeFileSync(saveTo, stdout);

@@ -234,7 +234,8 @@ export async function judgeClips<T extends ClipCandidate>(input: {
   if (visual && !viewer) return clips;
 
   // video cuts are sent as videos, so keep each call small; transcript cuts all fit in one call
-  const perCall = visual ? 8 : 30;
+  // smaller batches, several at once: grading 28 candidates in one request took 40+ s; four requests of 7 take ~15 s
+  const perCall = visual ? 8 : 10;
   const batches: number[][] = [];
   for (let i = 0; i < clips.length; i += perCall) batches.push(clips.slice(i, i + perCall).map((_, j) => i + j));
 
@@ -243,7 +244,7 @@ export async function judgeClips<T extends ClipCandidate>(input: {
   const decoyScores: number[] = [];
   const tag = input.label ?? input.title.slice(0, 40);
 
-  await pool(batches, 3, async (batch, b) => {
+  await pool(batches, 4, async (batch, b) => {
     const picks = batch.map((i) => ({ start: clips[i].start, end: clips[i].end }));
     const decoys = pickDecoys(picks, duration, visual ? null : input.segments, visual ? 2 : Math.min(4, Math.max(2, Math.ceil(batch.length / 3))));
     const rand = seeded(duration + b + 7);

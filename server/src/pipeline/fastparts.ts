@@ -96,7 +96,9 @@ function getRange(url: string, from: number, to: number, headers: Record<string,
           }
           if (res.statusCode !== 206) {
             res.resume();
-            return reject(new Error(`range request answered ${res.statusCode}`));
+            const err = new Error(`range request answered ${res.statusCode}`) as Error & { status?: number };
+            err.status = res.statusCode;
+            return reject(err);
           }
           const chunks: Buffer[] = [];
           res.on('data', (c: Buffer) => chunks.push(c));
@@ -214,23 +216,25 @@ async function fetchStream(f: Format, start: number, end: number, out: string, p
 }
 
 /**
- * Fetch [start, end] of the video into `out` (an mp4 whose time 0 is `start`). Returns false when this video can't
- * be fetched this way, so the caller falls back to yt-dlp.
+ * Fetch [start, end] of the video into `out` (an mp4 whose time 0 is `start`).
+ *   'ok'          — done
+ *   'refused'     — the stream links were refused (403): fresh links from another player client may work
+ *   'unsupported' — this video can't be fetched this way; the caller uses yt-dlp
  */
 export async function fetchPartFast(
   infoJson: string,
   range: { start: number; end: number },
   out: string,
   opts: { proxy?: string | null; onProgress?: (frac: number) => void } = {},
-): Promise<boolean> {
+): Promise<'ok' | 'refused' | 'unsupported'> {
   let formats: Format[];
   try {
     formats = (JSON.parse(fs.readFileSync(infoJson, 'utf8')) as { formats?: Format[] }).formats ?? [];
   } catch {
-    return false;
+    return 'unsupported';
   }
   const chosen = pick(formats);
-  if (!chosen) return false;
+  if (!chosen) return 'unsupported';
   const proxy = opts.proxy ?? null;
   const dir = path.dirname(out);
   const tag = `${path.basename(out, path.extname(out))}_${process.pid}`;
@@ -256,11 +260,12 @@ export async function fetchPartFast(
     );
     opts.onProgress?.(1);
     console.log(`  [fast parts] ${range.start}–${range.end}s · ${(bytes / 1e6).toFixed(0)} MB in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
-    return true;
+    return 'ok';
   } catch (e) {
-    console.warn(`  [fast parts] ${range.start}–${range.end}: ${(e as Error).message.slice(0, 200)} — using yt-dlp for this part`);
+    const refused = (e as { status?: number }).status === 403;
+    console.warn(`  [fast parts] ${range.start}–${range.end}: ${(e as Error).message.slice(0, 200)}${refused ? '' : ' — using yt-dlp for this part'}`);
     fs.rmSync(out, { force: true });
-    return false;
+    return refused ? 'refused' : 'unsupported';
   } finally {
     fs.rmSync(vFile, { force: true });
     fs.rmSync(aFile, { force: true });
