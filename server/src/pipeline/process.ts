@@ -129,7 +129,7 @@ async function runProject(id: string) {
   const work = path.join(dir, 'work');
   fs.mkdirSync(work, { recursive: true });
   fs.mkdirSync(path.join(dir, 'clips'), { recursive: true });
-  await projects.update(id, { status: 'processing', error: null, errorCode: null, startedAt: Date.now(), etaAt: null, feed: [] });
+  await projects.update(id, { status: 'processing', error: null, errorCode: null, startedAt: Date.now(), etaAt: null });
   stageStarted.delete(id);
   const startedUsage = { ...usage };
 
@@ -144,6 +144,8 @@ async function runProject(id: string) {
       await projects.update(id, { status: 'done', stage: 'done', progress: 100, stageDetail: '' });
       return;
     }
+
+    await projects.update(id, { feed: [] }); // a fresh run: the page's "what CrestClip is finding" starts empty
 
     // Parts picked by hand (Explore graph): skip the AI search, fetch + clip exactly those parts.
     if (p.options.ranges?.length && p.sourceType === 'url' && p.sourceUrl) {

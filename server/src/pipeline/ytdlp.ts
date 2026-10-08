@@ -120,7 +120,7 @@ let lastForcedUpdate = 0;
  *  - drops our extra args once if an old custom yt-dlp doesn't know them,
  *  - if YouTube broke the download, updates yt-dlp right away and retries once.
  */
-async function ytdlp(args: string[], opts: Parameters<typeof run>[2] = {}, healed = false, rotated = 0): Promise<{ stdout: string; stderr: string }> {
+async function ytdlp(args: string[], opts: Parameters<typeof run>[2] & { noHeal?: boolean } = {}, healed = false, rotated = 0): Promise<{ stdout: string; stderr: string }> {
   if (ytStatus.state === 'installing' || ytStatus.state === 'missing') await ensureYtdlp();
   const key = config.ytdlpProxies.length ? videoKey(args) : '';
   const proxy = key && (config.ytdlpProxyMode === 'always' || viaProxy.has(key)) ? proxyFor(key) : null;
@@ -150,12 +150,15 @@ async function ytdlp(args: string[], opts: Parameters<typeof run>[2] = {}, heale
       console.log(`  [yt-dlp] blocked or proxy error — retrying from a new address (${rotated + 1}/${config.ytdlpProxyRetries})`);
       return ytdlp(args, opts, healed, rotated + 1);
     }
-    if (!healed && STALE.test(text) && Date.now() - lastForcedUpdate > 10 * 60_000) {
+    if (!healed && !opts.noHeal && STALE.test(text) && Date.now() - lastForcedUpdate > 10 * 60_000) {
       lastForcedUpdate = Date.now();
       console.log('  [tools] YouTube changed something — updating yt-dlp and retrying');
       await ensureYtdlp(true);
       return ytdlp(args, opts, true, rotated);
     }
+    // the last lines of what yt-dlp/ffmpeg said — the friendly error shown in the app keeps only a sentence of it
+    const tail = redactProxy(`${err.stderr ?? ''}`).trim().split('\n').filter((l) => l.trim()).slice(-12).join('\n  ');
+    if (tail) console.warn(`  [yt-dlp] failed (${videoKey(args) || 'no video key'}):\n  ${tail}`);
     throw friendlyYtdlpError(err);
   }
 }
@@ -274,21 +277,49 @@ const VIDEO_FORMAT = 'bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=10
  * Download with fallbacks: first reuse the saved page info (skips re-reading YouTube — much faster),
  * then read the link fresh, then try other YouTube player clients if YouTube blocks one.
  */
+// Which way of fetching a video worked last time (the saved page info, or a player client), so the next part of the
+// same video — twelve clips ask one after another — starts with it instead of failing through the list again.
+const knownGood = new Map<string, number>();
+const probing = new Map<string, Promise<void>>();
 async function downloadWithFallbacks(opts: { url: string; infoJson?: string | null; args: string[]; timeoutMs: number; idleTimeoutMs?: number; onLine?: (line: string) => void; cleanup: () => void }) {
   const fresh = opts.infoJson && fs.existsSync(opts.infoJson) && Date.now() - fs.statSync(opts.infoJson).mtimeMs < 4 * 3600_000;
   const attempts: (string[] | null)[] = [...(fresh ? [['--load-info-json', opts.infoJson as string]] : []), ...YT_CLIENT_FALLBACKS.map((c) => [...(c ? ['--extractor-args', c] : []), opts.url])];
+  // several parts of one video start together: the first one finds the way that works, the others wait for it
+  // (a few seconds) instead of all failing through the same list at once
+  const other = knownGood.has(opts.url) ? null : probing.get(opts.url);
+  if (other) await other.catch(() => {});
+  let settle: () => void = () => {};
+  if (!knownGood.has(opts.url) && !probing.has(opts.url)) {
+    const probe = new Promise<void>((res) => (settle = res));
+    probing.set(opts.url, probe);
+    void probe.finally(() => probing.get(opts.url) === probe && probing.delete(opts.url));
+  }
+  const good = knownGood.get(opts.url);
+  const order = good != null && good < attempts.length ? [good, ...attempts.keys()].filter((x, k, all) => all.indexOf(x) === k) : [...attempts.keys()];
   let lastErr: unknown = null;
-  for (const [i, src] of attempts.entries()) {
+  for (const i of order) {
+    const src = attempts[i];
+    const isInfoAttempt = Boolean(fresh) && i === 0;
     try {
-      await ytdlp([...opts.args, '--newline', ...(src ?? [])], { timeoutMs: opts.timeoutMs, idleTimeoutMs: opts.idleTimeoutMs ?? STALL_MS, onLine: opts.onLine ? (l) => opts.onLine!(l) : undefined });
+      await ytdlp([...opts.args, '--newline', ...(src ?? [])], {
+        timeoutMs: opts.timeoutMs,
+        idleTimeoutMs: opts.idleTimeoutMs ?? STALL_MS,
+        onLine: opts.onLine ? (l) => opts.onLine!(l) : undefined,
+        // the saved page info can simply be stale (its links refused): that's no reason to update yt-dlp
+        noHeal: isInfoAttempt,
+      });
+      if (knownGood.size > 2000) knownGood.clear();
+      knownGood.set(opts.url, i);
+      settle();
       return;
     } catch (e) {
       lastErr = e;
       opts.cleanup();
-      const isInfoAttempt = fresh && i === 0;
+      if (knownGood.get(opts.url) === i) knownGood.delete(opts.url);
       if (!isInfoAttempt && !RETRYABLE.test(String((e as Error).message))) break;
     }
   }
+  settle();
   const msg = String((lastErr as Error)?.message ?? lastErr);
   throw new Error(/403|Forbidden/.test(msg) ? 'YouTube blocked this download right now. CrestClip already updated its downloader — try again in a few minutes, or upload the file instead.' : msg);
 }

@@ -16,6 +16,25 @@ import { ensureIndiaPrices } from './modules/billing/billing.service.js';
 // a background task that fails (e.g. the database blinked) is logged, not fatal
 process.on('unhandledRejection', (e) => console.error('[background]', e));
 
+// LOG_FILE=path: a copy of everything the server prints, for reading back later (the terminal scrolls away)
+if (process.env.LOG_FILE) {
+  const { appendFileSync, mkdirSync } = await import('node:fs');
+  const { dirname } = await import('node:path');
+  const { format } = await import('node:util');
+  mkdirSync(dirname(process.env.LOG_FILE), { recursive: true });
+  for (const level of ['log', 'warn', 'error'] as const) {
+    const orig = console[level].bind(console);
+    console[level] = (...a: unknown[]) => {
+      orig(...a);
+      try {
+        appendFileSync(process.env.LOG_FILE!, `${new Date().toISOString()} ${format(...a)}\n`);
+      } catch {
+        /* a full disk only loses the copy */
+      }
+    };
+  }
+}
+
 const role = config.role;
 const has = (...r: (typeof role)[]) => role === 'all' || r.includes(role);
 
