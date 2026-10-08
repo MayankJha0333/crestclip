@@ -5,7 +5,7 @@ import { config } from '../config.js';
 import { pool, run } from '../lib/proc.js';
 import { deleteFromGcs, generateJson, part, uploadToGcs } from './gemini.js';
 import { framesAt, sceneCuts } from './media.js';
-import { cleanTitle, rangeFor, wordingRule } from './moments.js';
+import { cleanTitle, englishTitles, rangeFor, wordingRule } from './moments.js';
 import { formatTime } from './signals.js';
 import { spokenWords } from './transcribe.js';
 import type { ClipCandidate, ProjectOptions, Segment, Signals } from '../types.js';
@@ -101,7 +101,7 @@ const schema = {
   type: 'object',
   properties: {
     notes: { type: 'string', description: 'one or two sentences: what this video shows and where its best moments are' },
-    video_title: { type: 'string', description: 'a natural title for the whole video, as its creator might name it (<= 70 chars, no hashtags)' },
+    video_title: { type: 'string', description: 'a natural title for the whole video, as its creator might name it, in English (<= 70 chars, no hashtags)' },
     clips: {
       type: 'array',
       items: {
@@ -109,7 +109,7 @@ const schema = {
         properties: {
           start: { type: 'number', description: 'seconds, where the clip starts (the start of the build-up, never mid-action)' },
           end: { type: 'number', description: 'seconds, right after the payoff is fully shown' },
-          title: { type: 'string', description: 'post title, <= 70 chars, curiosity-driven, no clickbait lies' },
+          title: { type: 'string', description: 'post title in English (always English, whatever is spoken), <= 70 chars, curiosity-driven, no clickbait lies' },
           hook: { type: 'string', description: 'the best on-screen headline for the first 3 seconds, <= 8 words' },
           hooks: { type: 'array', items: { type: 'string' }, description: 'exactly 3 headline options from different angles; the first equals `hook`' },
           description: { type: 'string', description: '1-2 sentence post caption with a question or CTA' },
@@ -351,7 +351,7 @@ export async function findVisualMoments(input: {
       const prompt = `VIDEO: "${input.title}"${input.channel ? ` by ${input.channel}` : ''} — nobody talks in it.
 You are watching ${where}
 Target clip length: ${range.label}. Hard limits: ${range.min}–${range.max} s.
-${options.captionLanguage === 'english' || !options.captionLanguage ? '' : wordingRule(options)}${short ? `\nThis video is short: return the 1–${Math.min(3, ask)} best cuts. Using almost the whole video is fine when all of it is good.` : `\nReturn the ${ask} best clip candidates, best first.`}
+${wordingRule(options)}${short ? `\nThis video is short: return the 1–${Math.min(3, ask)} best cuts. Using almost the whole video is fine when all of it is good.` : `\nReturn the ${ask} best clip candidates, best first.`}
 ${options.focus ? `Creator's focus request: "${options.focus}" — prioritize moments that match it.` : ''}
 ${options.rules?.length ? `\nTHE CREATOR'S RULES — every clip MUST follow these:\n${options.rules.map((r) => `- ${r}`).join('\n')}` : ''}
 ${options.instructions && !options.rules?.length ? `\nTHE CREATOR'S INSTRUCTIONS (follow them):\n${options.instructions.slice(0, 2500)}` : ''}
@@ -387,7 +387,9 @@ ${input.description ? `\nVIDEO DESCRIPTION (context only):\n${input.description.
   const clips = results.flatMap((r) => r.clips);
   if (!clips.length && windows.length > 1) throw new Error('The AI couldn’t watch this video. Please try again in a few minutes.');
   const notes = results.map((r) => r.notes).find(Boolean) ?? '';
-  return { clips, notes, videoTitle: results.map((r) => r.videoTitle).find(Boolean) ?? null };
+  const title = results.map((r) => r.videoTitle).find(Boolean) ?? null;
+  const [named, videoTitle] = await Promise.all([englishTitles(clips), englishTitles([{ title: title ?? '' }])]);
+  return { clips: named, notes, videoTitle: videoTitle[0].title || null };
 }
 
 /**

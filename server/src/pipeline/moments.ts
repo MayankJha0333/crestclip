@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { scriptLanguages } from './language.js';
 import { generateJson, part } from './gemini.js';
 import { formatTime, rangeScore } from './signals.js';
 import type { ClipCandidate, Keyword, LengthPref, ProjectOptions, Rubric, Segment, Signals, TimeRange } from '../types.js';
@@ -38,7 +39,7 @@ const clipSchema = {
   type: 'object',
   properties: {
     notes: { type: 'string', description: 'one or two sentences about what this video is and where its best moments are' },
-    video_title: { type: 'string', description: 'a natural title for the whole video, as its creator might name it (<= 70 chars, no hashtags)' },
+    video_title: { type: 'string', description: 'a natural title for the whole video, as its creator might name it, in English (<= 70 chars, no hashtags)' },
     clips: {
       type: 'array',
       items: {
@@ -46,7 +47,7 @@ const clipSchema = {
         properties: {
           start: { type: 'number', description: 'seconds; must be the start of the first word of the hook sentence' },
           end: { type: 'number', description: 'seconds; right after the payoff lands' },
-          title: { type: 'string', description: 'post title, <= 70 chars, curiosity-driven, no clickbait lies' },
+          title: { type: 'string', description: 'post title in English (always English, whatever is spoken), <= 70 chars, curiosity-driven, no clickbait lies' },
           hook: { type: 'string', description: 'the best on-screen headline for the first 3 seconds, <= 8 words' },
           hooks: { type: 'array', items: { type: 'string' }, description: 'exactly 3 different headline options (<= 8 words each), each from a different angle; the first equals `hook`' },
           keywords: {
@@ -152,12 +153,59 @@ function transcriptForPrompt(segs: Segment[]): string {
   return lines.join('\n');
 }
 
-/** How the AI should write titles, hooks and descriptions for this project. */
+/**
+ * How the AI should write titles, hooks and descriptions for this project. Titles (the clip's label in the app, and
+ * the video's name) are always English, whatever is spoken; the hook on the video and the post description follow
+ * the caption-language choice, so they match what viewers hear.
+ */
+const ENGLISH_TITLES =
+  'WRITE every title (and video_title) in English, always — even when the video is in Hindi or any other language: say the idea in plain English and keep names as they are (no Devanagari or other scripts in titles).';
 export function wordingRule(o: Pick<ProjectOptions, 'captionLanguage'>): string {
   const c = o.captionLanguage ?? 'auto';
-  if (c === 'english') return 'WRITE title, hook, hooks and description in English, whatever language is spoken.';
-  if (c === 'roman') return 'WRITE title, hook, hooks and description in the language the video is spoken in, but in Latin (English) letters — Hinglish for Hindi ("Ye sach hai?"), the way people type in chat. keywords are copied from the transcript as written there.';
-  return 'WRITE title, hook, hooks and description in the language the video is spoken in, in its own script (a Hindi video gets Devanagari hooks and titles; an English video English ones). keywords are copied from the transcript as written there.';
+  if (c === 'english') return 'WRITE title, video_title, hook, hooks and description in English, whatever language is spoken.';
+  if (c === 'roman')
+    return `${ENGLISH_TITLES} WRITE hook, hooks and description in the language the video is spoken in, but in Latin (English) letters — Hinglish for Hindi ("Ye sach hai?"), the way people type in chat. keywords are copied from the transcript as written there.`;
+  return `${ENGLISH_TITLES} WRITE hook, hooks and description in the language the video is spoken in, in its own script (a Hindi video gets Devanagari hooks; an English video English ones). keywords are copied from the transcript as written there.`;
+}
+
+/**
+ * Safety net for the "titles are always English" rule: any title the AI still wrote in another script (Devanagari,
+ * Tamil, Arabic…) is translated to a short English title in one small call. Titles already in Latin letters are left
+ * alone. On any error the titles stay as they were.
+ */
+export async function englishTitles<T extends { title: string }>(items: T[]): Promise<T[]> {
+  const todo = items.map((c, i) => ({ i, title: c.title })).filter((x) => x.title && scriptLanguages(x.title));
+  if (!todo.length || config.fakeAi) return items;
+  try {
+    const raw = await generateJson<{ titles: { index: number; title: string }[] }>({
+      model: config.fastModel,
+      system: 'You translate short video titles into natural, catchy English (<= 70 characters). Keep names of people, shows and places as they are, in Latin letters. Return only English.',
+      parts: [part.text(todo.map((x) => `${x.i}: ${x.title}`).join('\n'))],
+      schema: {
+        type: 'object',
+        properties: { titles: { type: 'array', items: { type: 'object', properties: { index: { type: 'integer' }, title: { type: 'string' } }, required: ['index', 'title'] } } },
+        required: ['titles'],
+      },
+      thinking: 'MINIMAL',
+      maxOutputTokens: 2000,
+      label: 'english titles',
+    });
+    const byIndex = new Map(
+      (raw.titles ?? []).map((t) => [
+        Number(t.index),
+        String(t.title || '')
+          .trim()
+          .slice(0, 100),
+      ]),
+    );
+    return items.map((c, i) => {
+      const t = byIndex.get(i);
+      return t && !scriptLanguages(t) ? { ...c, title: t } : c;
+    });
+  } catch (e) {
+    console.warn('[english titles]', (e as Error).message);
+    return items;
+  }
 }
 
 export async function findMoments(input: {
@@ -215,7 +263,8 @@ ${transcriptForPrompt(input.segments)}`;
   }
 
   const clips = parseClips(raw.clips);
-  return { clips, notes: raw.notes ?? '', videoTitle: cleanTitle(raw.video_title) };
+  const [named, videoTitle] = await Promise.all([englishTitles(clips), englishTitles([{ title: cleanTitle(raw.video_title) ?? '' }])]);
+  return { clips: named, notes: raw.notes ?? '', videoTitle: videoTitle[0].title || null };
 }
 
 /**
@@ -600,7 +649,7 @@ ${blocks}`;
       maxOutputTokens: 12000,
       label: 'write titles for picked clips',
     });
-    return input.clips.map((_, i) => {
+    const described = input.clips.map((_, i) => {
       const c = raw.clips?.find((x) => Number(x.index) === i) ?? raw.clips?.[i];
       if (!c) return fallback(i);
       return {
@@ -625,6 +674,7 @@ ${blocks}`;
         },
       };
     });
+    return await englishTitles(described);
   } catch (e) {
     console.warn('[describe clips]', (e as Error).message);
     return input.clips.map((_, i) => fallback(i));
