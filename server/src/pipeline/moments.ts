@@ -217,6 +217,8 @@ export async function findMoments(input: {
   signals: Signals | null;
   options: ProjectOptions;
   videoPart: Part | null;
+  /** a long video is searched in parallel, one stretch per request: only this stretch's transcript is given */
+  window?: { start: number; end: number } | null;
 }): Promise<{ clips: ClipCandidate[]; notes: string; videoTitle: string | null }> {
   const { options, duration } = input;
   const range = rangeFor(options);
@@ -233,7 +235,7 @@ export async function findMoments(input: {
   const chapters = input.signals?.chapters?.length ? input.signals.chapters.map((c) => `- ${c.start_time.toFixed(0)}s: ${c.title}`).join('\n') : 'none';
 
   const prompt = `VIDEO: "${input.title}"${input.channel ? ` by ${input.channel}` : ''}
-Duration: ${formatTime(duration)} (${duration.toFixed(0)} s)
+Duration: ${formatTime(duration)} (${duration.toFixed(0)} s)${input.window ? `\nThis request covers ONLY ${formatTime(input.window.start)}–${formatTime(input.window.end)} of it (the other stretches are searched separately): pick from this stretch, with its real timestamps.` : ''}
 Clips are posted to TikTok, YouTube Shorts and Instagram Reels.
 Target clip length: ${range.label}. Hard limits: ${range.min}–${range.max} s.
 Return the ${ask} best clip candidates, best first.
@@ -269,28 +271,27 @@ ${transcriptForPrompt(input.segments)}`;
 
 /**
  * The most re-watched moment must come out as a clip candidate. The picker treats hotspots as hints, so now and then
- * it skips the tallest peak and the person sees their best moment missing from the graph. When no candidate covers
- * the #1 audience peak, a small focused call cuts one clip around it from just that part of the transcript.
+ * it skips the tallest peak and the person sees their best moment missing from the graph. A small focused call cuts
+ * one clip around the #1 audience peak from just that part of the transcript — started alongside the main search,
+ * so it costs no extra time — and ensurePeakCandidate adds it when no candidate covers the peak.
  */
-export async function ensurePeakCandidate(input: {
-  clips: ClipCandidate[];
+export async function startPeakClip(input: {
   segments: Segment[];
   duration: number;
   title: string;
   channel: string;
   signals: Signals | null;
   options: ProjectOptions;
-}): Promise<ClipCandidate[]> {
-  const { clips, segments, duration, signals, options } = input;
-  if (config.fakeAi || !signals || signals.curveKind !== 'audience' || !signals.hotspots.length || !segments.length) return clips;
+}): Promise<ClipCandidate | null> {
+  const { segments, duration, signals, options } = input;
+  if (config.fakeAi || !signals || signals.curveKind !== 'audience' || !signals.hotspots.length || !segments.length) return null;
   const top = signals.hotspots[0];
   const mid = (top.start + top.end) / 2;
-  if (clips.some((c) => c.start <= top.end && c.end >= top.start && c.end - c.start > 0)) return clips;
 
   const range = rangeFor(options);
   const pad = Math.max(range.max * 1.5, 60);
   const around = segments.filter((s) => s.e >= top.start - pad && s.s <= top.end + pad);
-  if (around.length < 2) return clips;
+  if (around.length < 2) return null;
   const prompt = `VIDEO: "${input.title}"${input.channel ? ` by ${input.channel}` : ''}
 Duration: ${formatTime(duration)} (${duration.toFixed(0)} s)
 Clips are posted to TikTok, YouTube Shorts and Instagram Reels.
@@ -315,14 +316,21 @@ ${transcriptForPrompt(around)}`;
       label: 'clip the top replay peak',
     });
     const got = parseClips(raw.clips).filter((c) => c.end > c.start && c.start <= top.end && c.end >= top.start);
-    if (!got.length) return clips;
-    const peak = { ...got[0], reason: `The most re-watched moment of the video. ${got[0].reason}`.trim() };
-    console.log(`[moments] top replay peak ${formatTime(top.start)}–${formatTime(top.end)} had no candidate — added ${formatTime(peak.start)}–${formatTime(peak.end)}`);
-    return [peak, ...clips];
+    if (!got.length) return null;
+    return { ...got[0], reason: `The most re-watched moment of the video. ${got[0].reason}`.trim() };
   } catch (e) {
     console.warn('[moments] clipping the top replay peak failed:', (e as Error).message);
-    return clips;
+    return null;
   }
+}
+
+/** The candidates, plus the peak clip (see startPeakClip) when none of them covers the #1 audience peak. */
+export function ensurePeakCandidate(clips: ClipCandidate[], peak: ClipCandidate | null, signals: Signals | null): ClipCandidate[] {
+  if (!peak || !signals?.hotspots.length) return clips;
+  const top = signals.hotspots[0];
+  if (clips.some((c) => c.start <= top.end && c.end >= top.start && c.end - c.start > 0)) return clips;
+  console.log(`[moments] top replay peak ${formatTime(top.start)}–${formatTime(top.end)} had no candidate — added ${formatTime(peak.start)}–${formatTime(peak.end)}`);
+  return [peak, ...clips];
 }
 
 function parseClips(list: (Omit<ClipCandidate, 'rubric'> & Record<string, number>)[] | undefined): ClipCandidate[] {

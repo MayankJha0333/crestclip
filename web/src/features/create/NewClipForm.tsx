@@ -75,7 +75,9 @@ export const suggestedClips = (seconds: number) => (seconds < 10 * 60 ? 3 : seco
  * A rough wait, in minutes: reading the audio and finding moments grow with the video, rendering with the clips.
  * (Measured on the live server: a 14-min talk with 5 clips takes about 6 minutes end to end.)
  */
-export const waitMinutes = (seconds: number | null, clips: number) => Math.max(2, Math.round(2 + (seconds ? (seconds / 60) * 0.12 : 3) + clips * 0.5));
+/** Minutes until the first clip, roughly: the video's length barely matters now (its own captions stand in for a
+ *  transcript, and only the clip parts are fetched); the rest is finding the moments and rendering clips a few at a time. */
+export const waitMinutes = (seconds: number | null, clips: number) => Math.max(2, Math.round(1.5 + (seconds ? (seconds / 3600) * 0.3 : 0.5) + clips * 0.15));
 
 /** Numbered step with a dot that turns into a check when the step is done. */
 function Step({ n, title, hint, done, children, last }: { n: number; title: string; hint?: ReactNode; done?: boolean; children: ReactNode; last?: boolean }) {
@@ -498,7 +500,7 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
                 </Button>
               </div>
               <small className="mt-1 block text-xs text-ink-3">
-                {knownDur ? `${fmtTime(knownDur)} video · ` : ''}~{wait} min wait{videos > 1 ? ' per video' : ''}
+                {knownDur ? `${fmtTime(knownDur)} video · ` : ''}first clip in ~{wait} min{videos > 1 ? ' per video' : ''}
               </small>
             </div>
             <label className="flex max-w-56 flex-col">

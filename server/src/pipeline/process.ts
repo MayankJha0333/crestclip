@@ -9,7 +9,7 @@ import { buildAss, wordsInRange, type EmojiCue } from './captions.js';
 import { part, uploadToGcs, deleteFromGcs, usage, usageTotals, withUsageLedger } from './gemini.js';
 import { removeFromCloud, saveToCloud } from '../infra/cloudStore.js';
 import { extractAudio, extractAudioRange, hasLibass, loudnessPerSecond, makeProxy, probe, silences as findSilences, thumbnail } from './media.js';
-import { aiScore, describeClips, ensurePeakCandidate, findMoments, junkTitle, rankClips, snapClips, snapRange } from './moments.js';
+import { aiScore, describeClips, ensurePeakCandidate, findMoments, junkTitle, rankClips, snapClips, snapRange, startPeakClip } from './moments.js';
 import { judgeClips } from './judge.js';
 import { contentBand, planReframe } from './reframe.js';
 import { concatParts, faceOnFrame, mixMusic, planZooms, renderClip } from './render.js';
@@ -366,28 +366,36 @@ async function runProject(id: string) {
       }
 
       stage(id, 'moments', 0.35, 'Hunting for viral moments…');
-      const found = await findMoments({
-        segments: tr.segments,
-        duration,
-        title: info?.title ?? p.title ?? 'Untitled',
-        channel: info?.channel ?? '',
-        description: info?.description ?? '',
-        signals,
-        options: p.options,
-        videoPart,
-      }).finally(() => {
+      // the #1 audience peak gets its own small search at the same time (used only if the main search skips it)
+      const peakP = startPeakClip({ segments: tr.segments, duration, title: info?.title ?? p.title ?? 'Untitled', channel: info?.channel ?? '', signals, options: p.options });
+      // a long video is searched in parallel stretches of ~40 minutes (one request each, all at once), each asked
+      // for its own best moments; the judge then grades them all together, so the long ones take no longer than
+      // a short one. Short videos stay as one request.
+      const windows = videoPart || duration <= 45 * 60 ? 1 : Math.min(4, Math.ceil(duration / (40 * 60)));
+      const askEach = Math.max(2, Math.ceil(Math.max(1, Math.min(30, p.options.clipCount)) / windows));
+      if (windows > 1) note(id, `Long video: searching ${windows} stretches of it at the same time`);
+      const parts = await Promise.all(
+        Array.from({ length: windows }, (_, i) => {
+          const win = windows > 1 ? { start: (duration * i) / windows, end: (duration * (i + 1)) / windows } : null;
+          const inWin = (t: number) => !win || (t >= win.start && t < win.end);
+          return findMoments({
+            segments: win ? tr.segments.filter((sg) => inWin((sg.s + sg.e) / 2)) : tr.segments,
+            duration,
+            title: info?.title ?? p.title ?? 'Untitled',
+            channel: info?.channel ?? '',
+            description: info?.description ?? '',
+            signals: win && signals ? { ...signals, hotspots: signals.hotspots.filter((h) => inWin((h.start + h.end) / 2)), chapters: signals.chapters.filter((c) => inWin(c.start_time)) } : signals,
+            options: win ? { ...p.options, clipCount: askEach } : p.options,
+            videoPart,
+            window: win,
+          });
+        }),
+      ).finally(() => {
         if (gcsObject) deleteFromGcs(gcsObject);
       });
+      const found = { clips: parts.flatMap((x) => x.clips), notes: parts.map((x) => x.notes).filter(Boolean).join(' '), videoTitle: parts.find((x) => x.videoTitle)?.videoTitle ?? null };
       // the tallest replay peak always gets a candidate, so the graph and the clips agree
-      cands = await ensurePeakCandidate({
-        clips: found.clips,
-        segments: tr.segments,
-        duration,
-        title: info?.title ?? p.title ?? 'Untitled',
-        channel: info?.channel ?? '',
-        signals,
-        options: p.options,
-      });
+      cands = ensurePeakCandidate(found.clips, await peakP, signals);
       notes = found.notes;
       videoTitle = found.videoTitle;
       for (const c of cands.slice(0, 6)) note(id, `${formatClock(c.start)} — “${(c.hook || c.title).slice(0, 90)}”`, 'moment');
