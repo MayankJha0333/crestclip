@@ -80,23 +80,23 @@ function connectVia(proxy: string, host: string, port: number): Promise<tls.TLSS
   });
 }
 
-/** One byte range of a file, as yt-dlp fetches them (a plain Range request; YouTube serves these at full speed). */
-function getRange(url: string, from: number, to: number, headers: Record<string, string>, proxy: string | null, hops = 0): Promise<Buffer> {
+/** A GET (a byte range when `range` is set), following redirects, through the proxy when one is set. */
+function get(url: string, headers: Record<string, string>, proxy: string | null, range: { from: number; to: number } | null, hops = 0): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const go = (createConnection?: () => tls.TLSSocket) => {
-      const req = https.request(
+      const req = (u.protocol === 'http:' ? http : https).request(
         u,
-        { method: 'GET', headers: { ...headers, Range: `bytes=${from}-${to}` }, timeout: 60_000, ...(createConnection ? { createConnection, agent: false } : {}) },
+        { method: 'GET', headers: { ...headers, ...(range ? { Range: `bytes=${range.from}-${range.to}` } : {}) }, timeout: 60_000, ...(createConnection ? { createConnection, agent: false } : {}) },
         (res) => {
           // YouTube sometimes points at another of its servers first
           if (res.statusCode && [301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && hops < 3) {
             res.resume();
-            return getRange(new URL(res.headers.location, u).toString(), from, to, headers, proxy, hops + 1).then(resolve, reject);
+            return get(new URL(res.headers.location, u).toString(), headers, proxy, range, hops + 1).then(resolve, reject);
           }
-          if (res.statusCode !== 206) {
+          if (res.statusCode !== (range ? 206 : 200)) {
             res.resume();
-            const err = new Error(`range request answered ${res.statusCode}`) as Error & { status?: number };
+            const err = new Error(`${range ? 'range ' : ''}request answered ${res.statusCode}`) as Error & { status?: number };
             err.status = res.statusCode;
             return reject(err);
           }
@@ -106,13 +106,118 @@ function getRange(url: string, from: number, to: number, headers: Record<string,
           res.on('error', reject);
         },
       );
-      req.on('timeout', () => req.destroy(new Error('range request timed out')));
+      req.on('timeout', () => req.destroy(new Error('request timed out')));
       req.on('error', reject);
       req.end();
     };
-    if (!proxy) go();
+    if (!proxy || u.protocol === 'http:') go();
     else connectVia(proxy, u.hostname, Number(u.port) || 443).then((socket) => go(() => socket), reject);
   });
+}
+
+/** One byte range of a file, as yt-dlp fetches them (a plain Range request; YouTube serves these at full speed). */
+const getRange = (url: string, from: number, to: number, headers: Record<string, string>, proxy: string | null) => get(url, headers, proxy, { from, to });
+
+// ---------------- HLS (Twitch and other sites that serve video as a list of short files) ----------------
+
+/** The best ≤1080p HLS rendition that carries both picture and sound (Twitch's are muxed). */
+function pickHls(formats: Format[]): Format | null {
+  const list = formats.filter(
+    (f) => f.url && /^m3u8/.test(f.protocol ?? '') && f.vcodec && f.vcodec !== 'none' && f.vcodec.startsWith('avc1') && f.acodec && f.acodec !== 'none' && (f.height ?? 0) <= 1080,
+  );
+  list.sort((a, b) => (b.height ?? 0) - (a.height ?? 0) || (b.tbr ?? 0) - (a.tbr ?? 0));
+  return list[0] ?? null;
+}
+
+interface Segment {
+  t: number;
+  dur: number;
+  url: string;
+}
+
+/** The segments of a media playlist with their play times; null for anything this doesn't handle. */
+function parseM3u8(text: string, base: string): { init: string | null; segments: Segment[] } | null {
+  if (!text.startsWith('#EXTM3U') || /#EXT-X-STREAM-INF|#EXT-X-BYTERANGE|#EXT-X-KEY:METHOD=(?!NONE)/.test(text)) return null;
+  const segments: Segment[] = [];
+  let init: string | null = null;
+  let t = 0;
+  let dur: number | null = null;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const map = line.match(/^#EXT-X-MAP:.*URI="([^"]+)"/);
+    if (map) {
+      if (/BYTERANGE/.test(line)) return null;
+      init = new URL(map[1], base).toString();
+    } else if (line.startsWith('#EXTINF:')) dur = parseFloat(line.slice(8));
+    else if (!line.startsWith('#') && dur != null) {
+      segments.push({ t, dur, url: new URL(line, base).toString() });
+      t += dur;
+      dur = null;
+    }
+  }
+  return segments.length ? { init, segments } : null;
+}
+
+async function fetchHlsPart(f: Format, range: { start: number; end: number }, out: string, proxy: string | null, onProgress?: (frac: number) => void): Promise<'ok' | 'refused' | 'unsupported'> {
+  const headers = f.http_headers ?? {};
+  const tmp = `${out}.${process.pid}.seg`;
+  const t0 = Date.now();
+  try {
+    const list = parseM3u8((await get(f.url!, headers, proxy, null)).toString('utf8'), f.url!);
+    if (!list) return 'unsupported';
+    const segs = list.segments;
+    let a = segs.findIndex((x) => x.t + x.dur > range.start);
+    if (a < 0) return 'unsupported';
+    let b = segs.findIndex((x) => x.t >= range.end);
+    b = b < 0 ? segs.length - 1 : b;
+    a = Math.max(0, a - 1); // one segment of slack before, so the cut never lands on an edge
+    const pick = segs.slice(a, b + 1);
+    const got: Buffer[] = new Array(pick.length);
+    let next = 0;
+    let done = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(8, pick.length) }, async () => {
+        while (next < pick.length) {
+          const i = next++;
+          got[i] = await get(pick[i].url, headers, proxy, null);
+          onProgress?.(Math.min(0.9, ++done / pick.length));
+        }
+      }),
+    );
+    const fd = fs.openSync(tmp, 'w');
+    try {
+      if (list.init) fs.writeSync(fd, await get(list.init, headers, proxy, null));
+      for (const buf of got) fs.writeSync(fd, buf);
+    } finally {
+      fs.closeSync(fd);
+    }
+    // The stitched segments are rewrapped as an mp4 first (copy, no re-encode): seeking inside a .ts file lands on
+    // the keyframe AFTER the start (seconds of picture lost), seeking an mp4 lands on the one before and hides the
+    // extra frames — the same exact cut as the YouTube path. The mp4 starts at the first segment's time.
+    const whole = `${tmp}.mp4`;
+    try {
+      await run(config.ffmpeg, ['-y', '-v', 'error', '-i', tmp, '-map', '0:v:0', '-map', '0:a:0?', '-c', 'copy', '-f', 'mp4', whole], { timeoutMs: 10 * 60_000 });
+      await run(
+        config.ffmpeg,
+        ['-y', '-v', 'error', '-ss', Math.max(0, range.start - pick[0].t).toFixed(3), '-t', String(range.end - range.start), '-i', whole, '-map', '0:v:0', '-map', '0:a:0?', '-c', 'copy', '-movflags', '+faststart', '-f', 'mp4', out],
+        { timeoutMs: 10 * 60_000 },
+      );
+    } finally {
+      fs.rmSync(whole, { force: true });
+    }
+    onProgress?.(1);
+    const mb = got.reduce((n, x) => n + x.length, 0) / 1e6;
+    console.log(`  [fast parts] ${range.start}–${range.end}s · ${mb.toFixed(0)} MB in ${pick.length} segments, ${((Date.now() - t0) / 1000).toFixed(1)}s (HLS)`);
+    return 'ok';
+  } catch (e) {
+    const refused = (e as { status?: number }).status === 403;
+    console.warn(`  [fast parts] ${range.start}–${range.end} (HLS): ${(e as Error).message.slice(0, 200)} — using yt-dlp for this part`);
+    fs.rmSync(out, { force: true });
+    return refused ? 'refused' : 'unsupported';
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
 }
 
 /** Read the `sidx` box out of the file's first bytes: where every fragment is and when it plays. */
@@ -233,9 +338,13 @@ export async function fetchPartFast(
   } catch {
     return 'unsupported';
   }
-  const chosen = pick(formats);
-  if (!chosen) return 'unsupported';
   const proxy = opts.proxy ?? null;
+  const chosen = pick(formats);
+  if (!chosen) {
+    // no DASH files (Twitch, Kick, Vimeo…): the HLS list of short files, only those the part needs
+    const hls = pickHls(formats);
+    return hls ? fetchHlsPart(hls, range, out, proxy, opts.onProgress) : 'unsupported';
+  }
   const dir = path.dirname(out);
   const tag = `${path.basename(out, path.extname(out))}_${process.pid}`;
   const vFile = path.join(dir, `${tag}.v.mp4`);

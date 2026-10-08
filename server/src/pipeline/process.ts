@@ -186,6 +186,7 @@ async function runProject(id: string) {
     let captions: { segments: Segment[]; silences: { s: number; e: number }[] } | null = null;
     if (p.sourceType === 'url' && p.sourceUrl) {
       info = await fetchInfo(p.sourceUrl, infoJsonPath(dir));
+      assertNotLive(info);
       if (info.duration && info.duration > config.maxSourceMinutes * 60)
         throw new Error(`This video is ${Math.round(info.duration / 60)} min long. The limit is ${config.maxSourceMinutes} min (MAX_SOURCE_MINUTES).`);
       // pay before downloading anything big (5 credits per clip asked for; checks the plan's length limit too)
@@ -595,6 +596,15 @@ async function prepareClipText(clipId: string, maxMs = 60_000) {
   } catch (e) {
     console.warn(`[clip ${clipId}] transcribing its part failed — captions use the site's words:`, (e as Error).message);
   }
+}
+
+/**
+ * A stream that's still going (a Twitch broadcast in progress, a YouTube live): its recording keeps growing, so
+ * "only the clip parts" can't work and the whole download would never end. Nothing is charged yet at this point.
+ */
+function assertNotLive(info: SourceInfo) {
+  if (info.liveStatus === 'is_live' || info.liveStatus === 'is_upcoming')
+    throw new Error('This stream is still live. Clip it once it has ended — the full recording is ready a few minutes after the stream stops.');
 }
 
 const near = (a: number | undefined, b: number) => a != null && Math.abs(a - b) < 0.05;
@@ -1075,6 +1085,7 @@ async function processPickedParts(id: string) {
   const work = path.join(dir, 'work');
   stage(id, 'fetch', 0, 'Reading the link…');
   const info = await fetchInfo(p0.sourceUrl!, infoJsonPath(dir));
+  assertNotLive(info);
   const duration = info.duration || 0;
   await projects.update(id, { title: info.title, channel: info.channel, description: info.description, duration, viewCount: info.viewCount });
   const thumb = path.join(dir, 'thumb.jpg');

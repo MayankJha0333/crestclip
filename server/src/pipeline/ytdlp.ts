@@ -370,7 +370,7 @@ export async function download(url: string, dir: string, onProgress: (pct: numbe
   await downloadWithFallbacks({
     url,
     infoJson,
-    args: ['-f', VIDEO_FORMAT, '--merge-output-format', 'mp4', '-o', path.join(dir, 'source.%(ext)s')],
+    args: ['-f', VIDEO_FORMAT, '-N', '8', '--merge-output-format', 'mp4', '-o', path.join(dir, 'source.%(ext)s')],
     // one stuck download used to hold the only job slot for hours, so nothing else started
     timeoutMs: 90 * 60 * 1000,
     onLine: progressLine(onProgress),
@@ -386,7 +386,8 @@ export async function downloadAudio(url: string, dir: string, onProgress: (pct: 
   await downloadWithFallbacks({
     url,
     infoJson,
-    args: ['-f', 'ba[ext=m4a]/ba/b[height<=480]/b', '-o', path.join(dir, 'source-audio.%(ext)s')],
+    // -N 8: sites that serve the sound as many short files (Twitch) download eight of them at a time
+    args: ['-f', 'ba[ext=m4a]/ba/b[height<=480]/b', '-N', '8', '-o', path.join(dir, 'source-audio.%(ext)s')],
     timeoutMs: 60 * 60 * 1000,
     onLine: progressLine(onProgress),
     cleanup: removePartials(dir, 'source-audio.'),

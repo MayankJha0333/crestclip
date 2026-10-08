@@ -35,7 +35,8 @@ function twItem(e: Raw, kind: 'vod' | 'clip', login: string): ExploreItem | null
     views: num(e.view_count),
     subscribers: null,
     uploaded: isoDate(e),
-    isLive: false,
+    // a broadcast still in progress (its recording keeps growing): can't be clipped until it ends
+    isLive: e.live_status === 'is_live' || e.is_live === true,
     description: null,
   };
 }
@@ -47,7 +48,9 @@ export async function twitchChannel(p: { id: string; tab: string; sort: string; 
   if (p.tab === 'clips') url = `https://www.twitch.tv/${login}/clips?filter=clips&range=${{ day: '24hr', week: '7d', month: '30d', all: 'all' }[p.range] ?? '7d'}`;
   else url = `https://www.twitch.tv/${login}/videos?filter=${p.tab === 'highlights' ? 'highlights' : 'archives'}&sort=${p.sort === 'views' ? 'views' : 'time'}`;
   const j = await ytdlpJson<Raw>(['--flat-playlist', '--playlist-end', String(p.limit), url], 90_000);
-  const items = (Array.isArray(j.entries) ? (j.entries as Raw[]) : []).map((e) => twItem(e, p.tab === 'clips' ? 'clip' : 'vod', login)).filter((x): x is ExploreItem => Boolean(x));
+  const items = (Array.isArray(j.entries) ? (j.entries as Raw[]) : [])
+    .map((e) => twItem(e, p.tab === 'clips' ? 'clip' : 'vod', login))
+    .filter((x): x is ExploreItem => Boolean(x) && !x!.isLive);
   return {
     channel: { source: 'twitch', title: login, url: `https://www.twitch.tv/${login}`, avatar: null, banner: null, subscribers: null, description: null } as ExploreChannel,
     items,
@@ -161,9 +164,12 @@ async function twitchHelixChannel(login: string, p: { tab: string; sort: string;
       description: null,
     }));
   } else {
-    const v = await helix<{ data: Raw[] }>(
-      `videos?user_id=${user.id}&first=${Math.min(p.limit, 100)}&type=${p.tab === 'highlights' ? 'highlight' : 'archive'}&sort=${p.sort === 'views' ? 'views' : 'time'}`,
-    );
+    const [v, live] = await Promise.all([
+      helix<{ data: Raw[] }>(`videos?user_id=${user.id}&first=${Math.min(p.limit, 100)}&type=${p.tab === 'highlights' ? 'highlight' : 'archive'}&sort=${p.sort === 'views' ? 'views' : 'time'}`),
+      // the broadcast going on right now: its recording is in the list too, still growing
+      helix<{ data: Raw[] }>(`streams?user_id=${user.id}`).catch(() => ({ data: [] as Raw[] })),
+    ]);
+    const liveId = live.data[0]?.id != null ? String(live.data[0].id) : null;
     items = v.data.map((x) => ({
       kind: 'vod' as const,
       source: 'twitch' as const,
@@ -178,9 +184,10 @@ async function twitchHelixChannel(login: string, p: { tab: string; sort: string;
       views: num(x.view_count),
       subscribers: null,
       uploaded: str(x.created_at),
-      isLive: false,
+      isLive: liveId != null && String(x.stream_id ?? '') === liveId,
       description: null,
     }));
   }
-  return { channel, items };
+  // a broadcast still in progress can't be clipped yet — only finished ones are offered
+  return { channel, items: items.filter((x) => !x.isLive) };
 }
