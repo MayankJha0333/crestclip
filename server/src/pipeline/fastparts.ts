@@ -1,6 +1,8 @@
 import fs from 'node:fs';
+import http from 'node:http';
+import https from 'node:https';
 import path from 'node:path';
-import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from 'undici';
+import tls from 'node:tls';
 import { config } from '../config.js';
 import { run } from '../lib/proc.js';
 
@@ -59,10 +61,51 @@ function pick(formats: Format[]): { video: Format; audio: Format } | null {
   return { video: vids[0], audio: auds[0] };
 }
 
-async function getRange(url: string, from: number, to: number, headers: Record<string, string>, dispatcher?: Dispatcher): Promise<Buffer> {
-  const res = await undiciFetch(url, { headers: { ...headers, Range: `bytes=${from}-${to}` }, dispatcher, signal: AbortSignal.timeout(60_000) });
-  if (res.status !== 206) throw new Error(`range request answered ${res.status}`);
-  return Buffer.from(await res.arrayBuffer());
+/** A TLS connection to `host`, through an http(s) proxy's CONNECT tunnel when one is set. */
+function connectVia(proxy: string, host: string, port: number): Promise<tls.TLSSocket> {
+  const p = new URL(proxy);
+  const auth = p.username ? { 'Proxy-Authorization': `Basic ${Buffer.from(`${decodeURIComponent(p.username)}:${decodeURIComponent(p.password)}`).toString('base64')}` } : {};
+  return new Promise((resolve, reject) => {
+    const req = (p.protocol === 'https:' ? https : http).request({ host: p.hostname, port: Number(p.port) || (p.protocol === 'https:' ? 443 : 80), method: 'CONNECT', path: `${host}:${port}`, headers: { Host: `${host}:${port}`, ...auth }, timeout: 30_000 });
+    req.on('connect', (res, socket) => {
+      if (res.statusCode !== 200) {
+        socket.destroy();
+        return reject(new Error(`proxy answered ${res.statusCode} to CONNECT`));
+      }
+      resolve(tls.connect({ socket, servername: host }));
+    });
+    req.on('timeout', () => req.destroy(new Error('proxy connect timed out')));
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+/** One byte range of a file, as yt-dlp fetches them (a plain Range request; YouTube serves these at full speed). */
+function getRange(url: string, from: number, to: number, headers: Record<string, string>, proxy: string | null): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const go = (createConnection?: () => tls.TLSSocket) => {
+      const req = https.request(
+        u,
+        { method: 'GET', headers: { ...headers, Range: `bytes=${from}-${to}` }, timeout: 60_000, ...(createConnection ? { createConnection, agent: false } : {}) },
+        (res) => {
+          if (res.statusCode !== 206) {
+            res.resume();
+            return reject(new Error(`range request answered ${res.statusCode}`));
+          }
+          const chunks: Buffer[] = [];
+          res.on('data', (c: Buffer) => chunks.push(c));
+          res.on('end', () => resolve(Buffer.concat(chunks)));
+          res.on('error', reject);
+        },
+      );
+      req.on('timeout', () => req.destroy(new Error('range request timed out')));
+      req.on('error', reject);
+      req.end();
+    };
+    if (!proxy) go();
+    else connectVia(proxy, u.hostname, Number(u.port) || 443).then((socket) => go(() => socket), reject);
+  });
 }
 
 /** Read the `sidx` box out of the file's first bytes: where every fragment is and when it plays. */
@@ -133,9 +176,9 @@ function plan(idx: StreamIndex, start: number, end: number): { from: number; to:
   return { from: f[a].offset, to: f[b].offset + f[b].size - 1, t0: f[a].t };
 }
 
-async function fetchStream(f: Format, start: number, end: number, out: string, dispatcher: Dispatcher | undefined, onBytes: (n: number) => void): Promise<number> {
+async function fetchStream(f: Format, start: number, end: number, out: string, proxy: string | null, onBytes: (n: number) => void): Promise<number> {
   const headers = f.http_headers ?? {};
-  const head = await getRange(f.url!, 0, HEAD - 1, headers, dispatcher);
+  const head = await getRange(f.url!, 0, HEAD - 1, headers, proxy);
   const idx = parseIndex(head);
   if (!idx || idx.headerBytes > head.length) throw new Error(`no usable index in format ${f.format_id}`);
   const p = plan(idx, start, end);
@@ -149,7 +192,7 @@ async function fetchStream(f: Format, start: number, end: number, out: string, d
     Array.from({ length: Math.min(AT_ONCE, pieces.length) }, async () => {
       while (next < pieces.length) {
         const i = next++;
-        got[i] = await getRange(f.url!, pieces[i].from, pieces[i].to, headers, dispatcher);
+        got[i] = await getRange(f.url!, pieces[i].from, pieces[i].to, headers, proxy);
         onBytes(got[i].length);
       }
     }),
@@ -183,7 +226,7 @@ export async function fetchPartFast(
   }
   const chosen = pick(formats);
   if (!chosen) return false;
-  const dispatcher = opts.proxy ? new ProxyAgent(opts.proxy) : undefined;
+  const proxy = opts.proxy ?? null;
   const dir = path.dirname(out);
   const tag = `${path.basename(out, path.extname(out))}_${process.pid}`;
   const vFile = path.join(dir, `${tag}.v.mp4`);
@@ -196,7 +239,7 @@ export async function fetchPartFast(
     opts.onProgress?.(Math.min(0.9, bytes / expect));
   };
   try {
-    const [tv, ta] = await Promise.all([fetchStream(chosen.video, range.start, range.end, vFile, dispatcher, onBytes), fetchStream(chosen.audio, range.start, range.end, aFile, dispatcher, onBytes)]);
+    const [tv, ta] = await Promise.all([fetchStream(chosen.video, range.start, range.end, vFile, proxy, onBytes), fetchStream(chosen.audio, range.start, range.end, aFile, proxy, onBytes)]);
     const dur = range.end - range.start;
     // each file starts at its first fragment's time, so the seek is measured from there; the cut lands on `start`
     // exactly in both (the frames before the keyframe are kept but hidden, as yt-dlp's cut does)
@@ -216,6 +259,5 @@ export async function fetchPartFast(
   } finally {
     fs.rmSync(vFile, { force: true });
     fs.rmSync(aFile, { force: true });
-    await dispatcher?.close().catch(() => {});
   }
 }
