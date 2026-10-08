@@ -482,6 +482,7 @@ async function renderAll(projectId: string, list: ClipRow[]) {
   const rangeFor = (r: TimeRange) => plan.find((x) => x.start <= r.start + 0.01 && x.end >= r.end - 0.01) ?? r;
   const fetched = new Map<string, Promise<void>>();
   const fetchSlot = limiter(config.sectionDownloads);
+  const prepSlot = limiter(5); // clips whose transcript is being made at once (each is 2–4 AI requests)
   let started = 0;
   const fetchRange = (r: TimeRange) => {
     const key = `${r.start}-${r.end}`;
@@ -512,6 +513,8 @@ async function renderAll(projectId: string, list: ClipRow[]) {
     order.map(async (c) => {
       try {
         if (sections) await Promise.all(clipParts(c).map((r) => fetchRange(rangeFor(r))));
+        // its proper transcript while the other parts download — not inside an encode slot
+        await prepSlot(() => prepareClipText(c.id));
       } catch (e) {
         // not fatal: the render fetches its own part again, and shows an error if that fails too
         console.warn(`[project ${projectId}] part download failed for clip ${c.id}:`, (e as Error).message);
@@ -552,8 +555,17 @@ export function renderClipJob(clipId: string): Promise<void> {
   }
   const job = (async () => {
     try {
-      // one render of a clip at a time across every worker (they share the clip's files); a second one waits its turn
-      await withClusterLock(`render:${clipId}`, () => renderSlot(() => renderOnce(clipId)), { wait: true });
+      // one render of a clip at a time across every worker (they share the clip's files); a second one waits its turn.
+      // The clip's AI prep (its proper transcript) runs before it takes an encode slot: waiting on the AI must not
+      // keep the CPU idle while other clips queue for that slot.
+      await withClusterLock(
+        `render:${clipId}`,
+        async () => {
+          await prepareClipText(clipId);
+          return renderSlot(() => renderOnce(clipId));
+        },
+        { wait: true },
+      );
     } finally {
       inflight.delete(clipId);
       if (again.delete(clipId)) await renderClipJob(clipId);
@@ -561,6 +573,28 @@ export function renderClipJob(clipId: string): Promise<void> {
   })();
   inflight.set(clipId, job);
   return job;
+}
+
+/**
+ * "Captions first" projects: a clip's part gets its proper transcript (clean phrasing, the chosen script) before it
+ * renders, a little wider than the clip so trims in the editor read well too. Bounded: when the AI is slow the
+ * captions use the site's own words rather than hold the clip up. Done once per part (later calls find it covered).
+ */
+async function prepareClipText(clipId: string, maxMs = 60_000) {
+  const c = await clipDb.get(clipId);
+  if (!c) return;
+  const p = await projects.get(c.projectId);
+  if (!p || p.noSpeech || readCovered(projectDir(p.id)) === null) return;
+  const pad = 8;
+  const want = clipParts(c).map((r) => ({ start: Math.max(0, r.start - pad), end: Math.min(p.duration || r.end + pad, r.end + pad) }));
+  const t0 = Date.now();
+  try {
+    const done = await Promise.race([ensureTranscript(p.id, want).then(() => true), new Promise<boolean>((res) => setTimeout(() => res(false), maxMs))]);
+    if (!done) console.warn(`[clip ${clipId}] transcribing its part is taking too long — captions use the site's words`);
+    else if (Date.now() - t0 > 1000) console.log(`[clip ${clipId}] part transcribed in ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+  } catch (e) {
+    console.warn(`[clip ${clipId}] transcribing its part failed — captions use the site's words:`, (e as Error).message);
+  }
 }
 
 const near = (a: number | undefined, b: number) => a != null && Math.abs(a - b) < 0.05;
@@ -581,24 +615,10 @@ async function renderOnce(clipId: string) {
   const moved = await refreshTranscript(asked.projectId).catch((e) => (console.error(`[project ${asked.projectId}] transcribing again failed:`, e), [] as string[]));
   for (const id of moved) if (id !== clipId) void renderClipJob(id);
   const c = (await clipDb.get(clipId))!;
-  let p = await projects.get(c.projectId);
+  const p = await projects.get(c.projectId);
   if (!p?.mediaPath && !readFootage(projectDir(c.projectId))) return;
   await clipDb.update(clipId, { status: 'rendering', error: null });
   const dir = projectDir(p!.id);
-  // "captions first" projects: the clip's part gets its proper transcript now (clean phrasing, the chosen script),
-  // a little wider than the clip so trims in the editor read well too
-  if (!p!.noSpeech && readCovered(dir) !== null) {
-    const pad = 8;
-    const want = clipParts(c).map((r) => ({ start: Math.max(0, r.start - pad), end: Math.min(p!.duration || r.end + pad, r.end + pad) }));
-    try {
-      // bounded: when the AI is slow, the captions use the site's own words rather than hold the clip up
-      const done = await Promise.race([ensureTranscript(p!.id, want).then(() => true), new Promise<boolean>((res) => setTimeout(() => res(false), 90_000))]);
-      if (!done) console.warn(`[clip ${clipId}] transcribing its part is taking too long — captions use the site's words`);
-      p = (await projects.get(c.projectId)) ?? p;
-    } catch (e) {
-      console.warn(`[clip ${clipId}] transcribing its part failed — captions use the site's words:`, (e as Error).message);
-    }
-  }
   const work = path.join(dir, 'work', `clip_${c.id}_${Date.now()}`);
   fs.mkdirSync(work, { recursive: true });
   try {

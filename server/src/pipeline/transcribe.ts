@@ -100,12 +100,20 @@ export async function transcribe(
         thinking: 'MINIMAL',
         maxOutputTokens: 8192,
         // a 30-second piece normally answers in a few seconds; a stuck call must not hold a clip for minutes
-        timeoutMs: 75_000,
+        timeoutMs: 40_000,
         label: `transcribe chunk ${i + 1}/${chunks.length}`,
       });
-    let r = cached ?? (await ask());
+    // a stuck request (no answer in ~45 s, when a short piece normally takes a few) is asked once more rather than
+    // failing the piece: the second try usually answers right away
+    const askOnce = () =>
+      ask().catch((e: Error) => {
+        if (!/took too long/i.test(e.message)) throw e;
+        console.warn(`[transcribe] chunk ${i + 1}/${chunks.length}: no answer in time — asking again`);
+        return ask();
+      });
+    let r = cached ?? (await askOnce());
     if (!cached) {
-      for (let tries = 1; tries < 3 && badTimes(r.segments || [], c.dur); tries++) r = await ask();
+      for (let tries = 1; tries < 3 && badTimes(r.segments || [], c.dur); tries++) r = await askOnce();
       if (badTimes(r.segments || [], c.dur)) {
         console.warn(`[transcribe] chunk ${i + 1}: timestamps still broken after 3 tries — spreading its phrases evenly`);
         r = { ...r, segments: spreadEvenly(r.segments || [], c.dur) };

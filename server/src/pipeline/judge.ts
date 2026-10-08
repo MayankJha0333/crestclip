@@ -270,15 +270,22 @@ export async function judgeClips<T extends ClipCandidate>(input: {
           parts.push(part.text(`${head}\n${transcriptOf(input.segments, it.range)}`));
         }
       }
-      const raw = await generateJson<{ cuts: RawCut[] }>({
-        system: system(visual),
-        parts,
-        schema,
-        thinking: 'LOW',
-        lowMediaRes: visual,
-        maxOutputTokens: 12000,
-        timeoutMs: 4 * 60_000,
-        label: batches.length > 1 ? `judge the clips ${b + 1}/${batches.length}` : 'judge the clips',
+      const grade = () =>
+        generateJson<{ cuts: RawCut[] }>({
+          system: system(visual),
+          parts,
+          schema,
+          thinking: 'LOW',
+          lowMediaRes: visual,
+          maxOutputTokens: 12000,
+          // a batch of transcript cuts normally answers in ~10 s: one stuck at 30 s is asked again, not waited on
+          timeoutMs: visual ? 4 * 60_000 : 30_000,
+          label: batches.length > 1 ? `judge the clips ${b + 1}/${batches.length}` : 'judge the clips',
+        });
+      const raw = await grade().catch((e: Error) => {
+        if (visual || !/took too long/i.test(e.message)) throw e;
+        console.warn(`[judge] ${tag}: batch ${b + 1} took too long — asking again`);
+        return grade();
       });
       const byId = new Map((Array.isArray(raw.cuts) ? raw.cuts : []).map((c) => [String(c.id).trim().toUpperCase(), c]));
       for (const it of items) {
