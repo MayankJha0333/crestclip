@@ -1,8 +1,12 @@
 # CrestClip
 
+[![CrestClip on Product Hunt](https://img.shields.io/badge/Product%20Hunt-CrestClip-DA552F?logo=producthunt&logoColor=white)](https://www.producthunt.com/products/crestclip?utm_source=other&utm_medium=social)
+
 **CrestClip clips the moment everyone rewatches.** Paste a long video link or upload a file, and you get vertical 9:16 clips of the best moments. Each clip comes with word-by-word captions, a hook headline, face-tracked framing and a virality score.
 
 All AI runs on **Gemini through Google Cloud Vertex AI**, so it's billed to your Google Cloud credits.
+
+👋 **Like it? Support CrestClip on [Product Hunt](https://www.producthunt.com/products/crestclip?utm_source=other&utm_medium=social).**
 
 ![Landing page](docs/screenshots/landing.png)
 ![Project page](docs/screenshots/project.png)
@@ -19,6 +23,24 @@ Most clipping tools only _guess_ what's viral. CrestClip starts from what viewer
 4. **Gemini's 9-point rubric.** Hook, makes sense alone, payoff, emotion, shareability, pacing, clean ending, length fit and trend.
 
 The **Crest score** blends 1–3 (the audience) with 4 (the AI). See `docs/RESEARCH.md` for the research behind every choice.
+
+### Where videos can come from
+
+Each kind of source has its own plan for every step: the fastest way first, then the next one if that fails. The server log names the way that worked (`server/src/pipeline/source.ts`).
+
+| Source                                     | Transcript                                                | Clip parts                                                       | Where viewers rewatch                                   |
+| ------------------------------------------ | --------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------- |
+| **YouTube**                                | The video's own word-timed captions (no download needed)  | Byte ranges of the video file, in seconds                        | Most-replayed graph, comment timestamps, chapters        |
+| **Twitch** (past streams)                  | Sound fetched 16 pieces at a time, then transcribed       | Only the HLS segments each clip needs, eight at a time           | Audio energy                                            |
+| **Other sites** (anything yt-dlp reads)    | The site's captions if it has them, otherwise transcribed | DASH or HLS parts when available, otherwise yt-dlp's own cut     | Chapters, audio energy                                  |
+| **File links** (Google Drive, Dropbox, OneDrive, direct `.mp4`) | Transcribed                          | The whole file, in parallel pieces when the host allows it       | Audio energy                                            |
+| **Uploads**                                | Transcribed                                               | Already here                                                     | Audio energy                                            |
+
+Twitch streams that are still live are refused before any credits are spent, and they're hidden in Explore.
+
+### Caption language
+
+**As spoken** (default) keeps each language in its own script, except Hindi, which is written in **Hinglish**: English letters, the way people type it in chat ("kya baat hai"). This applies to the transcript, hooks and description. If any Devanagari still reaches a clip, a rule-based converter turns it into Hinglish. **Hinglish / Roman** writes every language in English letters. **English** translates everything.
 
 ---
 
@@ -278,7 +300,7 @@ GET    /api/clips/:id/download
 GET    /api/clips/:id/transcript
 ```
 
-`options` = `{ platform: shorts|tiktok|reels, length: auto|short|medium|long, clipCount, layout: auto|fill|split|fit, captionStyle: pop|clay|neon|comic|minimal|none, showHook, useAudienceData, language, focus }`
+`options` = `{ platform: shorts|tiktok|reels, length: auto|short|medium|long, clipCount, layout: auto|fill|split|fit, captionStyle: pop|clay|neon|comic|minimal|none, showHook, motion: none|subtle|dynamic, music, musicVolume, pace: off|natural|fast, captionLanguage: auto|roman|english, emoji, flashForward, useAudienceData, focus }`
 
 ## Cost (rough)
 
@@ -289,7 +311,7 @@ A 1-hour podcast costs about **$0.30–0.60 in Gemini usage**. That covers trans
 - Keep the original videos in Cloud Storage too (so edits can re-render on any server) and run render workers on Cloud Run Jobs.
 - YouTube Analytics API (`audienceWatchRatio`) for creators clipping their **own** channel. This is the most accurate retention data there is.
 - Live-chat spike detection for streams (`yt-dlp --sub-langs live_chat`).
-- Auto-posting to TikTok / YouTube / Instagram.
+- Auto-posting to TikTok (YouTube and Instagram are done).
 
 ## Credits
 
