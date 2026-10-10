@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { clips, credits, projects, users, type UserRow } from '../../db/index.js';
 import { asyncHandler, validate } from '../../lib/http.js';
 import { requireAdmin, requireUser } from '../auth/auth.middleware.js';
-import { adminAdjustCredits, adminSetPlan } from '../billing/billing.service.js';
+import { adminAdjustCredits, adminFoundingCreatorOfferInfo, adminSetPlan, updateFoundingCreatorOffer } from '../billing/billing.service.js';
 import { planOf } from '../billing/plans.js';
 
 /** Admins: see every account, give a plan (e.g. to a friend or a tester), add or remove credits. */
@@ -21,6 +21,29 @@ const toRow = async (u: UserRow) => ({
   createdAt: u.createdAt,
 });
 const row = async (id: string) => toRow((await users.get(id))!);
+
+adminRouter.get(
+  '/admin/founding-offer',
+  asyncHandler(async (_req, res) => {
+    res.json(await adminFoundingCreatorOfferInfo());
+  }),
+);
+
+adminRouter.put(
+  '/admin/founding-offer',
+  asyncHandler(async (req, res) => {
+    const settings = validate(
+      z.object({
+        enabled: z.boolean(),
+        limit: z.number().int().min(0).max(100_000),
+        endsAt: z.number().int().positive().nullable(),
+      }),
+      req.body,
+      'Check the founding offer settings.',
+    );
+    res.json(await updateFoundingCreatorOffer(settings));
+  }),
+);
 
 adminRouter.get(
   '/admin/users',

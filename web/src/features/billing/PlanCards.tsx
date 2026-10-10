@@ -11,7 +11,19 @@ const BADGE: Partial<Record<Plan['id'], string>> = { creator: 'Most popular', pr
  * The three plans side by side: name + badge, price, who it's for, the button, then every limit as a short line.
  * `action` renders each card's button (sign up, upgrade, current…).
  */
-export function PlanCards({ plans, current, action, note = true }: { plans: Plan[]; current?: Plan['id']; action: (p: Plan) => ReactNode; note?: boolean }) {
+export function PlanCards({
+  plans,
+  current,
+  action,
+  note = true,
+  foundingOfferAvailable = false,
+}: {
+  plans: Plan[];
+  current?: Plan['id'];
+  action: (p: Plan) => ReactNode;
+  note?: boolean;
+  foundingOfferAvailable?: boolean;
+}) {
   const india = useIndia() && plans.some((p) => p.priceInr);
   const paid = plans.filter((p) => p.price > 0);
   return (
@@ -20,7 +32,8 @@ export function PlanCards({ plans, current, action, note = true }: { plans: Plan
         {plans.map((p) => {
           const featured = p.id === 'creator';
           const mine = current === p.id;
-          const badge = mine ? 'Your plan' : BADGE[p.id];
+          const hasOffer = foundingOfferAvailable && p.id === 'creator';
+          const badge = mine ? 'Your plan' : hasOffer ? 'First month free' : BADGE[p.id];
           return (
             <section
               key={p.id}
@@ -43,11 +56,23 @@ export function PlanCards({ plans, current, action, note = true }: { plans: Plan
                   </span>
                 )}
               </div>
-              <p className="mt-4 flex flex-wrap items-baseline gap-x-1.5">
-                <b className="font-display text-5xl tracking-tight">{priceText(p, india)}</b>
-                <span className="font-bold text-ink-3">/ month</span>
-                {india && p.price > 0 && <span className="text-sm font-bold text-ink-3">+ GST</span>}
-              </p>
+              {hasOffer ? (
+                <div className="mt-4">
+                  <p className="flex flex-wrap items-baseline gap-x-2">
+                    <b className="font-display text-5xl tracking-tight text-good">Free</b>
+                    <span className="font-bold text-ink-3">first month</span>
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-ink-3">
+                    No card or automatic charge. Then Free; subscribe to Creator later for {priceText(p, india)}/month{india ? ' + GST' : ''}.
+                  </p>
+                </div>
+              ) : (
+                <p className="mt-4 flex flex-wrap items-baseline gap-x-1.5">
+                  <b className="font-display text-5xl tracking-tight">{priceText(p, india)}</b>
+                  <span className="font-bold text-ink-3">/ month</span>
+                  {india && p.price > 0 && <span className="text-sm font-bold text-ink-3">+ GST</span>}
+                </p>
+              )}
               <p className="mt-3 min-h-[2.75rem] text-[15px] text-ink-2">{p.tagline}</p>
               <div className="mt-4">{action(p)}</div>
               <hr className="my-6 h-1 rounded-full border-0 bg-sunken" />

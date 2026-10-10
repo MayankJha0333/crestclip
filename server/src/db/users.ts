@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { collection, COLLECTIONS, fromDoc, newId, now, setFields, stamp, type Doc } from './connection.js';
+import { collection, COLLECTIONS, fromDoc, isDuplicate, newId, now, setFields, stamp, type Doc } from './connection.js';
 
 export type PlanId = 'free' | 'creator' | 'pro';
 
@@ -21,6 +21,8 @@ export interface UserRow {
   /** its status as Dodo last reported it (active, on_hold = a renewal payment failed, …) */
   subscriptionStatus: string | null;
   cancelAtPeriodEnd: boolean;
+  /** A one-time Creator month granted by the founding offer; it does not auto-renew. */
+  foundingOfferEndsAt: number | null;
   createdAt: number;
 }
 
@@ -29,14 +31,107 @@ const toUser = (d: Doc<UserRow>): UserRow => {
   const { updatedAt: _u, ...rest } = d as Doc<UserRow> & { updatedAt?: number };
   const u = fromDoc<UserRow>(rest);
   // accounts made before the move to Dodo have no Dodo fields yet
-  return { ...u, dodoCustomerId: u.dodoCustomerId ?? null, dodoSubscriptionId: u.dodoSubscriptionId ?? null, subscriptionStatus: u.subscriptionStatus ?? null };
+  return {
+    ...u,
+    dodoCustomerId: u.dodoCustomerId ?? null,
+    dodoSubscriptionId: u.dodoSubscriptionId ?? null,
+    subscriptionStatus: u.subscriptionStatus ?? null,
+    foundingOfferEndsAt: u.foundingOfferEndsAt ?? null,
+  };
 };
 
-const UPDATABLE = ['email', 'name', 'passwordHash', 'googleSub', 'avatar', 'isAdmin', 'plan', 'cycleStart', 'cycleEnd', 'dodoCustomerId', 'dodoSubscriptionId', 'subscriptionStatus', 'cancelAtPeriodEnd'] as const;
+const UPDATABLE = ['email', 'name', 'passwordHash', 'googleSub', 'avatar', 'isAdmin', 'plan', 'cycleStart', 'cycleEnd', 'dodoCustomerId', 'dodoSubscriptionId', 'subscriptionStatus', 'cancelAtPeriodEnd', 'foundingOfferEndsAt'] as const;
+
+export const FOUNDING_CREATOR_OFFER_LIMIT = 50;
+interface FoundingOfferStateDoc {
+  _id: string;
+  n: number;
+  enabled: boolean;
+  limit: number;
+  endsAt: number | null;
+  updatedAt: number;
+}
+const foundingOfferState = () => collection<FoundingOfferStateDoc>(COLLECTIONS.meta);
+/** Kept for a one-time migration from the earlier two-document setting/counter shape. */
+const legacyFoundingOfferSettings = () => collection<{ _id: string; enabled?: boolean; limit?: number; endsAt?: number | null; updatedAt?: number }>(COLLECTIONS.meta);
+export interface FoundingCreatorOfferInfo {
+  enabled: boolean;
+  limit: number;
+  claimed: number;
+  remaining: number;
+  available: boolean;
+  endsAt: number | null;
+}
+
+async function ensureFoundingOfferState() {
+  const existing = await foundingOfferState().findOne(
+    { _id: 'founding_creator_offer' },
+    { projection: { n: 1, enabled: 1, limit: 1, endsAt: 1, updatedAt: 1 } },
+  );
+  if (existing && existing.n !== undefined && existing.enabled !== undefined && existing.limit !== undefined && Object.hasOwn(existing, 'endsAt') && existing.updatedAt !== undefined) return;
+
+  const legacy = await legacyFoundingOfferSettings().findOne({ _id: 'founding_creator_offer_settings' });
+  const defaults = {
+    enabled: legacy?.enabled ?? true,
+    limit: legacy?.limit ?? FOUNDING_CREATOR_OFFER_LIMIT,
+    endsAt: legacy?.endsAt ?? null,
+    updatedAt: legacy?.updatedAt ?? now(),
+  };
+  try {
+    await foundingOfferState().updateOne(
+      { _id: 'founding_creator_offer' },
+      { $setOnInsert: { n: 0, ...defaults } },
+      { upsert: true },
+    );
+  } catch (e) {
+    if (!isDuplicate(e)) throw e;
+  }
+  // Older deployments already have the counter record. Fill fields that were added with admin controls without
+  // overwriting any values another app instance or admin has already saved.
+  await Promise.all(
+    Object.entries(defaults).map(([field, value]) =>
+      foundingOfferState().updateOne({ _id: 'founding_creator_offer', [field]: { $exists: false } }, { $set: { [field]: value } }),
+    ),
+  );
+}
 
 export const users = {
   count(): Promise<number> {
     return col().estimatedDocumentCount();
+  },
+  async claimFoundingCreatorOffer(): Promise<boolean> {
+    await ensureFoundingOfferState();
+    const timestamp = now();
+    const claim = await foundingOfferState().findOneAndUpdate(
+      {
+        _id: 'founding_creator_offer',
+        enabled: true,
+        $expr: { $lt: ['$n', '$limit'] },
+        $or: [{ endsAt: null }, { endsAt: { $gt: timestamp } }],
+      },
+      { $inc: { n: 1 } },
+      { returnDocument: 'after' },
+    );
+    return Boolean(claim);
+  },
+  async foundingCreatorOfferInfo(): Promise<FoundingCreatorOfferInfo> {
+    await ensureFoundingOfferState();
+    const state = await foundingOfferState().findOne({ _id: 'founding_creator_offer' });
+    const enabled = state?.enabled ?? true;
+    const limit = state?.limit ?? FOUNDING_CREATOR_OFFER_LIMIT;
+    const endsAt = state?.endsAt ?? null;
+    const claimed = state?.n ?? 0;
+    const remaining = Math.max(0, limit - claimed);
+    const beforeDeadline = endsAt === null || now() < endsAt;
+    return { enabled, limit, endsAt, claimed, remaining, available: enabled && beforeDeadline && remaining > 0 };
+  },
+  async updateFoundingCreatorOffer(settings: { enabled: boolean; limit: number; endsAt: number | null }): Promise<FoundingCreatorOfferInfo> {
+    await ensureFoundingOfferState();
+    await foundingOfferState().updateOne(
+      { _id: 'founding_creator_offer' },
+      { $set: { ...settings, updatedAt: now() } },
+    );
+    return users.foundingCreatorOfferInfo();
   },
   async create(u: { email: string; name: string | null; passwordHash?: string | null; googleSub?: string | null; avatar?: string | null; isAdmin?: boolean; plan?: PlanId }): Promise<UserRow> {
     const at = stamp();
@@ -55,6 +150,7 @@ export const users = {
       dodoSubscriptionId: null,
       subscriptionStatus: null,
       cancelAtPeriodEnd: false,
+      foundingOfferEndsAt: null,
       createdAt: at,
       updatedAt: at,
     };

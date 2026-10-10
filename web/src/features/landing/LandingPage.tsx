@@ -1,16 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowRight, AudioLines, Check, Flame, Link2, MessageSquareText, Plus, Sparkles, Wand2 } from 'lucide-react';
-import { api, type CaptionStyle, type PlansInfo } from '../../lib/api';
+import { api, type CaptionStyle, type FoundingCreatorOfferInfo, type PlansInfo } from '../../lib/api';
 import { cn } from '../../lib/cn';
 import { Badge, Button, buttonClass } from '../../components/ui';
 import { Logo } from '../../components/brand/Logo';
 import { ScoreRing } from '../../components/brand/ScoreRing';
 import { CaptionSample } from '../clip-settings/CaptionPicker';
-import { CurveSvg, HeroArt } from './art';
+import { CurveSvg } from './art';
 import { FAQ, FEATURES, SAMPLE_CLIPS, STEPS } from './content';
 import { useAuth } from '../auth/auth';
-import { initialPlans } from '../../lib/initialData';
+import { initialFoundingCreatorOffer, initialPlans } from '../../lib/initialData';
 import { priceText, useIndia } from '../billing/money';
 import { PlanCards } from '../billing/PlanCards';
 import { SiteFooter } from '../../components/SiteFooter';
@@ -38,12 +38,18 @@ export function LandingPage() {
   const { me } = useAuth();
   const [url, setUrl] = useState('');
   const [pricing, setPricing] = useState<PlansInfo | null>(initialPlans);
+  const [foundingOffer, setFoundingOffer] = useState<FoundingCreatorOfferInfo | null>(initialFoundingCreatorOffer());
   useEffect(() => {
     api
       .plans()
       .then(setPricing)
       .catch(() => {});
+    api
+      .foundingCreatorOffer()
+      .then(setFoundingOffer)
+      .catch(() => {});
   }, []);
+  const foundingOfferAvailable = foundingOffer?.available ?? false;
   // a pasted link goes straight to the clip page with the link filled in — via sign-in first when there's no account
   // yet (sign-in brings them back to the clip page with the same link)
   const go = (e: React.FormEvent) => {
@@ -88,6 +94,22 @@ export function LandingPage() {
         )}
       </header>
 
+      {foundingOfferAvailable && (
+        <aside className="mt-6 flex flex-col gap-4 rounded-[28px] px-5 py-4 shadow-clay clay-tangerine sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="flex items-center gap-4">
+            <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-white/70 font-display text-xl font-black text-[#2b2140] shadow-clay-sm">{foundingOffer?.limit ?? ''}</span>
+            <div>
+              <p className="text-xs font-black tracking-[.12em] text-[#5b2b1d] uppercase">Founding customer offer</p>
+              <p className="font-display text-lg font-bold text-[#2b1407] sm:text-xl">First {foundingOffer?.limit} sign-ups get one month of Creator free</p>
+              {foundingOffer && <p className="text-sm font-semibold text-[#5b2b1d]">{foundingOffer.remaining} {foundingOffer.remaining === 1 ? 'spot' : 'spots'} left · no card · then Free{foundingOffer.endsAt ? ` · ends ${new Date(foundingOffer.endsAt).toLocaleString()}` : ''}</p>}
+            </div>
+          </div>
+          <Link to="/signup?next=%2Fapp%2Fbilling" className={buttonClass('ink', 'md', 'w-full sm:w-auto')}>
+            Claim your spot <ArrowRight size={18} />
+          </Link>
+        </aside>
+      )}
+
       {/* hero */}
       <section className="grid items-center gap-10 pt-10 pb-10 lg:grid-cols-[1.05fr_.95fr] lg:pt-18">
         <div className="animate-pop-in">
@@ -126,7 +148,26 @@ export function LandingPage() {
             ))}
           </div>
         </div>
-        <HeroArt />
+        <div className="relative rounded-[34px] bg-surface p-3 shadow-clay sm:rotate-[1deg]">
+          <div className="aspect-video overflow-hidden rounded-[24px] bg-[#2b2140]">
+            <iframe
+              className="size-full"
+              src="https://www.youtube-nocookie.com/embed/JgeUbLPP8eQ?rel=0"
+              title="CrestClip — Turn Long Videos Into Viral Clips with AI"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              referrerPolicy="strict-origin-when-cross-origin"
+              allowFullScreen
+            />
+          </div>
+          <a
+            href="https://youtu.be/JgeUbLPP8eQ"
+            target="_blank"
+            rel="noreferrer"
+            className="mt-3 inline-flex items-center gap-2 px-2 py-1 text-sm font-extrabold text-ink-2 no-underline hover:text-ink"
+          >
+            Watch the CrestClip demo on YouTube <ArrowRight size={16} />
+          </a>
+        </div>
       </section>
 
       <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2.5 pb-5 font-extrabold">
@@ -262,9 +303,10 @@ export function LandingPage() {
           {pricing ? (
             <PlanCards
               plans={pricing.plans}
+              foundingOfferAvailable={foundingOfferAvailable}
               action={(p) => (
                 <Link to={p.id === 'free' ? '/signup' : '/signup?next=%2Fapp%2Fbilling'} className={buttonClass(p.id === 'creator' ? 'primary' : 'secondary', 'md', 'w-full')}>
-                  {p.id === 'free' ? 'Start free' : `Start with ${p.name}`}
+                  {p.id === 'free' ? 'Start free' : p.id === 'creator' && foundingOfferAvailable ? 'Claim free month' : `Start with ${p.name}`}
                 </Link>
               )}
             />

@@ -16,7 +16,7 @@ export function CreditMeter() {
       aria-label={`${balance} credits left, about ${Math.floor(balance / perClip)} clips — plan and credits`}
     >
       <span className="flex items-center justify-between text-xs font-extrabold">
-        <span className="text-ink-2">{a.plan.name} plan</span>
+        <span className="text-ink-2">{a.plan.name}{a.foundingOfferEndsAt ? ' · free month' : ' plan'}</span>
         {a.plan.id !== 'pro' && (
           <span className="inline-flex items-center gap-1 text-accent">
             <Sparkles size={12} /> Upgrade

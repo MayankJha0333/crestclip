@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { Check, Mail } from 'lucide-react';
-import { api } from '../../lib/api';
+import { api, type FoundingCreatorOfferInfo } from '../../lib/api';
 import { Logo } from '../../components/brand/Logo';
 import { Button, Card, Field, Input } from '../../components/ui';
 import { useAuth } from './auth';
 import { LEGAL_LINKS } from '../../components/SiteFooter';
 import { track } from '../../lib/analytics';
+import { initialFoundingCreatorOffer } from '../../lib/initialData';
 
 /** Only go back to a page inside the app. */
 const safeNext = (n: string | null) => (n && /^\/app(\/|$|\?)/.test(n) ? n : '/app');
@@ -35,6 +36,7 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
   const [params] = useSearchParams();
   const next = safeNext(params.get('next'));
   const [cfg, setCfg] = useState<{ google: boolean; signups: boolean; firstAccount: boolean } | null>(null);
+  const [foundingOffer, setFoundingOffer] = useState<FoundingCreatorOfferInfo | null>(initialFoundingCreatorOffer());
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -43,6 +45,10 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
     api
       .authConfig()
       .then(setCfg)
+      .catch(() => {});
+    api
+      .foundingCreatorOffer()
+      .then(setFoundingOffer)
       .catch(() => {});
   }, []);
 
@@ -79,7 +85,9 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
             {cfg?.firstAccount
               ? 'This is the first account on this CrestClip — it becomes the admin, on the Pro plan.'
               : signup
-                ? '12 free clips every month (60 credits). No card needed.'
+                ? foundingOffer?.available
+                  ? `First ${foundingOffer.limit} sign-ups get one month of Creator free${foundingOffer.endsAt ? ` until ${new Date(foundingOffer.endsAt).toLocaleString()}` : ''} — no card, then your account returns to Free.`
+                  : '12 free clips every month (60 credits). No card needed.'
                 : 'Log in to your clips, plan and credits.'}
           </p>
 

@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { Request, Response } from 'express';
 import { pathToFileURL } from 'node:url';
 import { config } from '../../config.js';
-import { plansInfo } from '../billing/billing.service.js';
+import { foundingCreatorOfferInfo, plansInfo } from '../billing/billing.service.js';
 import { site as siteInfo } from '../system/system.service.js';
 import { CREDITS_PER_CLIP, PLAN_ORDER, PLANS } from '../billing/plans.js';
 
@@ -238,6 +238,7 @@ export async function sendAppPage(req: Request, res: Response) {
   // prices, business details and every page's title go along, so the browser draws exactly what the server built
   const data = {
     plans: plansInfo(),
+    ...(['/', '/pricing', '/signup', '/login'].includes(p) ? { foundingCreatorOffer: await foundingCreatorOfferInfo() } : {}),
     site: siteInfo(),
     pages: Object.fromEntries(Object.entries(all).map(([k, v]) => [k, { title: v.title, description: v.description }])),
   };

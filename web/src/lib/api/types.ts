@@ -492,6 +492,14 @@ export interface PlansInfo {
   /** India pays its own rupee prices (plan.priceInr), plus GST */
   india?: { currency: 'INR'; gstPercent: number };
 }
+export interface FoundingCreatorOfferInfo {
+  enabled: boolean;
+  limit: number;
+  claimed: number;
+  remaining: number;
+  available: boolean;
+  endsAt: number | null;
+}
 /** The one-off credit pack (price in US dollars). */
 export interface Topup {
   credits: number;
@@ -505,6 +513,8 @@ export interface BillingAccount {
   cycleStart: number | null;
   cycleEnd: number | null;
   cancelAtPeriodEnd: boolean;
+  /** The end date of the one-time first-month-free Creator offer, if this account has it. */
+  foundingOfferEndsAt: number | null;
   /** the latest plan change ("Pro cancelled", "Pro ended", "Upgraded to Pro") and when */
   lastPlanChange: { what: string; at: number } | null;
   hasSubscription: boolean;

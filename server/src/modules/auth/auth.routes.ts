@@ -96,11 +96,12 @@ authRouter.get(
 
 authRouter.get('/auth/google/callback', async (req, res) => {
   try {
-    const { user, next, isNew } = await service.googleFinish(req.query);
+    const { user, next, isNew, foundingOfferApplied } = await service.googleFinish(req.query);
     const s = await service.startSession(user.id);
     setSessionCookie(res, s.token, s.expiresAt);
     // a brand-new account: the page counts it as a sign-up for the visitor stats (see web/src/lib/analytics.ts)
-    const [path, hash = ''] = next.split('#');
+    const destination = foundingOfferApplied ? '/app/billing?welcome=creator' : next;
+    const [path, hash = ''] = destination.split('#');
     res.redirect(`${config.publicUrl}${isNew ? `${path}${path.includes('?') ? '&' : '?'}joined=google${hash ? `#${hash}` : ''}` : next}`);
   } catch (e) {
     res.redirect(`${config.publicUrl}/login?error=${encodeURIComponent((e as Error).message)}`);

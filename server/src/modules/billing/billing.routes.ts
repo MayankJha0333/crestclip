@@ -11,6 +11,14 @@ billingRouter.get('/billing/plans', (_req, res) => {
   res.json(service.plansInfo());
 });
 
+/** Public: available first-month-free Creator offer slots. */
+billingRouter.get(
+  '/billing/founding-offer',
+  asyncHandler(async (_req, res) => {
+    res.json(await service.foundingCreatorOfferInfo());
+  }),
+);
+
 /** Dodo Payments calls this on payments, renewals, failed renewals and cancellations (signature-checked, no login). */
 billingRouter.post(
   '/billing/dodo/webhook',

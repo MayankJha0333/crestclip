@@ -192,6 +192,8 @@ export function BillingPage() {
 
   const plan = data.plan;
   const paid = plan.id !== 'free';
+  const foundingOffer = Boolean(data.foundingOfferEndsAt && plan.id === 'creator');
+  const welcomeOffer = new URLSearchParams(location.search).get('welcome') === 'creator';
   // the plan's price in the currency they actually pay (their last plan payment), else by where they are
   const lastPlanPay = data.payments.find((x) => x.kind === 'subscription' && x.currency);
   const paysInr = lastPlanPay ? lastPlanPay.currency?.toUpperCase() === 'INR' : india;
@@ -216,6 +218,14 @@ export function BillingPage() {
           Test mode: checkouts take test cards only (4242 4242 4242 4242, any future date, any CVV) or UPI <code>success@upi</code>. No real money moves.
         </p>
       )}
+      {welcomeOffer && foundingOffer && (
+        <div className="mb-6 rounded-[22px] bg-mint/50 px-5 py-4 text-sm text-ink">
+          <p className="font-display text-lg font-bold">Your free Creator month is active</p>
+          <p className="mt-1 text-ink-2">
+            You have {data.credits.monthly.toLocaleString()} Creator credits ({Math.floor(data.credits.monthly / data.credits.perClip)} clips) through {shortDate(data.foundingOfferEndsAt!)}. No card is attached and no automatic charge will happen; after the offer, your account returns to Free.
+          </p>
+        </div>
+      )}
       {data.paymentProblem && (
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-[22px] bg-warn-bg px-5 py-4 text-sm font-semibold text-warn-ink">
           <span>Your last renewal payment didn’t go through. Update your card or UPI within a few days to keep {plan.name} — your credits stay either way.</span>
@@ -232,17 +242,22 @@ export function BillingPage() {
           <span className="text-xs font-extrabold tracking-wider text-ink-3 uppercase">Your plan</span>
           <span className="mt-1 flex items-center gap-2">
             <b className="font-display text-3xl">{plan.name}</b>
-            {data.paymentProblem ? <Badge tone="warn">Payment failed</Badge> : data.cancelAtPeriodEnd ? <Badge tone="warn">Ending</Badge> : paid ? <Badge tone="good">Active</Badge> : null}
+            {data.paymentProblem ? <Badge tone="warn">Payment failed</Badge> : foundingOffer ? <Badge tone="good">Free month</Badge> : data.cancelAtPeriodEnd ? <Badge tone="warn">Ending</Badge> : paid ? <Badge tone="good">Active</Badge> : null}
           </span>
-          <span className="text-sm text-ink-3">{paid ? `${priceText(plan, paysInr)} / month${paysInr ? ' + GST' : ''}` : 'Free forever'}</span>
+          <span className="text-sm text-ink-3">
+            {foundingOffer ? 'Founding customer offer · free Creator access' : paid ? `${priceText(plan, paysInr)} / month${paysInr ? ' + GST' : ''}` : 'Free forever'}
+          </span>
           <p className="mt-4 flex items-center gap-2 text-sm text-ink-2">
             <CalendarClock size={15} className="shrink-0 text-accent" />
             {data.cycleEnd
-              ? data.cancelAtPeriodEnd
+              ? foundingOffer
+                ? `Free Creator month ends ${shortDate(data.foundingOfferEndsAt!)} — then Free`
+                : data.cancelAtPeriodEnd
                 ? `Ends ${shortDate(data.cycleEnd)} — then you’re on Free`
                 : `${paid && data.hasSubscription ? 'Renews' : 'New credits'} on ${shortDate(data.cycleEnd)}`
               : '—'}
           </p>
+          {foundingOffer && <p className="mt-2 text-sm text-ink-3">No paid subscription or payment method is attached. This offer ends automatically and won’t charge you.</p>}
           {data.lastPlanChange && (
             // when the plan last changed: "Pro cancelled on 8 Oct", "Pro ended on 8 Oct", "Upgraded to Pro on 8 Oct"
             <p className="mt-2 flex items-center gap-2 text-sm text-ink-3">

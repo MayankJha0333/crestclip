@@ -1,6 +1,6 @@
 import { config } from '../../config.js';
 import { site } from '../system/system.service.js';
-import { credits, creditsVersion, NotEnoughCredits, payments, projects, users, type PlanId, type UserRow } from '../../db/index.js';
+import { credits, creditsVersion, NotEnoughCredits, payments, projects, users, type FoundingCreatorOfferInfo, type PlanId, type UserRow } from '../../db/index.js';
 import { HttpError } from '../../lib/http.js';
 import { CREDITS_PER_CLIP, creditsForClips, CURRENCY, INDIA_GST_PERCENT, PLAN_ORDER, PLANS, planOf, POLICY_LINES, TOPUP, type Plan } from './plans.js';
 import { dodo, DodoError, dodoReady, ms, planForProduct, productForPlan, validDodoWebhook, type DodoEvent, type DodoPayment, type DodoSubscription } from './dodo.js';
@@ -39,6 +39,24 @@ const due = (map: Map<string, number>, key: string, everyMs: number) => {
  * renew or end paid plans. Cheap to call often — it only does work at the turn of the month.
  */
 export async function refreshAccount(user: UserRow): Promise<UserRow> {
+  if (user.foundingOfferEndsAt && user.plan === 'creator') {
+    if (Date.now() >= user.foundingOfferEndsAt) {
+      await downgrade(user, 'The free Creator month ended');
+      return refreshAccount((await users.get(user.id))!);
+    }
+    const plan = PLANS.creator;
+    const grantRef = `founding_creator_${user.id}`;
+    if (!(await credits.hasRef(grantRef))) {
+      await credits.grant(user.id, {
+        amount: plan.credits,
+        source: 'plan',
+        expiresAt: plan.rollover ? nextMonth(user.foundingOfferEndsAt) : user.foundingOfferEndsAt,
+        ref: grantRef,
+        note: 'Creator plan · founding customer month (free)',
+      });
+    }
+    return user;
+  }
   if (user.cycleEnd && Date.now() < user.cycleEnd) return user;
   const plan = planOf(user.plan);
   if (plan.id !== 'free' && user.dodoSubscriptionId) {
@@ -112,7 +130,7 @@ async function syncDodo(user: UserRow, sub: DodoSubscription): Promise<boolean> 
     const stillMine = await users.updateIf(
       user.id,
       { dodoSubscriptionId: sub.subscription_id },
-      { plan: p.id, subscriptionStatus: sub.status, cycleStart: start, cycleEnd: end, cancelAtPeriodEnd: Boolean(sub.cancel_at_next_billing_date) },
+      { plan: p.id, subscriptionStatus: sub.status, cycleStart: start, cycleEnd: end, cancelAtPeriodEnd: Boolean(sub.cancel_at_next_billing_date), foundingOfferEndsAt: null },
     );
     if (stillMine) {
       // what changed, as lines in the credit history
@@ -168,7 +186,7 @@ async function grantDodoMonth(userId: string, paymentId: string, end: number, p:
  * that subscription — a late "cancelled" for an old subscription can't end a newer plan bought meanwhile.
  */
 async function downgrade(user: UserRow, why: string, onlyIf?: { dodoSubscriptionId: string }) {
-  const patch = { plan: 'free' as const, dodoSubscriptionId: null, subscriptionStatus: null, cancelAtPeriodEnd: false, cycleEnd: Date.now() };
+  const patch = { plan: 'free' as const, dodoSubscriptionId: null, subscriptionStatus: null, cancelAtPeriodEnd: false, cycleEnd: Date.now(), foundingOfferEndsAt: null };
   if (onlyIf) {
     if (!(await users.updateIf(user.id, onlyIf, patch))) return;
   } else await users.update(user.id, patch);
@@ -189,6 +207,29 @@ export const plansInfo = () => ({
   policy: POLICY_LINES,
   india: { currency: 'INR' as const, gstPercent: INDIA_GST_PERCENT },
 });
+
+/** Availability is read from shared settings and an atomic counter, so app copies agree on campaign state. */
+export async function foundingCreatorOfferInfo() {
+  return users.foundingCreatorOfferInfo();
+}
+
+/** Admin controls the shared capacity, deadline, and whether new accounts can claim the offer. */
+export async function adminFoundingCreatorOfferInfo() {
+  return users.foundingCreatorOfferInfo();
+}
+
+export async function updateFoundingCreatorOffer(settings: { enabled: boolean; limit: number; endsAt: number | null }): Promise<FoundingCreatorOfferInfo> {
+  return users.updateFoundingCreatorOffer(settings);
+}
+
+/** Give an eligible new account one Creator month, with no payment provider or auto-renewal attached. */
+export async function activateFoundingCreatorOffer(user: UserRow): Promise<UserRow> {
+  const start = Date.now();
+  const end = nextMonth(start);
+  await users.update(user.id, { plan: 'creator', cycleStart: start, cycleEnd: end, cancelAtPeriodEnd: true, foundingOfferEndsAt: end });
+  await logPlan(user.id, `Started the free Creator founding month — ends ${day(end)}, then Free`);
+  return refreshAccount((await users.get(user.id))!);
+}
 
 /**
  * Make each Dodo product charge Indian buyers the rupee price from plans.ts (a "by country" price for IN). Runs once
@@ -233,7 +274,7 @@ const SUMMARY_TTL = 30_000;
  * trip (the session) instead of four. Grants expiring exactly inside the 30 s window show a moment late — fine.
  */
 export async function accountSummary(user: UserRow): Promise<Summary> {
-  const key = [creditsVersion(user.id), user.plan, user.cycleStart, user.cycleEnd, user.cancelAtPeriodEnd, user.dodoSubscriptionId, user.subscriptionStatus, user.dodoCustomerId].join('|');
+  const key = [creditsVersion(user.id), user.plan, user.cycleStart, user.cycleEnd, user.cancelAtPeriodEnd, user.dodoSubscriptionId, user.subscriptionStatus, user.dodoCustomerId, user.foundingOfferEndsAt].join('|');
   const hit = summaryCache.get(user.id);
   if (hit && hit.key === key && Date.now() - hit.at < SUMMARY_TTL) return hit.value;
   const value = await buildSummary(user);
@@ -255,6 +296,7 @@ async function buildSummary(user: UserRow) {
     cycleStart: user.cycleStart,
     cycleEnd: user.cycleEnd,
     cancelAtPeriodEnd: user.cancelAtPeriodEnd,
+    foundingOfferEndsAt: user.foundingOfferEndsAt,
     /** the latest plan change ("Pro cancelled", "Pro ended", "Upgraded to Pro") and when */
     lastPlanChange: lastChange ? { what: lastChange.note.split(' — ')[0].replace(/ \(.*\)$/, ''), at: lastChange.createdAt } : null,
     hasSubscription: Boolean(user.dodoSubscriptionId),
@@ -825,7 +867,7 @@ export async function adminSetPlan(userId: string, planId: PlanId) {
   if (!(planId in PLANS)) throw new HttpError(400, 'Unknown plan');
   if (user.dodoSubscriptionId) throw new HttpError(409, 'This person pays through Dodo Payments — change or cancel their subscription in the Dodo dashboard (Sales → Subscriptions).');
   // an admin-given plan has no subscription; it renews itself each month until changed
-  await users.update(userId, { plan: planId, cancelAtPeriodEnd: false, cycleEnd: Date.now() });
+  await users.update(userId, { plan: planId, cancelAtPeriodEnd: false, cycleEnd: Date.now(), foundingOfferEndsAt: null });
   if (user.plan !== planId) await logPlan(userId, `Plan changed to ${PLANS[planId].name} by CrestClip`);
   return refreshAccount((await users.get(userId))!);
 }

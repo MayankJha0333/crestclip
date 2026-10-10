@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, type PlansInfo } from '../../lib/api';
+import { api, type FoundingCreatorOfferInfo, type PlansInfo } from '../../lib/api';
 import { Check } from 'lucide-react';
 import { buttonClass } from '../../components/ui';
 import { PlanCards } from '../billing/PlanCards';
 import { money, useIndia } from '../billing/money';
 import { useBusiness } from './business';
-import { initialPlans } from '../../lib/initialData';
+import { initialFoundingCreatorOffer, initialPlans } from '../../lib/initialData';
 import { ContactDetails, LegalLayout, Section } from './LegalLayout';
 
 /** Public pricing page: every plan and the top-up (US dollars, and rupees for India), plus how billing works (payment providers check this page). */
@@ -14,22 +14,29 @@ export function PricingPage() {
   const india = useIndia();
   const b = useBusiness();
   const [pricing, setPricing] = useState<PlansInfo | null>(initialPlans);
+  const [foundingOffer, setFoundingOffer] = useState<FoundingCreatorOfferInfo | null>(initialFoundingCreatorOffer());
   useEffect(() => {
     api
       .plans()
       .then(setPricing)
       .catch(() => {});
+    api
+      .foundingCreatorOffer()
+      .then(setFoundingOffer)
+      .catch(() => {});
   }, []);
+  const offerAvailable = foundingOffer?.available ?? false;
   const paid = pricing?.plans.filter((p) => p.price > 0) ?? [];
 
   return (
-    <LegalLayout title="Pricing" wide intro={`Simple monthly plans${india ? ' in rupees for India (plus GST)' : ' in US dollars'}. Start free — no card needed.`} business={b}>
+    <LegalLayout title="Pricing" wide intro={`Simple monthly plans${india ? ' in rupees for India (plus GST)' : ' in US dollars'}. Start free — no card needed.${offerAvailable ? ` The first ${foundingOffer?.limit} sign-ups also get one month of Creator free${foundingOffer?.endsAt ? ` until ${new Date(foundingOffer.endsAt).toLocaleString()}` : ''}.` : ''}`} business={b}>
       {pricing ? (
         <PlanCards
           plans={pricing.plans}
+          foundingOfferAvailable={offerAvailable}
           action={(p) => (
             <Link to={p.id === 'free' ? '/signup' : '/signup?next=%2Fapp%2Fbilling'} className={buttonClass(p.id === 'creator' ? 'primary' : 'secondary', 'md', 'w-full')}>
-              {p.id === 'free' ? 'Start free' : `Start with ${p.name}`}
+              {p.id === 'free' ? 'Start free' : p.id === 'creator' && offerAvailable ? 'Claim free month' : `Start with ${p.name}`}
             </Link>
           )}
         />
@@ -72,6 +79,7 @@ export function PricingPage() {
           </li>
           <li>Payments are processed securely by Dodo Payments, our online reseller and merchant of record, who also issues your invoice.</li>
           {paid.length > 0 && <li>Paid plans renew automatically every month on the day you subscribed, until you cancel.</li>}
+          {offerAvailable && <li>The founding Creator month has no card or automatic charge; after it ends, the account returns to Free unless you choose a paid subscription.</li>}
           <li>Cancel any time on the Plan & credits page in the app. Your plan stays until the end of the month you paid for, and you aren’t charged again.</li>
           <li>
             Every clip uses {pricing?.creditsPerClip ?? b.creditsPerClip} credits. Editing, re-rendering and variants are free, and clips that don’t come out give their credits back automatically.

@@ -1,6 +1,7 @@
 import type {
   FolderPreview,
   FolderResult,
+  FoundingCreatorOfferInfo,
   ApAlternative,
   AdminUser,
   BillingAccount,
@@ -80,6 +81,7 @@ export const api = {
   deleteAccount: (email: string) => req<{ ok: boolean }>('/api/auth/delete-account', json('POST', { email })),
   // plans & credits
   plans: () => req<PlansInfo>('/api/billing/plans'),
+  foundingCreatorOffer: () => req<FoundingCreatorOfferInfo>('/api/billing/founding-offer'),
   site: () => req<SiteInfo>('/api/site'),
   /** sync: a payment is about to land — ask the server to check with Dodo now (at most every 10 s) */
   billing: (sync = false) => req<BillingAccount & { history: CreditEvent[]; payments: Payment[] }>(`/api/billing/account${sync ? '?sync=1' : ''}`),
@@ -122,6 +124,9 @@ export const api = {
     req<AdminTicket>(`/api/admin/tickets/${encodeURIComponent(id)}`, json('PATCH', patch)),
   // admin
   adminUsers: () => req<AdminUser[]>('/api/admin/users'),
+  adminFoundingCreatorOffer: () => req<FoundingCreatorOfferInfo>('/api/admin/founding-offer'),
+  saveAdminFoundingCreatorOffer: (settings: Pick<FoundingCreatorOfferInfo, 'enabled' | 'limit' | 'endsAt'>) =>
+    req<FoundingCreatorOfferInfo>('/api/admin/founding-offer', json('PUT', settings)),
   adminSetPlan: (id: string, plan: PlanId) => req<AdminUser>(`/api/admin/users/${id}/plan`, json('POST', { plan })),
   adminCredits: (id: string, delta: number, note: string) => req<AdminUser>(`/api/admin/users/${id}/credits`, json('POST', { delta, note })),
 

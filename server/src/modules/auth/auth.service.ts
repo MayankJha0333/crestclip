@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 import { config } from '../../config.js';
 import { sessions, users, type UserRow } from '../../db/index.js';
 import { HttpError } from '../../lib/http.js';
-import { refreshAccount } from '../billing/billing.service.js';
+import { activateFoundingCreatorOffer, refreshAccount } from '../billing/billing.service.js';
 import { hitShared, putShared, takeShared } from '../../infra/shared.js';
 
 const scrypt = promisify(crypto.scrypt) as (pw: string, salt: Buffer, len: number, opts: crypto.ScryptOptions) => Promise<Buffer>;
@@ -38,6 +38,7 @@ async function createUser(u: { email: string; name: string | null; passwordHash?
   if (!first && !config.allowSignups) throw new HttpError(403, 'Sign-ups are closed right now.');
   const email = u.email.toLowerCase();
   const user = await users.create({ ...u, email, isAdmin: first || config.adminEmails.includes(email), plan: first ? 'pro' : 'free' });
+  if (!first && (await users.claimFoundingCreatorOffer())) return activateFoundingCreatorOffer(user);
   return refreshAccount(user); // adds the first month's credits
 }
 
@@ -90,7 +91,7 @@ export async function googleStartUrl(next: unknown): Promise<string> {
 }
 
 /** Google sent the person back: find or make their account. Returns the account and where to go next. */
-export async function googleFinish(q: Record<string, unknown>): Promise<{ user: UserRow; next: string; isNew: boolean }> {
+export async function googleFinish(q: Record<string, unknown>): Promise<{ user: UserRow; next: string; isNew: boolean; foundingOfferApplied: boolean }> {
   const p = q.state ? await takeShared<{ next: string }>(`google-login:${String(q.state)}`) : null;
   if (q.error) throw new HttpError(400, String(q.error_description ?? q.error));
   if (!p) throw new HttpError(400, 'That sign-in link expired. Please try again.');
@@ -117,6 +118,7 @@ export async function googleFinish(q: Record<string, unknown>): Promise<{ user: 
   if (!info.sub || !info.email || !info.email_verified) throw new HttpError(400, 'Google didn’t share a verified email for this account.');
   let user = await users.byGoogle(info.sub);
   let isNew = false;
+  let foundingOfferApplied = false;
   if (!user) {
     const byEmail = await users.byEmail(info.email);
     if (byEmail) {
@@ -125,7 +127,8 @@ export async function googleFinish(q: Record<string, unknown>): Promise<{ user: 
     } else {
       user = await createUser({ email: info.email, name: info.name ?? null, googleSub: info.sub, avatar: info.picture ?? null });
       isNew = true;
+      foundingOfferApplied = Boolean(user.foundingOfferEndsAt);
     }
   }
-  return { user, next: p.next, isNew };
+  return { user, next: p.next, isNew, foundingOfferApplied };
 }
