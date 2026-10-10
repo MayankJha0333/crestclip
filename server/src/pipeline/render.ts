@@ -96,18 +96,31 @@ export function fillWindow(plan: Pick<ReframePlan, 'band'>, h: number) {
 
 /** Where the speaker's face lands on the finished 9:16 frame (0 = top, 1 = bottom), when known. */
 export function faceOnFrame(plan: ReframePlan, h: number): number | null {
+  if (plan.layout === 'screencast') return 0.76;
   if (plan.layout !== 'fill' || plan.faceY == null) return null;
-  const { ch, y } = fillWindow(plan, h);
-  return clamp((plan.faceY * h - y) / ch, 0, 1);
+  const bottom = plan.subtitleBottom ?? 1;
+  const adjusted = { ...plan, faceY: plan.faceY / bottom, band: plan.band ? { top: plan.band.top / bottom, bottom: Math.min(1, plan.band.bottom / bottom) } : plan.band };
+  const sourceH = even(h * bottom);
+  const { ch, y } = fillWindow(adjusted, sourceH);
+  return clamp((adjusted.faceY! * sourceH - y) / ch, 0, 1);
 }
 
 function buildVideoGraph(plan: ReframePlan, w: number, h: number, smooth = false): string {
   const layout = plan.layout;
-  const cw = even((h * 9) / 16);
+  const sourceBottom = clamp(plan.subtitleBottom ?? 1, 0.5, 1);
+  const sourceH = even(h * sourceBottom);
+  const adjusted: ReframePlan = {
+    ...plan,
+    ...(plan.faceY != null ? { faceY: plan.faceY / sourceBottom } : {}),
+    ...(plan.band ? { band: { top: plan.band.top / sourceBottom, bottom: Math.min(1, plan.band.bottom / sourceBottom) } } : {}),
+  };
+  const input = sourceBottom < 0.999 ? '[clean]' : '[0:v]';
+  const prefix = sourceBottom < 0.999 ? `[0:v]crop=w=${even(w)}:h=${sourceH}:x=0:y=0[clean];` : '';
+  const cw = even((sourceH * 9) / 16);
 
   if (layout === 'fit' || (layout === 'split' && !plan.splitCenters)) {
-    return [
-      `[0:v]split=2[bgsrc][fgsrc]`,
+    return prefix + [
+      `${input}split=2[bgsrc][fgsrc]`,
       // the blurred backdrop is made at a quarter size and scaled back up: a blur this heavy looks the same, and it
       // costs a fraction of blurring 1080×1920 pixels on every frame
       `[bgsrc]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=7:3,eq=brightness=-0.07:saturation=1.15,scale=1080:1920:flags=bilinear[bg]`,
@@ -117,30 +130,50 @@ function buildVideoGraph(plan: ReframePlan, w: number, h: number, smooth = false
   }
 
   if (layout === 'split' && plan.splitCenters) {
-    let hc = even(h * 0.84);
+    let hc = even(sourceH * 0.84);
     let wc = even((hc * 9) / 8);
     if (wc > w) {
       wc = even(w);
       hc = even((wc * 8) / 9);
     }
-    const fy = plan.faceY ?? 0.42;
-    const y = Math.round(clamp(fy * h - hc * 0.42, 0, h - hc));
+    const fy = adjusted.faceY ?? 0.42;
+    const y = Math.round(clamp(fy * sourceH - hc * 0.42, 0, sourceH - hc));
     const x = (c: number) => Math.round(clamp(c * w - wc / 2, 0, w - wc));
-    return [
-      `[0:v]split=2[ta][tb]`,
+    return prefix + [
+      `${input}split=2[ta][tb]`,
       `[ta]crop=${wc}:${hc}:${x(plan.splitCenters[0])}:${y},scale=1080:960:flags=lanczos,setsar=1[top]`,
       `[tb]crop=${wc}:${hc}:${x(plan.splitCenters[1])}:${y},scale=1080:960:flags=lanczos,setsar=1[bot]`,
       `[top][bot]vstack=inputs=2,drawbox=x=0:y=955:w=1080:h=10:color=0xFFF7EC@1:t=fill[v0]`,
     ].join(';');
   }
 
+  if (layout === 'screencast') {
+    const slot = even(960);
+    let faceH = even(Math.min(sourceH * 0.62, w * 8 / 9));
+    let faceW = even((faceH * 9) / 8);
+    if (faceW > w) {
+      faceW = even(w);
+      faceH = even((faceW * 8) / 9);
+    }
+    const faceY = Math.round(clamp((adjusted.faceY ?? 0.5) * sourceH - faceH * 0.42, 0, sourceH - faceH));
+    const x = holdExpr(plan.holds, w, faceW, smooth);
+    return prefix + [
+      `${input}split=3[bgsrc][screensrc][facesrc]`,
+      `[bgsrc]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=9:4,eq=brightness=-0.12,scale=1080:${slot}:flags=bilinear[screenbg]`,
+      `[screensrc]scale=1080:${slot}:force_original_aspect_ratio=decrease:flags=lanczos,pad=1080:${slot}:(ow-iw)/2:(oh-ih)/2:color=black[screen]`,
+      `[screenbg][screen]overlay=0:0[screenpanel]`,
+      `[facesrc]crop=${faceW}:${faceH}:x='${x}':y=${faceY},scale=1080:${1920 - slot}:flags=lanczos[facepanel]`,
+      `[screenpanel][facepanel]vstack=inputs=2,setsar=1[v0]`,
+    ].join(';');
+  }
+
   // fill (face-tracked crop)
   if (cw >= w) {
-    return `[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1[v0]`;
+    return prefix + `${input}scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1[v0]`;
   }
-  const win = fillWindow(plan, h); // shorter than the full height when there are empty borders to cut away
+  const win = fillWindow(adjusted, sourceH); // shorter than the full height when there are empty borders to cut away
   const fw = even((win.ch * 9) / 16);
-  return `[0:v]crop=w=${fw}:h=${win.ch}:x='${holdExpr(plan.holds, w, fw, smooth)}':y=${win.y},scale=1080:1920:flags=lanczos,setsar=1[v0]`;
+  return prefix + `${input}crop=w=${fw}:h=${win.ch}:x='${holdExpr(plan.holds, w, fw, smooth)}':y=${win.y},scale=1080:1920:flags=lanczos,setsar=1[v0]`;
 }
 
 export async function renderClip(opts: {
@@ -205,7 +238,7 @@ export async function renderClip(opts: {
   }
   // punch-in zooms (not on split screen — it would cut the two halves)
   const zooms = opts.zooms ?? [];
-  const wantZoom = motion !== 'none' && opts.plan.layout !== 'split' && (zooms.some((z) => z.z !== 1) || opts.introZoom);
+  const wantZoom = motion !== 'none' && opts.plan.layout !== 'split' && opts.plan.layout !== 'screencast' && (zooms.some((z) => z.z !== 1) || opts.introZoom);
   if (wantZoom) {
     const fy = opts.plan.layout === 'fit' ? 0.5 : 0.4; // keep faces in frame when zooming a crop
     graph += `;${vOut}fps=30,zoompan=z='${zoomExpr(zooms, Boolean(opts.introZoom))}':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)*${fy}':d=1:s=1080x1920:fps=30[vz]`;
@@ -304,6 +337,17 @@ export async function renderClip(opts: {
     throw e;
   }
   fs.renameSync(tmp, opts.out);
+}
+
+/** Add the current plan watermark in one lightweight pass after the clean master is safely stored. */
+export async function stampWatermarkVideo(input: string, output: string, watermark: Watermark & { file: string }) {
+  const graph = watermarkFilter(watermark, 1, '[0:v]', '[v]');
+  await run(config.ffmpeg, [
+    '-y', '-v', 'error', '-i', input, '-i', watermark.file,
+    '-filter_complex', graph,
+    '-map', '[v]', '-map', '0:a?', '-c:v', 'libx264', '-preset', config.x264Preset, '-crf', '20',
+    '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-c:a', 'copy', '-movflags', '+faststart', output,
+  ], { timeoutMs: 45 * 60 * 1000 });
 }
 
 /**

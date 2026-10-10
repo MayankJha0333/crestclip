@@ -185,7 +185,7 @@ export function buildAss(opts: {
   words: Word[];
   duration: number;
   style: CaptionStyle;
-  layout: 'fill' | 'fit' | 'split';
+  layout: 'fill' | 'fit' | 'split' | 'screencast';
   hook?: string;
   showHook: boolean;
   keywords?: Keyword[];
@@ -197,7 +197,7 @@ export function buildAss(opts: {
 }): { ass: string; emojis: EmojiCue[]; captionY: number } {
   const W = 1080;
   const H = 1920;
-  const capY = opts.layout === 'split' ? 960 : opts.layout === 'fit' ? 1290 : (opts.captionY ?? 1180);
+  const capY = opts.layout === 'split' ? 960 : opts.layout === 'screencast' ? 850 : opts.layout === 'fit' ? 1290 : (opts.captionY ?? 1180);
   const lines: string[] = [];
   const emojis: EmojiCue[] = [];
   const header = `[Script Info]

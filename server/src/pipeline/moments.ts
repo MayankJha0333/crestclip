@@ -1,6 +1,9 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { config } from '../config.js';
 import { scriptLanguages } from './language.js';
 import { generateJson, part } from './gemini.js';
+import { framesAt } from './media.js';
 import { formatTime, rangeScore } from './signals.js';
 import type { ClipCandidate, Keyword, LengthPref, ProjectOptions, Rubric, Segment, Signals, TimeRange } from '../types.js';
 import type { Part } from '@google/genai';
@@ -131,6 +134,49 @@ Score each clip 0-10 on:
 - length_fit: ends at its natural finish within the requested length?
 - trend: touches a current topic, well-known person, or searchable keyword?
 Be a harsh, honest critic: average moments score 4-6; only truly great ones get 8+.`;
+
+/** Ground screen/demo/gameplay hooks in three actual frames; non-visual clips keep their transcript-led hook. */
+export async function groundVisualHooks(src: string, workDir: string, clips: ClipCandidate[], segments: Segment[]): Promise<ClipCandidate[]> {
+  if (config.fakeAi || !clips.length) return clips;
+  const dir = path.join(workDir, 'hook-frames');
+  const times = clips.slice(0, 6).flatMap((c) => [c.start + 0.4, (c.start + c.end) / 2, c.end - 0.4].map((t) => Math.max(0, t)));
+  try {
+    const files = await framesAt(src, 0, times, dir);
+    if (files.length < 3) return clips;
+    const blocks = clips.slice(0, 6).map((c, i) => {
+      const words = segments.filter((s) => s.e >= c.start && s.s <= c.end).map((s) => s.text).join(' ').slice(0, 2400);
+      return { index: i, candidate: c, transcript: words, files: files.slice(i * 3, i * 3 + 3) };
+    });
+    const parts = blocks.flatMap((b) => [
+      part.text(`CLIP ${b.index}; current hook: ${b.candidate.hook}\nTranscript: ${b.transcript || '(no speech)'}`),
+      ...b.files.map((f, j) => [part.text(`Frame ${j + 1} of clip ${b.index}`), part.file(f, 'image/jpeg')]).flat(),
+    ]);
+    parts.push(part.text('For screen demos, tutorials, and gameplay, rewrite the headline so it matches the visible action and transcript. Never invent a feature, result, or claim. For podcasts and ordinary talking-head clips, return the existing hook unchanged. Return one hook per clip index.'));
+    const schema = {
+      type: 'object', properties: { clips: { type: 'array', items: { type: 'object', properties: { index: { type: 'integer' }, hook: { type: 'string' } }, required: ['index', 'hook'] } } }, required: ['clips'],
+    };
+    const result = await generateJson<{ clips: { index: number; hook: string }[] }>({
+      model: config.fastModel,
+      system: 'You write short, accurate on-screen hooks for vertical video. Use the screenshots and transcript together.',
+      parts,
+      schema,
+      thinking: 'MINIMAL',
+      maxOutputTokens: 1800,
+      timeoutMs: 90_000,
+      label: 'ground visual hooks',
+    });
+    return clips.map((c, i) => {
+      const hook = String(result.clips?.find((r) => r.index === i)?.hook ?? '').trim().slice(0, 80);
+      if (i >= 6 || !hook || hook === c.hook) return c;
+      return { ...c, hook, hooks: [hook, ...(c.hooks ?? []).filter((h) => h !== hook)].slice(0, 3) };
+    });
+  } catch (e) {
+    console.warn('[moments] visual hook grounding skipped:', (e as Error).message);
+    return clips;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 function transcriptForPrompt(segs: Segment[]): string {
   // group phrases into readable lines (~ sentence) with timestamps

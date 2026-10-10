@@ -5,6 +5,7 @@ import path from 'node:path';
 import tls from 'node:tls';
 import { config } from '../config.js';
 import { run } from '../lib/proc.js';
+import { bestAudioTrack, sourceLanguageFromInfo } from './audio-track.js';
 
 /**
  * A clip's part of a YouTube video, fetched by byte range — in seconds instead of minutes.
@@ -26,6 +27,9 @@ interface Format {
   height?: number;
   abr?: number;
   tbr?: number;
+  language?: string | null;
+  language_preference?: number | null;
+  format_note?: string | null;
   url?: string;
   protocol?: string;
   fragments?: unknown;
@@ -51,14 +55,14 @@ const PIECE = 8 * 1024 * 1024; // bytes per request (YouTube serves pieces this 
 const AT_ONCE = 6;
 const HEAD = 512 * 1024; // enough for the header boxes of a multi-hour file
 
-function pick(formats: Format[]): { video: Format; audio: Format } | null {
+function pick(formats: Format[], sourceLanguage: string | null): { video: Format; audio: Format } | null {
   const ok = (f: Format) => f.url && f.protocol === 'https' && !f.fragments;
   const vids = formats.filter((f) => ok(f) && f.ext === 'mp4' && f.vcodec?.startsWith('avc1') && (f.acodec === 'none' || !f.acodec) && (f.height ?? 0) <= 1080);
   const auds = formats.filter((f) => ok(f) && f.ext === 'm4a' && (f.vcodec === 'none' || !f.vcodec) && f.acodec?.startsWith('mp4a'));
   if (!vids.length || !auds.length) return null;
   vids.sort((a, b) => (b.height ?? 0) - (a.height ?? 0) || (b.tbr ?? 0) - (a.tbr ?? 0));
-  auds.sort((a, b) => (b.abr ?? b.tbr ?? 0) - (a.abr ?? a.tbr ?? 0));
-  return { video: vids[0], audio: auds[0] };
+  const audio = bestAudioTrack(auds, sourceLanguage);
+  return audio ? { video: vids[0], audio } : null;
 }
 
 /** A TLS connection to `host`, through an http(s) proxy's CONNECT tunnel when one is set. */
@@ -333,13 +337,16 @@ export async function fetchPartFast(
   opts: { proxy?: string | null; onProgress?: (frac: number) => void; only?: 'dash' | 'hls' } = {},
 ): Promise<'ok' | 'refused' | 'unsupported'> {
   let formats: Format[];
+  let sourceLanguage: string | null;
   try {
-    formats = (JSON.parse(fs.readFileSync(infoJson, 'utf8')) as { formats?: Format[] }).formats ?? [];
+    const info = JSON.parse(fs.readFileSync(infoJson, 'utf8')) as { formats?: Format[]; language?: string | null };
+    formats = info.formats ?? [];
+    sourceLanguage = sourceLanguageFromInfo(info);
   } catch {
     return 'unsupported';
   }
   const proxy = opts.proxy ?? null;
-  const chosen = opts.only === 'hls' ? null : pick(formats);
+  const chosen = opts.only === 'hls' ? null : pick(formats, sourceLanguage);
   if (!chosen) {
     if (opts.only === 'dash') return 'unsupported';
     // no DASH files (Twitch, Kick, Vimeo…): the HLS list of short files, only those the part needs
@@ -388,14 +395,18 @@ export async function fetchPartFast(
  */
 export async function fetchAudioFast(infoJson: string, out: string, onProgress?: (pct: number, detail: string) => void): Promise<string | null> {
   let formats: Format[];
+  let sourceLanguage: string | null;
   try {
-    formats = (JSON.parse(fs.readFileSync(infoJson, 'utf8')) as { formats?: Format[] }).formats ?? [];
+    const info = JSON.parse(fs.readFileSync(infoJson, 'utf8')) as { formats?: Format[]; language?: string | null };
+    formats = info.formats ?? [];
+    sourceLanguage = sourceLanguageFromInfo(info);
   } catch {
     return null;
   }
-  const f = formats
-    .filter((x) => x.url && /^m3u8/.test(x.protocol ?? '') && (!x.vcodec || x.vcodec === 'none') && x.acodec && x.acodec !== 'none')
-    .sort((a, b) => (b.abr ?? b.tbr ?? 0) - (a.abr ?? a.tbr ?? 0))[0];
+  const f = bestAudioTrack(
+    formats.filter((x) => x.url && /^m3u8/.test(x.protocol ?? '') && (!x.vcodec || x.vcodec === 'none')),
+    sourceLanguage,
+  );
   if (!f) return null;
   const headers = f.http_headers ?? {};
   const tmp = `${out}.${process.pid}.seg`;

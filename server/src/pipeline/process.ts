@@ -9,10 +9,10 @@ import { buildAss, wordsInRange, type EmojiCue } from './captions.js';
 import { part, uploadToGcs, deleteFromGcs, usage, usageTotals, withUsageLedger } from './gemini.js';
 import { removeFromCloud, saveToCloud } from '../infra/cloudStore.js';
 import { extractAudio, extractAudioRange, hasLibass, loudnessPerSecond, makeProxy, probe, silences as findSilences, thumbnail } from './media.js';
-import { aiScore, describeClips, ensurePeakCandidate, findMoments, junkTitle, rankClips, snapClips, snapRange, startPeakClip } from './moments.js';
+import { aiScore, describeClips, ensurePeakCandidate, findMoments, groundVisualHooks, junkTitle, rankClips, snapClips, snapRange, startPeakClip } from './moments.js';
 import { judgeClips } from './judge.js';
 import { contentBand, planReframe } from './reframe.js';
-import { concatParts, faceOnFrame, mixMusic, planZooms, renderClip } from './render.js';
+import { concatParts, faceOnFrame, mixMusic, planZooms, renderClip, stampWatermarkVideo } from './render.js';
 import { emojiPng } from './emoji.js';
 import { cutTimes, keptLength, planKeep, retimeWords, silencesIn, snapKeep, toFrame } from './pace.js';
 import { alignPhrases, phrasesInRange, retimeToWords, speechGaps } from './align.js';
@@ -431,6 +431,7 @@ async function runProject(id: string) {
     console.log(`[project ${id}] ${cands.length} candidates found (${sinceStart(id)})`);
     let picked = snapClips(cands, tr.segments, sil, duration, p.options);
     if (noSpeech && pr.width && src) picked = await snapToShots(picked, src, duration); // start and end on a camera cut
+    if (pr.width && src && picked.length) picked = await groundVisualHooks(src, work, picked, tr.segments);
     // a separate, blind judge grades the clips (the picker marks its own picks far too kindly)
     stage(id, 'moments', 0.96, 'Grading the clips…');
     picked = await judgeClips({
@@ -683,6 +684,7 @@ async function renderOnce(clipId: string) {
     const oldPlans = c.reframe?.parts ?? (c.reframe ? [c.reframe] : []);
     const version = (c.version ?? 0) + 1;
     const out = path.join(dir, 'clips', `${c.id}_v${version}.mp4`);
+    const cleanOut = path.join(dir, 'clips', `${c.id}_v${version}_clean.mp4`);
     const needsPost = parts.length > 1 || c.music.track !== 'none' || Boolean(c.flashForward && c.teaser);
 
     const plans: ReframePlan[] = [];
@@ -705,7 +707,7 @@ async function renderOnce(clipId: string) {
         plan = { ...fresh, start: seg.start, end: seg.end };
       }
       let want = c.layout === 'auto' ? (plan.suggested ?? plan.layout) : (c.layout as typeof plan.layout);
-      if (want === 'split' && !plan.splitCenters) want = 'fit'; // fewer than two faces found
+      if ((want === 'split' && !plan.splitCenters) || (want === 'screencast' && !plan.faceRatio)) want = 'fit'; // use a safe framing when no local presenter was found
       plan = { ...plan, layout: want };
       // empty dark borders above/below the picture (letterbox, a face-cam circle on a plain background): find them
       // once per plan, so "fill" zooms in and cuts them away (older plans get checked on their next render)
@@ -716,9 +718,10 @@ async function renderOnce(clipId: string) {
       const dur = seg.end - seg.start;
       const words = hinglishWords(await captionWords(p!.transcript ?? [], foot.src, ls, seg.start, seg.end), p!.options);
       const first = i === 0;
-      const hookY = watermark && watermarkTopBottom(watermark) ? watermarkTopBottom(watermark)! + 30 : undefined;
       // captions go under the face: a bit lower when the face sits low in the frame, never into the apps' bottom area
       const face = faceOnFrame(plan, foot.height);
+      // Put a facecam hook in the screen panel; for a face near the top of a normal portrait crop, move the hook below it.
+      const hookY = watermark && watermarkTopBottom(watermark) ? watermarkTopBottom(watermark)! + 30 : plan.layout === 'screencast' ? 260 : face != null && face < 0.3 ? 960 : undefined;
       const captionY = face == null ? undefined : Math.round(Math.min(1360, Math.max(1180, face * 1920 + 380)));
       const captions = (w: Word[], d: number, withHook: boolean) =>
         canText
@@ -763,7 +766,7 @@ async function renderOnce(clipId: string) {
           out: teaserOut,
           motion: c.motion,
           zooms: [{ t: 0, z: 1.16 }],
-          watermark,
+          watermark: null,
           exportHeight: rules.exportHeight,
           emojis: emojiImages(tCap?.emojis),
           captionY: tCap?.captionY,
@@ -778,7 +781,7 @@ async function renderOnce(clipId: string) {
       const outWords = cut ? retimeWords(words, keep) : words;
       const outDur = cut ? keptLength(keep) : dur;
       const cap = captions(outWords, outDur, first);
-      const partOut = needsPost ? path.join(work, `part_${i}.mp4`) : out;
+      const partOut = needsPost ? path.join(work, `part_${i}.mp4`) : cleanOut;
       await renderClip({
         src: foot.src,
         start: ls,
@@ -793,7 +796,7 @@ async function renderOnce(clipId: string) {
         motion: c.motion,
         zooms: planZooms(outWords, outDur, c.motion, cut ? cutTimes(keep) : []),
         introZoom: c.motion === 'dynamic' && first,
-        watermark,
+        watermark: null,
         exportHeight: rules.exportHeight,
         keep: cut ? keep : undefined,
         emojis: emojiImages(cap?.emojis),
@@ -832,16 +835,18 @@ async function renderOnce(clipId: string) {
         notes.push(`Music skipped — ${(e as Error).message}`);
       }
     }
-    if (current !== out) fs.renameSync(current, out);
+    if (current !== cleanOut) fs.renameSync(current, cleanOut);
+    const displayOut = watermark ? out : cleanOut;
+    if (watermark) await stampWatermarkVideo(cleanOut, out, watermark);
 
     const thumbOut = path.join(dir, 'clips', `${c.id}_v${version}.jpg`);
-    await thumbnail(out, Math.min(1.2, total / 3), thumbOut, 540).catch(() => {});
+    await thumbnail(displayOut, Math.min(1.2, total / 3), thumbOut, 540).catch(() => {});
 
     // the clip is served from this disk right away; its cloud copy is made in the background (a slow or flaky
     // upload used to hold the clip at "rendering" for a minute — and the storage pass copies any file it misses)
-    void Promise.all([saveToCloud(out), saveToCloud(fs.existsSync(thumbOut) ? thumbOut : null)]);
-    for (const old of [c.filePath, c.thumbPath])
-      if (old && old !== out && old !== thumbOut) {
+    void Promise.all([saveToCloud(displayOut), ...(watermark ? [saveToCloud(cleanOut)] : []), saveToCloud(fs.existsSync(thumbOut) ? thumbOut : null)]);
+    for (const old of [c.filePath, c.cleanPath, c.thumbPath])
+      if (old && old !== displayOut && old !== cleanOut && old !== thumbOut) {
         fs.rmSync(old, { force: true });
         void removeFromCloud(old);
       }
@@ -849,7 +854,8 @@ async function renderOnce(clipId: string) {
     await clipDb.update(clipId, {
       status: 'ready',
       error: notes.join(' ') || null,
-      filePath: out,
+      filePath: displayOut,
+      cleanPath: rules.crestclipWatermark ? cleanOut : null,
       thumbPath: fs.existsSync(thumbOut) ? thumbOut : null,
       outDuration: +total.toFixed(2),
       version,

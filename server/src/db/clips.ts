@@ -26,6 +26,8 @@ export interface ClipRow {
   status: 'pending' | 'rendering' | 'ready' | 'failed';
   error: string | null;
   filePath: string | null;
+  /** clean master retained for Free clips, so a paid upgrade can remove the CrestClip mark immediately */
+  cleanPath?: string | null;
   thumbPath: string | null;
   reframe: ReframePlan | null;
   version: number;
@@ -57,6 +59,7 @@ const toClip = (d: Doc<ClipRow>): ClipRow => {
   return {
     ...c,
     filePath: inDataDir(c.filePath),
+    cleanPath: inDataDir(c.cleanPath ?? null),
     thumbPath: inDataDir(c.thumbPath),
     music: { ...DEFAULT_MUSIC, ...(c.music ?? {}) },
     hooks: c.hooks ?? [],
@@ -78,6 +81,7 @@ const UPDATABLE = [
   'status',
   'error',
   'filePath',
+  'cleanPath',
   'thumbPath',
   'reframe',
   'version',
@@ -172,6 +176,7 @@ export const clips = {
         status: 'pending',
         error: null,
         filePath: null,
+        cleanPath: null,
         thumbPath: null,
         reframe: null,
         version: 0,
@@ -252,6 +257,7 @@ export const clips = {
       status: 'pending',
       error: null,
       filePath: null,
+      cleanPath: null,
       thumbPath: null,
       version: 0,
       outDuration: null,

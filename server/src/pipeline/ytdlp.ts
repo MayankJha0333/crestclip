@@ -4,6 +4,8 @@ import path from 'node:path';
 import { config } from '../config.js';
 import { run, ProcError } from '../lib/proc.js';
 import { ensureYtdlp, ytdlpPath, ytStatus } from '../infra/tools.js';
+import { reserveProxyBytes } from '../db/proxy-ledger.js';
+import { audioFormatSelectors, sourceLanguageFromInfo } from './audio-track.js';
 import type { HeatPoint } from '../types.js';
 
 export interface SourceInfo {
@@ -45,6 +47,9 @@ const rotation = new Map<string, number>();
 /** Videos YouTube blocked when fetched directly: all their later steps go through the proxy (same exit address). */
 const viaProxy = new Set<string>();
 const infoUrl = new Map<string, string>();
+const sizeEstimate = new Map<string, number>();
+const proxyReserved = new Map<string, number>();
+const MIB = 1024 * 1024;
 
 /** Which video a run is about: its link, or the link inside the saved page info it reuses. Search/explore runs share one key. */
 function videoKey(args: string[]): string {
@@ -129,6 +134,14 @@ async function ytdlp(args: string[], opts: Parameters<typeof run>[2] & { noHeal?
   if (ytStatus.state === 'installing' || ytStatus.state === 'missing') await ensureYtdlp();
   const key = config.ytdlpProxies.length ? videoKey(args) : '';
   const proxy = key && (config.ytdlpProxyMode === 'always' || viaProxy.has(key)) ? proxyFor(key) : null;
+  if (proxy) {
+    const wanted = Math.max(MIB, sizeEstimate.get(key) ?? (args.includes('-J') ? MIB : 10 * MIB));
+    if (wanted > (proxyReserved.get(key) ?? 0)) {
+      const reserved = await reserveProxyBytes(key, wanted, Math.max(0, config.ytdlpProxyDailyMb) * MIB);
+      if (!reserved.allowed) throw new Error(`The server's daily proxy budget is used up (${Math.round(reserved.usedBytes / MIB)} MB of ${config.ytdlpProxyDailyMb} MB). Try again tomorrow or upload the video file.`);
+      proxyReserved.set(key, wanted);
+    }
+  }
   try {
     const r = await run(ytdlpPath(), [...baseArgs(), ...(proxy ? ['--proxy', proxy] : []), ...args], opts);
     if (config.ytdlpExtraArgs.length) extraArgsOk = true;
@@ -253,6 +266,11 @@ export async function fetchInfo(url: string, saveTo?: string): Promise<SourceInf
         title: String(c.title ?? ''),
       }))
     : [];
+  const fullSizeEstimate = estimateFullSize(j);
+  if (fullSizeEstimate) {
+    sizeEstimate.set(url, fullSizeEstimate);
+    if (j.webpage_url) sizeEstimate.set(String(j.webpage_url), fullSizeEstimate);
+  }
   return {
     id: String(j.id ?? ''),
     title: String(j.title ?? 'Untitled video'),
@@ -272,7 +290,7 @@ export async function fetchInfo(url: string, saveTo?: string): Promise<SourceInf
     liveStatus: j.live_status ?? null,
     width: Number(j.width) || null,
     height: Number(j.height) || null,
-    fullSizeEstimate: estimateFullSize(j),
+    fullSizeEstimate,
   };
 }
 
@@ -292,7 +310,21 @@ export async function fetchComments(url: string, max = 200): Promise<Comment[]> 
 const STALL_MS = 3 * 60_000;
 const YT_CLIENT_FALLBACKS = [null, 'youtube:player_client=tv,web_safari', 'youtube:player_client=mweb,android_vr'];
 const RETRYABLE = /403|Forbidden|Requested format is not available|fragment|HTTP error|Server returned|Invalid data found|expired/i;
-const VIDEO_FORMAT = 'bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/b';
+
+function sourceAudioLanguage(infoJson?: string | null): string | null {
+  if (!infoJson) return null;
+  try {
+    return sourceLanguageFromInfo(JSON.parse(fs.readFileSync(infoJson, 'utf8')));
+  } catch {
+    return null;
+  }
+}
+
+function videoFormat(infoJson?: string | null): string {
+  const audio = audioFormatSelectors(sourceAudioLanguage(infoJson));
+  const video = ['bv*[height<=1080][vcodec^=avc1]', 'bv*[height<=1080]'];
+  return [...video.flatMap((v) => audio.map((a) => `${v}+${a}`)), 'b[height<=1080]', 'b'].join('/');
+}
 
 /**
  * Download with fallbacks: first reuse the saved page info (skips re-reading YouTube — much faster),
@@ -370,7 +402,7 @@ export async function download(url: string, dir: string, onProgress: (pct: numbe
   await downloadWithFallbacks({
     url,
     infoJson,
-    args: ['-f', VIDEO_FORMAT, '-N', '8', '--merge-output-format', 'mp4', '-o', path.join(dir, 'source.%(ext)s')],
+    args: ['-f', videoFormat(infoJson), '-N', '8', '--merge-output-format', 'mp4', '-o', path.join(dir, 'source.%(ext)s')],
     // one stuck download used to hold the only job slot for hours, so nothing else started
     timeoutMs: 90 * 60 * 1000,
     onLine: progressLine(onProgress),
@@ -383,11 +415,12 @@ export async function download(url: string, dir: string, onProgress: (pct: numbe
 
 /** Audio only — tiny compared to the video, and all CrestClip needs to transcribe and find the moments. */
 export async function downloadAudio(url: string, dir: string, onProgress: (pct: number, detail: string) => void, infoJson?: string | null): Promise<string> {
+  const audioFormat = [...audioFormatSelectors(sourceAudioLanguage(infoJson)), 'b[height<=480]', 'b'].join('/');
   await downloadWithFallbacks({
     url,
     infoJson,
     // -N 8: sites that serve the sound as many short files (Twitch) download eight of them at a time
-    args: ['-f', 'ba[ext=m4a]/ba/b[height<=480]/b', '-N', '8', '-o', path.join(dir, 'source-audio.%(ext)s')],
+    args: ['-f', audioFormat, '-N', '8', '-o', path.join(dir, 'source-audio.%(ext)s')],
     timeoutMs: 60 * 60 * 1000,
     onLine: progressLine(onProgress),
     cleanup: removePartials(dir, 'source-audio.'),
@@ -425,7 +458,7 @@ export async function downloadSections(
     infoJson,
     args: [
       '-f',
-      VIDEO_FORMAT,
+      videoFormat(infoJson),
       '--merge-output-format',
       'mp4',
       ...want.flatMap((r) => ['--download-sections', `*${r.start}-${r.end}`]),

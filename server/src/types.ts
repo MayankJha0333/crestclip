@@ -1,5 +1,5 @@
 export type Platform = 'shorts' | 'tiktok' | 'reels';
-export type Layout = 'auto' | 'fill' | 'fit' | 'split';
+export type Layout = 'auto' | 'fill' | 'fit' | 'split' | 'screencast';
 export type CaptionStyle = 'pop' | 'clay' | 'neon' | 'comic' | 'minimal' | 'none';
 export type LengthPref = 'auto' | 'short' | 'medium' | 'long';
 /** Editing motion: none, occasional punch-in zooms + smooth pans, or fast-paced zooms like a pro editor. */
@@ -150,6 +150,8 @@ export interface ReframePlan {
   splitCenters?: [number, number];
   faceRatio: number;
   faceY?: number;
+  /** Lowest useful source row when the original video has burned-in subtitles (0–1). */
+  subtitleBottom?: number;
   /**
    * Rows of the source (0-1, top/bottom) that hold the picture inside the crop column. Set when the video has empty
    * dark borders above/below (letterbox, a face-cam circle on a plain background…), so "fill" zooms in to cut them

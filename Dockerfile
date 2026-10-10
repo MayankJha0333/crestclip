@@ -7,7 +7,8 @@ WORKDIR /app
 # cover Latin letters only, and libass falls back to these for everything else.
 # System ffmpeg: only for yt-dlp cutting parts straight from YouTube — the npm ffmpeg is fully static and crashes
 # (segfault) on any web address. Renders keep using the npm one.
-RUN apt-get update && apt-get install -y --no-install-recommends fontconfig fonts-noto-core ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends fontconfig fonts-noto-core ffmpeg python3 python3-pip && rm -rf /var/lib/apt/lists/*
+RUN python3 -m pip install --no-cache-dir --break-system-packages mediapipe==0.10.14
 COPY package.json package-lock.json* ./
 COPY server/package.json server/
 COPY web/package.json web/

@@ -4,19 +4,36 @@ import { config } from '../config.js';
 import { run } from '../lib/proc.js';
 import { framesAt, sceneCuts } from './media.js';
 import { generateJson, part } from './gemini.js';
+import { trackFacesLocally } from './face-tracker.js';
 import type { CropHold, Layout, ReframePlan } from '../types.js';
 
 type Box = [number, number, number, number]; // ymin, xmin, ymax, xmax (0..1000)
 
 interface FrameAnalysis {
   content: string;
+  subtitleBand?: number[];
   frames: { i: number; faces: { box: number[]; speaking: boolean }[]; subject: number[] }[];
 }
+
+interface LayoutAnalysis {
+  content: string;
+  /** Burned-in subtitle band as normalized [top,bottom] (0–1000), or [] when absent. */
+  subtitleBand: number[];
+}
+
+const layoutSchema = {
+  type: 'object',
+  properties: {
+    content: { type: 'string', enum: ['talking_heads', 'single_speaker', 'screen_or_slides', 'gameplay', 'screencast', 'sports_or_action', 'other'] },
+    subtitleBand: { type: 'array', items: { type: 'integer' }, description: 'Burned-in subtitle band [top,bottom], normalized 0-1000; [] when there are no subtitles.' },
+  },
+  required: ['content', 'subtitleBand'],
+};
 
 const schema = {
   type: 'object',
   properties: {
-    content: { type: 'string', enum: ['talking_heads', 'single_speaker', 'screen_or_slides', 'gameplay', 'sports_or_action', 'other'] },
+    content: { type: 'string', enum: ['talking_heads', 'single_speaker', 'screen_or_slides', 'gameplay', 'screencast', 'sports_or_action', 'other'] },
     frames: {
       type: 'array',
       items: {
@@ -45,6 +62,8 @@ const schema = {
 
 const SYSTEM = `You are the auto-reframe engine of a video editor that turns 16:9 video into 9:16 vertical clips.
 For each numbered frame, return bounding boxes of every clearly visible human FACE (not whole bodies) as [ymin, xmin, ymax, xmax] normalized to 0-1000, and mark which person seems to be SPEAKING (mouth open, gesturing, camera focus, or the only person). If there are no faces, give the box of the most important subject (e.g. the product, the game character, the slide text), otherwise an empty subject list. Ignore faces in small thumbnails/overlays/posters. Limit 4 faces per frame.`;
+
+const LAYOUT_SYSTEM = `Choose the vertical-video layout from these frames. Classify a screen recording or gameplay with a visible presenter camera as "screencast"; use "screen_or_slides" or "gameplay" when there is no presenter. Also find one stable band of burned-in subtitles that repeats across the frames. Return its normalized [top,bottom] rows from 0 to 1000, or [] if there are no burned-in subtitles. Do not mistake ordinary slide text, logos, or lower thirds for subtitles.`;
 
 export async function planReframe(opts: {
   src: string;
@@ -100,7 +119,9 @@ export async function planReframe(opts: {
 
   const content = analysis.data.content || 'other';
   let suggested: Exclude<Layout, 'auto'> = 'fill';
-  if (faceRatio < 0.35 && /screen|gameplay|other|sports/.test(content)) suggested = 'fit';
+  const subtitleBand = safeSubtitleBand(analysis.data.subtitleBand);
+  if (content === 'screencast' && faceRatio > 0.08) suggested = 'screencast';
+  else if (faceRatio < 0.35 && /screen|gameplay|other|sports/.test(content)) suggested = 'fit';
   else if (twoRatio >= 0.55) suggested = 'split';
   const layout = opts.layout === 'auto' ? suggested : opts.layout;
 
@@ -110,16 +131,33 @@ export async function planReframe(opts: {
 
   const holds = buildHolds(analysis.times, filled, cuts, dur, cropW);
   const splitCenters: [number, number] | undefined = lefts.length ? [median(lefts), median(rights)] : undefined;
-  return { ...base, layout, suggested, holds, faceRatio, splitCenters, content, ...(faceY.length ? { faceY: median(faceY) } : {}) };
+  return { ...base, layout, suggested, holds, faceRatio, splitCenters, content, ...(faceY.length ? { faceY: median(faceY) } : {}), ...(subtitleBand ? { subtitleBottom: subtitleBand } : {}) };
+}
+
+function safeSubtitleBand(band: number[] | undefined): number | null {
+  if (!Array.isArray(band) || band.length !== 2 || !band.every(Number.isFinite)) return null;
+  const [top, bottom] = band;
+  // Only crop a stable lower caption strip. Cropping a top/middle band risks removing the speaker or demo UI.
+  if (top < 650 || top > 950 || bottom <= top || bottom > 1000 || bottom - top < 18 || bottom - top > 260) return null;
+  return +(top / 1000).toFixed(4);
 }
 
 async function analyzeFrames(opts: { src: string; start: number; end: number; workDir: string }) {
   const dur = opts.end - opts.start;
+  if (config.fakeAi) {
+    const count = Math.max(4, Math.min(36, Math.round(dur / 1.5)));
+    const times = Array.from({ length: count }, (_, i) => +(((i + 0.5) * dur) / count).toFixed(2));
+    return { times, data: { content: 'single_speaker', subtitleBand: [], frames: times.map((_, i) => ({ i, faces: [{ box: [200, 400, 520, 600], speaking: true }], subject: [] })) } };
+  }
+
+  const local = await trackFacesLocally(opts.src, opts.start, opts.end);
+  if (local) {
+    const visual = await analyzeLayout(opts);
+    return { times: local.times, data: { content: visual.content, subtitleBand: visual.subtitleBand, frames: local.frames } };
+  }
+
   const count = Math.max(4, Math.min(36, Math.round(dur / 1.5)));
   const times = Array.from({ length: count }, (_, i) => +(((i + 0.5) * dur) / count).toFixed(2));
-  if (config.fakeAi) {
-    return { times, data: { content: 'single_speaker', frames: times.map((_, i) => ({ i, faces: [{ box: [200, 400, 520, 600], speaking: true }], subject: [] })) } };
-  }
   const dir = path.join(opts.workDir, 'frames');
   fs.rmSync(dir, { recursive: true, force: true });
   const files = await framesAt(opts.src, opts.start, times, dir);
@@ -137,6 +175,23 @@ async function analyzeFrames(opts: { src: string; start: number; end: number; wo
   });
   fs.rmSync(dir, { recursive: true, force: true });
   return { times: times.slice(0, files.length), data };
+}
+
+/** One 12-frame Gemini call picks layout and detects source subtitles; face coordinates come from the free local model. */
+async function analyzeLayout(opts: { src: string; start: number; end: number; workDir: string }): Promise<LayoutAnalysis> {
+  const dur = opts.end - opts.start;
+  const count = 12;
+  const times = Array.from({ length: count }, (_, i) => +(((i + 0.5) * dur) / count).toFixed(2));
+  const dir = path.join(opts.workDir, 'layout-frames');
+  fs.rmSync(dir, { recursive: true, force: true });
+  const files = await framesAt(opts.src, opts.start, times, dir);
+  const parts = files.flatMap((f, i) => [part.text(`Frame ${i} (t=${times[i]}s):`), part.file(f, 'image/jpeg')]);
+  parts.push(part.text('Classify the video and report only a stable burned-in subtitle band.'));
+  try {
+    return await generateJson<LayoutAnalysis>({ model: config.fastModel, system: LAYOUT_SYSTEM, parts, schema: layoutSchema, thinking: 'MINIMAL', maxOutputTokens: 1500, timeoutMs: 90_000, label: 'choose layout and find source subtitles' });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 /**

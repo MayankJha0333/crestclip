@@ -164,6 +164,9 @@ export const config = {
    */
   captionsFirst: env('CAPTIONS_FIRST', 'true') !== 'false',
   fakeAi: env('CRESTCLIP_FAKE_AI') === '1',
+  /** MediaPipe face detection runs locally on every decoded frame in production; missing Python/model falls back to Gemini. */
+  localFaceTracking: env('LOCAL_FACE_TRACKING', 'true') !== 'false',
+  python: env('PYTHON_PATH', 'python3'),
 
   // Tools
   ytdlp: env('YTDLP_PATH', 'yt-dlp'),
@@ -190,6 +193,8 @@ export const config = {
    * direct often still works. 'always': every YouTube request goes through the proxy.
    */
   ytdlpProxyMode: env('YTDLP_PROXY_MODE', 'fallback') === 'always' ? ('always' as const) : ('fallback' as const),
+  /** Daily shared egress reservation limit for proxy-routed videos. One GiB by default when a proxy is configured. */
+  ytdlpProxyDailyMb: num('YTDLP_PROXY_DAILY_MB', 1024),
   /** how many fresh addresses to try per step before giving up */
   ytdlpProxyRetries: num('YTDLP_PROXY_RETRIES', 2),
   // Optional Twitch API app (dev.twitch.tv) — enables Twitch channel search + richer VOD/clip data in Explore
