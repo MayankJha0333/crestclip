@@ -7,7 +7,7 @@ export const clipPatchSchema = z.object({
   hashtags: z.array(z.string().max(60)).max(15).optional(),
   start: z.number().min(0).optional(),
   end: z.number().min(0).optional(),
-  layout: z.enum(['auto', 'fill', 'fit', 'split']).optional(),
+  layout: z.enum(['auto', 'fill', 'fit', 'split', 'screencast']).optional(),
   captionStyle: z.enum(['pop', 'clay', 'neon', 'comic', 'minimal', 'none']).optional(),
   showHook: z.boolean().optional(),
   motion: z.enum(['none', 'subtle', 'dynamic']).optional(),

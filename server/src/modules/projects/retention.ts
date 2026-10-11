@@ -44,7 +44,7 @@ async function backfillCloud() {
   if (!cloudOn()) return;
   let n = 0;
   for (const c of await clips.allReady()) {
-    for (const f of [c.filePath, c.thumbPath]) {
+    for (const f of [c.filePath, c.cleanPath, c.thumbPath]) {
       if (f && fs.existsSync(f) && !(await inCloud(f)) && (await saveToCloud(f))) n++;
     }
   }

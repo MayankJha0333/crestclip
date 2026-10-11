@@ -8,7 +8,7 @@ export const optionsFields = z.object({
   platform: z.enum(['shorts', 'tiktok', 'reels']).default('shorts'),
   length: z.enum(['auto', 'short', 'medium', 'long']).default('auto'),
   clipCount: z.coerce.number().int().min(1).max(30).default(8),
-  layout: z.enum(['auto', 'fill', 'fit', 'split']).default('auto'),
+  layout: z.enum(['auto', 'fill', 'fit', 'split', 'screencast']).default('auto'),
   captionStyle: z.enum(['pop', 'clay', 'neon', 'comic', 'minimal', 'none']).default('pop'),
   showHook: z.coerce.boolean().default(true),
   motion: z.enum(['none', 'subtle', 'dynamic']).default('subtle'),

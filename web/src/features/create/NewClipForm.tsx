@@ -153,6 +153,10 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
   }, [knownDur, countTouched]);
   const wait = waitMinutes(knownDur, opts.clipCount);
   const cost = opts.clipCount * perClip * videos;
+  const affordableTotal = Math.floor(balance / perClip);
+  const affordableClipCount = cost <= balance ? opts.clipCount : Math.min(opts.clipCount, Math.max(1, Math.floor(affordableTotal / Math.max(1, videos))));
+  const affordableVideoCount = cost <= balance ? videos : Math.max(1, Math.min(videos, Math.floor(affordableTotal / affordableClipCount)));
+  const canMakeNow = affordableTotal > 0;
   const linkInfos = links.map((u) => ({ url: u, info: detectLink(u, { youtube: ytOk }) }));
   const brief = previewInstructions(instructions);
   const newFromBrief = brief.links.filter((u) => !links.includes(u));
@@ -178,7 +182,7 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
     e?.preventDefault();
     setError(null);
     saveOptions(opts);
-    const send: ProjectOptions = { ...opts, focus: '', instructions: instructions.trim() || undefined };
+    const send: ProjectOptions = { ...opts, clipCount: affordableClipCount, focus: '', instructions: instructions.trim() || undefined };
     setBusy(true);
     try {
       if (mode === 'link') {
@@ -198,9 +202,10 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
           return nav(`/app/p/${r.project.id}`);
         }
         if (many) {
-          const r = await api.createFromUrls(links, send);
+          const chosenLinks = links.slice(0, affordableVideoCount);
+          const r = await api.createFromUrls(chosenLinks, send);
           track('create_clips', { source: 'links', videos: r.projects.length });
-          toast(`Clipping ${r.projects.length} videos into one project`);
+          toast(cost > balance ? `Starting ${affordableClipCount} clip${affordableClipCount === 1 ? '' : 's'} each for ${r.projects.length} affordable video${r.projects.length === 1 ? '' : 's'}` : `Clipping ${r.projects.length} videos into one project`);
           void refresh();
           return nav(`/app/p/${r.project.id}`);
         }
@@ -238,8 +243,8 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
       : folderLink && folderVideos
         ? `Clip ${folderVideos === 1 ? '1 video' : `up to ${folderVideos} videos`} from the folder`
         : many
-          ? `Clip ${links.length} videos`
-          : 'Find the best moments';
+          ? cost > balance ? `Make ${affordableClipCount * affordableVideoCount} affordable clips` : `Clip ${links.length} videos`
+          : cost > balance ? `Make ${affordableClipCount} affordable clips` : 'Find the best moments';
 
   return (
     <form
@@ -538,7 +543,7 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
           </UpgradeCallout>
         ) : (
           <div>
-            <Button type="submit" variant="primary" size="lg" loading={busy} disabled={tooLong} className="w-full">
+            <Button type="submit" variant="primary" size="lg" loading={busy} disabled={tooLong || !canMakeNow} className="w-full">
               {!busy && <Wand2 size={20} />}
               {submitLabel}
             </Button>
@@ -546,13 +551,13 @@ export function NewClipForm({ initialUrl = '' }: { initialUrl?: string }) {
               className="mt-2.5 text-center text-xs text-ink-3"
               title={`${cost.toLocaleString()} of your ${balance.toLocaleString()} credits (${perClip} per clip); clips that don’t come out are refunded`}
             >
-              Up to {(opts.clipCount * videos).toLocaleString()} clip{opts.clipCount * videos === 1 ? '' : 's'} · you can make {Math.floor(balance / perClip).toLocaleString()} more
+              Up to {(opts.clipCount * videos).toLocaleString()} clip{opts.clipCount * videos === 1 ? '' : 's'} · {affordableTotal.toLocaleString()} affordable now
               {cost > balance &&
                 (folderLink ? (
-                  <b className="mt-1 block text-warn-ink">The AI will pick only as many videos as your credits cover.</b>
+                  <b className="mt-1 block text-warn-ink">We’ll make up to {affordableClipCount} per picked video, within your balance.</b>
                 ) : (
                   <b className="mt-1 block text-warn-ink">
-                    Enough for {Math.floor(balance / perClip)} clip{Math.floor(balance / perClip) === 1 ? '' : 's'} — ask for fewer, or top up first.
+                    We’ll make {affordableClipCount} per video for the first {affordableVideoCount} link{affordableVideoCount === 1 ? '' : 's'}; the other links stay untouched.
                   </b>
                 ))}
             </p>

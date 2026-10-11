@@ -16,11 +16,18 @@ import type { ProjectOptions, TimeRange } from '../../types.js';
 import { assertHasCredits, assertVideosPerProject, assertYoutubeSource, chargeClips } from '../billing/billing.service.js';
 import { isYouTubeUrl } from '../../pipeline/ytweb.js';
 import { creditsForClips, planOf } from '../billing/plans.js';
+import { CREDITS_PER_CLIP } from '../billing/plans.js';
 import { optionsSchema } from './projects.schemas.js';
 import { purgeProject } from './retention.js';
 
 /** How many clips a project will make (and pay for): the parts picked in Explore, or the clip count asked for. */
 const clipsAsked = (o: ProjectOptions) => (o.ranges?.length ? (o.joinRanges ? 1 : o.ranges.length) : Math.max(1, o.clipCount || 1));
+
+/** Lower a request to the amount currently affordable; exact picked ranges keep their original order. */
+function limitOptionsToCredits(options: ProjectOptions, available: number): ProjectOptions {
+  if (options.ranges?.length) return { ...options, ranges: options.joinRanges ? options.ranges : options.ranges.slice(0, available) };
+  return { ...options, clipCount: Math.max(1, Math.min(options.clipCount || 1, available)) };
+}
 
 /** New projects need Gemini. */
 function requireAi() {
@@ -49,8 +56,10 @@ async function projectFromLink(userId: string, url: string, options: ProjectOpti
 export async function createFromLink(user: UserRow, url: string, options: ProjectOptions) {
   if (isYouTubeUrl(url)) assertYoutubeSource(user);
   requireAi();
-  await assertHasCredits(user, clipsAsked(options));
-  const p = await projectFromLink(user.id, url, await applyInstructions(options, user.id));
+  await assertHasCredits(user, 1);
+  const available = Math.floor((await credits.balance(user.id)) / CREDITS_PER_CLIP);
+  const affordable = limitOptionsToCredits(options, Math.min(clipsAsked(options), available));
+  const p = await projectFromLink(user.id, url, await applyInstructions(affordable, user.id));
   enqueueProject(p.id, true);
   return p;
 }
@@ -61,17 +70,22 @@ export async function createFromLinks(user: UserRow, links: string[], options: P
   const urls = [...new Set(links.map((u) => u.trim()))];
   if (urls.some(isYouTubeUrl)) assertYoutubeSource(user);
   assertVideosPerProject(user, urls.length);
-  await assertHasCredits(user, clipsAsked(options) * urls.length);
-  for (const u of urls) {
+  await assertHasCredits(user, 1);
+  const available = Math.floor((await credits.balance(user.id)) / CREDITS_PER_CLIP);
+  const clipCount = Math.min(clipsAsked(options), Math.max(1, Math.floor(available / urls.length)));
+  const videoCount = Math.max(1, Math.min(urls.length, Math.floor(available / clipCount)));
+  const affordableOptions = limitOptionsToCredits(options, clipCount);
+  const affordableUrls = urls.slice(0, videoCount);
+  for (const u of affordableUrls) {
     await assertPublicUrl(u);
     const f = classifyFileLink(u);
     if (f && 'error' in f) throw new HttpError(400, `${u.slice(0, 60)}… — ${f.error}`);
   }
-  const understood = await applyInstructions(options, user.id); // read the instructions once for all links
+  const understood = await applyInstructions(affordableOptions, user.id); // read the instructions once for all links
   // each video in a group is still clipped on its own
-  const group = urls.length > 1 ? await projects.create({ userId: user.id, sourceType: 'group', options: understood }) : null;
+  const group = affordableUrls.length > 1 ? await projects.create({ userId: user.id, sourceType: 'group', options: understood }) : null;
   const made: ProjectRow[] = [];
-  for (const u of urls) made.push(await projectFromLink(user.id, u, understood, group?.id ?? null)); // in the order given
+  for (const u of affordableUrls) made.push(await projectFromLink(user.id, u, understood, group?.id ?? null)); // in the order given
   for (const p of made) enqueueProject(p.id, true);
   return { group: group ? (await projects.get(group.id))! : null, made, options: understood };
 }
@@ -124,8 +138,10 @@ export async function previewFolder(user: UserRow, url: string) {
 export async function createFromFolder(user: UserRow, url: string, options: ProjectOptions) {
   requireAi();
   const folder = await openFolder(url);
-  const perVideo = clipsAsked(options);
-  await assertHasCredits(user, perVideo); // at least one video's worth (also refreshes monthly credits)
+  await assertHasCredits(user, 1); // refreshes monthly credits before the affordable count is calculated
+  const available = Math.floor((await credits.balance(user.id)) / CREDITS_PER_CLIP);
+  const perVideo = Math.min(clipsAsked(options), Math.max(1, available));
+  options = limitOptionsToCredits(options, perVideo);
   const planMax = planOf(user.plan).maxVideosPerProject;
   const byCredits = Math.floor((await credits.balance(user.id)) / creditsForClips(perVideo));
   const max = Math.max(1, Math.min(planMax, byCredits));
@@ -192,11 +208,13 @@ export async function createFromUpload(user: UserRow, file: { path: string; orig
   }
   const parsed = optionsSchema.safeParse(opts);
   const chosen = (parsed.success ? parsed.data : optionsSchema.parse({})) as ProjectOptions;
-  await assertHasCredits(user, clipsAsked(chosen)).catch((e) => {
+  await assertHasCredits(user, 1).catch((e) => {
     fs.rmSync(file.path, { force: true });
     throw e;
   });
-  const options = await applyInstructions(chosen, user.id);
+  const available = Math.floor((await credits.balance(user.id)) / CREDITS_PER_CLIP);
+  const affordable = limitOptionsToCredits(chosen, Math.min(clipsAsked(chosen), available));
+  const options = await applyInstructions(affordable, user.id);
   const title = file.originalname
     .replace(/\.[^.]+$/, '')
     .replace(/[_-]+/g, ' ')

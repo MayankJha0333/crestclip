@@ -12,6 +12,7 @@ export const LAYOUTS: { value: Layout; label: string; hint: string }[] = [
   { value: 'auto', label: 'Auto', hint: 'CrestClip picks per clip' },
   { value: 'fill', label: 'Face track', hint: 'Full screen, follows the speaker' },
   { value: 'split', label: 'Split', hint: 'Two speakers stacked' },
+  { value: 'screencast', label: 'Screen + face', hint: 'Screen above an enlarged presenter' },
   { value: 'fit', label: 'Fit', hint: 'Whole frame on a blurred background (screens, games)' },
 ];
 

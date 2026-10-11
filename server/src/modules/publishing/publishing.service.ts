@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
 import { config } from '../../config.js';
+import { renderRules } from '../billing/billing.service.js';
+import { clipOutputForUser } from '../clips/clip-output.js';
 import { clips, connections, posts, projects, type ConnectionRow, type PostRow, type UserRow } from '../../db/index.js';
 import { assertCanSchedule } from '../billing/billing.service.js';
 import { ensureLocal } from '../../infra/cloudStore.js';
@@ -112,7 +114,8 @@ export async function videoForLink(postId: string, exp: string, sig: string): Pr
   const post = await posts.get(postId);
   if (!post || post.status !== 'uploading') return null;
   const clip = await clips.get(post.clipId);
-  return clip?.filePath && (await ensureLocal(clip.filePath)) ? clip.filePath : null;
+  const file = clip ? await clipOutputForUser(clip, post.userId) : null;
+  return file && (await ensureLocal(file)) ? file : null;
 }
 
 export async function runPost(postId: string) {
@@ -124,12 +127,13 @@ export async function runPost(postId: string) {
     const conn = await connections.get(post.connectionId);
     const clip = await clips.get(post.clipId);
     if (!conn) return await posts.update(post.id, { status: 'failed', error: 'The account was disconnected.' });
-    if (!clip?.filePath || !(await ensureLocal(clip.filePath)))
+    const videoPath = clip ? await clipOutputForUser(clip, post.userId) : null;
+    if (!videoPath || !(await ensureLocal(videoPath)))
       return await posts.update(post.id, { status: 'failed', error: 'The clip isn’t rendered (or was deleted). Re-render it and try again.' });
     if (!(await posts.claim(post.id, post.attempts + 1))) return; // another process took it a moment ago
     const token = await accessToken(conn);
     const res: { id: string; url: string; note?: string } =
-      conn.platform === 'youtube' ? await youtube.publish(token, post, clip.filePath) : await instagram.publish(token, conn.accountId, post, videoLink(post.id));
+      conn.platform === 'youtube' ? await youtube.publish(token, post, videoPath) : await instagram.publish(token, conn.accountId, post, videoLink(post.id));
     // YouTube schedules are "published" to YouTube now and go live at publishAt; the UI shows them as scheduled until then
     await posts.update(post.id, { status: 'published', remoteId: res.id, remoteUrl: res.url, error: res.note ?? null });
   } catch (e) {

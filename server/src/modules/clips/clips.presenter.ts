@@ -1,17 +1,22 @@
-import { posts, type ClipRow, type PostRow } from '../../db/index.js';
+import { posts, projects, type ClipRow, type PostRow } from '../../db/index.js';
 import { toMediaUrl } from '../../lib/paths.js';
 import { clipParts } from '../../pipeline/process.js';
+import { clipOutputForUser } from './clip-output.js';
 
 /** Clips as the app shows them, with their posts (fetched in one go). */
 export async function publicClips(list: ClipRow[]) {
   const byClip = new Map<string, PostRow[]>();
   for (const p of await posts.forClips(list.map((c) => c.id))) byClip.set(p.clipId, [...(byClip.get(p.clipId) ?? []), p]);
-  return list.map((c) => present(c, byClip.get(c.id) ?? []));
+  const videoPaths = await Promise.all(list.map(async (c) => {
+    const project = await projects.get(c.projectId);
+    return clipOutputForUser(c, project?.userId ?? null);
+  }));
+  return list.map((c, i) => present(c, byClip.get(c.id) ?? [], videoPaths[i]));
 }
 
 export const publicClip = async (c: ClipRow) => (await publicClips([c]))[0];
 
-function present(c: ClipRow, clipPosts: PostRow[]) {
+function present(c: ClipRow, clipPosts: PostRow[], videoPath: string | null = c.filePath) {
   return {
     id: c.id,
     projectId: c.projectId,
@@ -51,7 +56,7 @@ function present(c: ClipRow, clipPosts: PostRow[]) {
     showHook: c.showHook,
     status: c.status,
     error: c.error,
-    videoUrl: toMediaUrl(c.filePath),
+    videoUrl: toMediaUrl(videoPath),
     thumbUrl: toMediaUrl(c.thumbPath),
     version: c.version,
   };

@@ -2,6 +2,7 @@ import { apClips, apVideos, clips, connections, posts, projects, type AutopilotR
 import { redisStatus } from '../../infra/redis.js';
 import { toMediaUrl } from '../../lib/paths.js';
 import { publicPost } from '../publishing/publishing.presenter.js';
+import { clipOutputForUser } from '../clips/clip-output.js';
 import { autopilotReady, handPosts, schedule } from './autopilot.engine.js';
 
 /** The short clip card Autopilot shows (by clip id; null if the clip is gone). */
@@ -17,7 +18,7 @@ async function autopilotClip(id: string) {
     score: Math.round(c.peakScore),
     duration: Math.round(c.end - c.start),
     thumbUrl: toMediaUrl(c.thumbPath),
-    videoUrl: toMediaUrl(c.filePath),
+    videoUrl: toMediaUrl(await clipOutputForUser(c, p?.userId ?? null)),
     source: p ? { title: p.title, channel: p.channel, url: p.sourceUrl } : null,
   };
 }

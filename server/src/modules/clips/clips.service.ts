@@ -2,6 +2,7 @@ import { clips, projects, type ClipRow, type ProjectRow, type UserRow } from '..
 import { ensureLocal } from '../../infra/cloudStore.js';
 import { enqueueRender } from '../../infra/queue.js';
 import { HttpError } from '../../lib/http.js';
+import { clipOutputForUser } from './clip-output.js';
 import type { ClipPatch } from './clips.schemas.js';
 
 /** Edits to these fields change the video, so the clip is rendered again. */
@@ -74,11 +75,12 @@ export async function createVariant(id: string, user: UserRow): Promise<ClipRow>
 /** The rendered file and a safe download name for it. */
 export async function clipDownload(id: string, user: UserRow): Promise<{ file: string; name: string }> {
   const { clip: c } = await getClipWithProject(id, user);
-  if (!(await ensureLocal(c.filePath))) throw new HttpError(404, 'This clip is not rendered yet.');
+  const file = await clipOutputForUser(c, user.id);
+  if (!(await ensureLocal(file))) throw new HttpError(404, 'This clip is not rendered yet.');
   const safe =
     (c.title || 'clip')
       .replace(/[^\p{L}\p{M}\p{N} _-]+/gu, '')
       .trim()
       .slice(0, 60) || 'clip';
-  return { file: c.filePath!, name: `${safe}.mp4` };
+  return { file: file!, name: `${safe}.mp4` };
 }

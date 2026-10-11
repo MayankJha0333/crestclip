@@ -1,6 +1,6 @@
 /** Shapes returned by the CrestClip API (see the presenters in server/src/modules). */
 export type Platform = 'shorts' | 'tiktok' | 'reels';
-export type Layout = 'auto' | 'fill' | 'fit' | 'split';
+export type Layout = 'auto' | 'fill' | 'fit' | 'split' | 'screencast';
 export type CaptionStyle = 'pop' | 'clay' | 'neon' | 'comic' | 'minimal' | 'none';
 export type LengthPref = 'auto' | 'short' | 'medium' | 'long';
 export type Motion = 'none' | 'subtle' | 'dynamic';
