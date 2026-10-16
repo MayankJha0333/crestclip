@@ -135,7 +135,9 @@ async function ytdlp(args: string[], opts: Parameters<typeof run>[2] & { noHeal?
   const key = config.ytdlpProxies.length ? videoKey(args) : '';
   const proxy = key && (config.ytdlpProxyMode === 'always' || viaProxy.has(key)) ? proxyFor(key) : null;
   if (proxy) {
-    const wanted = Math.max(MIB, sizeEstimate.get(key) ?? (args.includes('-J') ? MIB : 10 * MIB));
+    // Long videos only fetch the audio + the clip parts, far less than the full 1080p size — counting the full size
+    // made one long video use up the whole day's budget. 800 MB covers audio + a dozen 1080p parts.
+    const wanted = Math.max(MIB, Math.min(800 * MIB, sizeEstimate.get(key) ?? (args.includes('-J') ? MIB : 10 * MIB)));
     if (wanted > (proxyReserved.get(key) ?? 0)) {
       const reserved = await reserveProxyBytes(key, wanted, Math.max(0, config.ytdlpProxyDailyMb) * MIB);
       if (!reserved.allowed) throw new Error(`The server's daily proxy budget is used up (${Math.round(reserved.usedBytes / MIB)} MB of ${config.ytdlpProxyDailyMb} MB). Try again tomorrow or upload the video file.`);

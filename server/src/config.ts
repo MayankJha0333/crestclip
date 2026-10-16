@@ -196,7 +196,7 @@ export const config = {
   /** Daily shared egress reservation limit for proxy-routed videos. One GiB by default when a proxy is configured. */
   ytdlpProxyDailyMb: num('YTDLP_PROXY_DAILY_MB', 1024),
   /** how many fresh addresses to try per step before giving up */
-  ytdlpProxyRetries: num('YTDLP_PROXY_RETRIES', 2),
+  ytdlpProxyRetries: num('YTDLP_PROXY_RETRIES', 4),
   // Optional Twitch API app (dev.twitch.tv) — enables Twitch channel search + richer VOD/clip data in Explore
   twitchClientId: env('TWITCH_CLIENT_ID'),
   twitchClientSecret: env('TWITCH_CLIENT_SECRET'),

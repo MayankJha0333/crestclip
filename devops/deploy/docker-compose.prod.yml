@@ -34,12 +34,14 @@ x-env: &env
   FFMPEG_PATH: ''
   FFPROBE_PATH: ''
   YTDLP_PATH: ''
-  # YouTube blocks cloud servers, so yt-dlp goes through DataImpulse home-internet addresses when blocked.
-  # No password: this server's IP is whitelisted in DataImpulse (Manage Whitelist IPs). {port} = one sticky
-  # address per video (10000-20000). Set here (not in the secret) so an old value in .env can't override it.
-  YTDLP_PROXY: 'http://gw.dataimpulse.com:{port}'
+  # YouTube blocks cloud servers, so a blocked video goes through a home relay (a phone running an HTTP proxy,
+  # reached over Tailscale). YTDLP_PROXY holds its password, so it lives in /opt/crestclip/.env, not here — a
+  # value set here would override it.
   YTDLP_PROXY_MODE: fallback
-  YTDLP_PROXY_RETRIES: '2'
+  YTDLP_PROXY_RETRIES: '4'
+  # Most a day's proxy traffic may reach (MB). ~150 videos a month = ~5 a day x ~600 MB each (audio + clip parts).
+  # The old default (1024) stopped any long video on its own. It also keeps the home line from being saturated.
+  YTDLP_PROXY_DAILY_MB: '6144'
 
 x-app: &app
   image: ${IMAGE:?IMAGE is not set — the updater (devops/deploy/update.sh) writes it to deploy.env}
